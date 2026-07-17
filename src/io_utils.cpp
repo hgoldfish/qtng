@@ -1,5 +1,3 @@
-using namespace std;
-
 #include "qtng/utils/platform.h"
 
 #include <algorithm>
@@ -41,6 +39,8 @@ using namespace std;
 #include "qtng/coroutine_utils.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.io_utils");
 

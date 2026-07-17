@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <cassert>
 #include <memory>
@@ -10,6 +8,8 @@ using namespace std;
 #include "qtng/private/network_interface_p.h"
 #include "qtng/utils/platform.h"
 #include "qtng/utils/string_utils.h"
+
+using namespace std;
 
 namespace qtng {
 

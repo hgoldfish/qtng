@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -9,6 +7,8 @@ using namespace std;
 #include "kcp_base_p.h"
 #include "qtng/kcp_base.h"
 #include "qtng/utils/string_utils.h"
+
+using namespace std;
 
 namespace qtng {
 

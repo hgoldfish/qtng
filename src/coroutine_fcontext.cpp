@@ -1,6 +1,5 @@
-using namespace std;
-
 #include "qtng/utils/platform.h"
+
 
 #ifdef NG_OS_UNIX
 #  include <sys/mman.h>
@@ -9,6 +8,8 @@ using namespace std;
 #include "qtng/coroutine.h"
 #include "qtng/private/coroutine_p.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.fcontext");
 

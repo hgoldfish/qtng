@@ -1,11 +1,11 @@
-using namespace std;
-
 #include <cstdint>
 #include <memory>
 #include <string>
 
 #include "qtng/coroutine_utils.h"
 #include "qtng/socket_utils.h"
+
+using namespace std;
 
 namespace qtng {
 

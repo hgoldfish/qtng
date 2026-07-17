@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -7,6 +5,7 @@ using namespace std;
 #include <string>
 #include <utility>
 #include <vector>
+
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
 #include <arm_neon.h>
@@ -21,6 +20,8 @@ using namespace std;
 #include "qtng/socket_utils.h"
 #include "qtng/random.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.websocket");
 #define DEBUG_PROTOCOL 1

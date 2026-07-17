@@ -1,12 +1,11 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
 
 #include "qtng/hostaddress.h"
 
-using namespace qtng;
+using namespace std;
 
+using namespace qtng;
 
 TEST_CASE("HostAddress special addresses", "[hostaddress]")
 {

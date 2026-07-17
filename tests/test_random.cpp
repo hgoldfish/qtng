@@ -1,13 +1,12 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 #include <set>
 #include <vector>
 
 #include "qtng/utils/random.h"
 
-using namespace qtng::utils;
+using namespace std;
 
+using namespace qtng::utils;
 
 TEST_CASE("RandomGenerator bounded", "[random]")
 {

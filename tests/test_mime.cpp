@@ -1,11 +1,10 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 
 #include "qtng/utils/mime.h"
 
-using namespace qtng::utils;
+using namespace std;
 
+using namespace qtng::utils;
 
 TEST_CASE("mimeTypeForExtension known types", "[mime]")
 {

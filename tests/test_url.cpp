@@ -1,11 +1,10 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 
 #include "qtng/utils/url.h"
 
-using namespace qtng::utils;
+using namespace std;
 
+using namespace qtng::utils;
 
 TEST_CASE("Url encoded component round-trip", "[url]")
 {

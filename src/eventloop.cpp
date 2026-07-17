@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cstdint>
 #include <memory>
 
@@ -8,6 +6,8 @@ using namespace std;
 #include "qtng/private/eventloop_p.h"
 #include "qtng/locks.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.eventloop");
 

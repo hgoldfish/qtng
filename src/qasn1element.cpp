@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cassert>
 #include <locale>
 #include <map>
@@ -9,6 +7,8 @@ using namespace std;
 #include "qtng/utils/platform.h"
 #include "qtng/private/qasn1element.h"
 #include "qtng/utils/string_utils.h"
+
+using namespace std;
 
 namespace qtng {
 

@@ -1,17 +1,16 @@
-using namespace std;
-
 #include <algorithm>
 #include <cstdio>
 
 #include "joker_client.h"
 #include "joker_config.h"
 
-using namespace qtng;
-using namespace qtng::utils;
-
 #ifdef NG_OS_UNIX
 #include <sys/resource.h>
 #endif
+
+using namespace std;
+using namespace qtng;
+using namespace qtng::utils;
 
 const string usage = "Usage: joker-client [config-file-path]";
 

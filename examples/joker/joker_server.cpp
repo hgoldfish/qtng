@@ -1,8 +1,8 @@
-using namespace std;
-
 #include <cstdio>
 
 #include "joker_server.h"
+
+using namespace std;
 
 using namespace qtng;
 using namespace qtng::utils;

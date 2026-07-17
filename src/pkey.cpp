@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cstring>
 #include <memory>
 #include <string>
@@ -12,6 +10,8 @@ using namespace std;
 #include "qtng/io_utils.h"
 #include "qtng/private/crypto_p.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.pkey");
 

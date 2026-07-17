@@ -1,10 +1,10 @@
-using namespace std;
-
 #include "qtng/httpd.h"
 #include "qtng/http.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/url.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 namespace qtng {
 

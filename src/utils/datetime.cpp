@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -8,6 +6,8 @@ using namespace std;
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/platform.h"
 #include "qtng/utils/string_utils.h"
+
+using namespace std;
 
 namespace qtng {
 namespace utils {

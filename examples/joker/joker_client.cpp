@@ -1,9 +1,9 @@
-using namespace std;
-
 #include <algorithm>
 #include <cstdio>
 
 #include "joker_client.h"
+
+using namespace std;
 
 using namespace qtng;
 using namespace qtng::utils;

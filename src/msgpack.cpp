@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cassert>
 #include <cstdint>
 #include <map>
@@ -11,7 +9,6 @@ using namespace std;
 #include "qtng/utils/platform.h"
 #include "qtng/utils/logging.h"
 
-NG_LOGGER("qtng.msgpack");
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -31,6 +28,9 @@ NG_LOGGER("qtng.msgpack");
 #include <unordered_set>
 #include <vector>
 
+using namespace std;
+
+NG_LOGGER("qtng.msgpack");
 
 #undef CHECK_STREAM_PRECOND
 #ifndef QT_NO_DEBUG

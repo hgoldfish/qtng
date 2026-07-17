@@ -1,5 +1,3 @@
-using namespace std;
-
 #include "qtng/kcp.h"
 #include <algorithm>
 #include <atomic>
@@ -29,6 +27,8 @@ using namespace std;
 #include "qtng/utils/string_utils.h"
 #include <cstring>
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.kcp");
 

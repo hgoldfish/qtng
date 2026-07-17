@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -9,6 +7,7 @@ using namespace std;
 #include <limits>
 #include <string>
 #include <vector>
+
 
 #ifdef NG_OS_WIN
 #  include <winsock2.h>
@@ -25,6 +24,8 @@ using namespace std;
 #include "qtng/private/hostaddress_p.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.hostaddress");
 

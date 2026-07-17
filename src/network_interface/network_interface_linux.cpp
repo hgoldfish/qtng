@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cassert>
 #include <cstring>
 #include <functional>
@@ -22,6 +20,8 @@ using namespace std;
 #include <sys/socket.h>
 #include "qtng/private/network_interface_p.h"
 #include "network_interface_unix_p.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.network_interface")
 
@@ -87,7 +87,6 @@ static NetworkInterface::InterfaceType probeIfType(int socket, struct ifreq *req
     }
     return NetworkInterface::Unknown;
 }
-
 
 namespace {
 

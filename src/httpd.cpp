@@ -1,9 +1,8 @@
-using namespace std;
-
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
+
 
 #ifdef QTNG_HAVE_ZLIB
 #include "qtng/gzip.h"
@@ -16,6 +15,8 @@ using namespace std;
 #include "qtng/md.h"
 #include "qtng/io_utils.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.httpd")
 
@@ -493,8 +494,6 @@ void BaseHttpRequestHandler::logError(HttpStatus status, const string &shortMess
     const string msg = utils::formatMessage("%1 -- %2 %3", {request->peerAddress().toString(), utils::DateTime::currentDateTimeUtc().toString("%Y-%m-%dT%H:%M:%SZ"), utils::formatMessage("%1 %2 %3 %4", {method, path, utils::number(static_cast<int>(status)), shortMessage})});
     printf("%s\n", msg.c_str());
 }
-
-
 
 shared_ptr<FileLike> StaticHttpRequestHandler::serveStaticFiles(const PosixPath &dir, const string &subPath)
 {

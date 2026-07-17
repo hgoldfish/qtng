@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <cstring>
 #include <vector>
@@ -9,6 +7,8 @@ using namespace std;
 #include "qtng/private/socket_p.h"
 #include "qtng/private/network_interface_p.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.socket.win");
 
@@ -138,7 +138,6 @@ static string qt_prettyDebug(const char *data, int len, int maxLength)
 
     return out;
 }
-
 
 #define WS_ERROR_DEBUG(x) verboseWSErrorDebug(x);
 #else

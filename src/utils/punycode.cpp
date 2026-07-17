@@ -1,10 +1,10 @@
-using namespace std;
-
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "qtng/utils/punycode.h"
+
+using namespace std;
 
 namespace qtng {
 namespace utils {

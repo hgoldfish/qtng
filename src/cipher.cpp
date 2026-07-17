@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <string>
 #include <utility>
 
@@ -8,6 +6,8 @@ using namespace std;
 #include "qtng/utils/string_utils.h"
 #include "qtng/random.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.cipher");
 
