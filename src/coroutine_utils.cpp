@@ -116,8 +116,8 @@ bool MarkDoneFunctor::operator()()
 
 DeferCallThread::DeferCallThread(function<void()> makeResult, shared_ptr<Event> done,
                                  shared_ptr<EventLoopCoroutine> eventloop)
-    : makeResult(move(makeResult))
-    , done(move(done))
+    : makeResult(std::move(makeResult))
+    , done(std::move(done))
     , eventloop(eventloop)
 {
 }
@@ -456,11 +456,11 @@ void ThreadPool::WorkThread::call(function<void()> func)
         return;
     }
     ThreadPoolWorkItem item;
-    item.makeResult = move(func);
+    item.makeResult = std::move(func);
     item.eventloop = currentLoop()->get();
     {
         lock_guard<mutex> lock(queueMutex);
-        queue.push_back(move(item));
+        queue.push_back(std::move(item));
     }
     hasWork.notify_all();
     item.done->tryWait();
@@ -486,7 +486,7 @@ void ThreadPool::WorkThread::run()
             if (queue.empty() || exiting.load()) {
                 return;
             }
-            item = move(queue.front());
+            item = std::move(queue.front());
             queue.pop_front();
         }
         if (item.eventloop.expired()) {
@@ -538,7 +538,7 @@ void ThreadPool::call(function<void()> func)
     }
     shared_ptr<atomic<bool>> token = alive;
     try {
-        thread->call(move(func));
+        thread->call(std::move(func));
         if (token->load()) {
             threads.push_back(thread);
         } else {

@@ -227,7 +227,7 @@ template <typename Lambda> struct ProcessNetlinkRequest
 template <typename Lambda>
 void processNetlinkRequest(int sock, struct nlmsghdr *hdr, char *buf, size_t bufsize, Lambda &&l)
 {
-    ProcessNetlinkRequest<Lambda>()(sock, hdr, buf, bufsize, forward<Lambda>(l));
+    ProcessNetlinkRequest<Lambda>()(sock, hdr, buf, bufsize, std::forward<Lambda>(l));
 }
 }  // namespace
 
