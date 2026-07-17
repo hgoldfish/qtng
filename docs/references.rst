@@ -2437,7 +2437,7 @@ There is no specific implementation yet
 ^^^^^^^^^^^^^^^^^^^^^^^
 MessageDigest
 ++++++++++++++
-Provides message digest (hash) functionality, supporting multiple hash algorithms, allows processing data in chunks and generating digests. Supports MD4 and MD5 algorithms, Sha1, Sha224, Sha256, Sha384, Sha512 series of SHA algorithms, as well as Ripemd160 and Whirlpool hash algorithms.
+Provides message digest (hash) functionality, supporting multiple hash algorithms, allows processing data in chunks and generating digests. Supports MD4 and MD5 algorithms, Sha1, Sha224, Sha256, Sha384, Sha512 series of SHA algorithms, as well as Ripemd160 and Whirlpool hash algorithms. Availability of optional algorithms (notably Whirlpool, and sometimes MD4/RIPEMD) depends on the linked OpenSSL/LibreSSL build; LibreSSL 4.0+ no longer provides Whirlpool. If an algorithm is unavailable, construction fails and ``result()`` returns an empty string.
 
 .. method:: MessageDigest(Algoritim algo)
 
