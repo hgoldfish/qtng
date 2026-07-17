@@ -19,6 +19,7 @@
 #include "qtng/coroutine_utils.h"
 #include "qtng/socket_utils.h"
 #include "qtng/random.h"
+#include "qtng/utils/random.h"
 #include "qtng/utils/logging.h"
 
 using namespace std;
@@ -509,6 +510,9 @@ WebSocketConnectionPrivate::~WebSocketConnectionPrivate()
 
 uint32_t WebSocketConnectionPrivate::makeMaskkey()
 {
+    // Same range as qtnetworkng: QRandomGenerator::bounded(1, 0xffffffff).
+    // maskkey == 0 means unmasked in this codebase.
+    return utils::RandomGenerator::global().bounded(1u, 0xffffffffu);
 }
 
 vector<WebSocketFrame> WebSocketConnectionPrivate::fragmentFrame(const PacketToWrite &writingPacket,

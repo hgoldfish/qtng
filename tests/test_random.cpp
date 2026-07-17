@@ -19,6 +19,18 @@ TEST_CASE("RandomGenerator bounded", "[random]")
     REQUIRE(rng.bounded(1) == 0);
 }
 
+TEST_CASE("RandomGenerator bounded range", "[random]")
+{
+    RandomGenerator &rng = RandomGenerator::global();
+    for (int i = 0; i < 100; ++i) {
+        uint32_t value = rng.bounded(1, 10);
+        REQUIRE(value >= 1);
+        REQUIRE(value < 10);
+    }
+    REQUIRE(rng.bounded(5, 5) == 5);
+    REQUIRE(rng.bounded(8, 3) == 8);
+}
+
 TEST_CASE("RandomGenerator produces varied output", "[random]")
 {
     RandomGenerator &rng = RandomGenerator::global();
