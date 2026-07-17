@@ -23,10 +23,15 @@ RandomGenerator &RandomGenerator::global()
 
 uint32_t RandomGenerator::bounded(uint32_t highest)
 {
-    if (highest == 0) {
-        return 0;
+    return bounded(0, highest);
+}
+
+uint32_t RandomGenerator::bounded(uint32_t lowest, uint32_t highest)
+{
+    if (highest <= lowest) {
+        return lowest;
     }
-    uniform_int_distribution<uint32_t> dist(0, highest - 1);
+    uniform_int_distribution<uint32_t> dist(lowest, highest - 1);
     return dist(engine);
 }
 

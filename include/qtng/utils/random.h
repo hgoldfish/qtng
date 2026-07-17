@@ -16,6 +16,8 @@ public:
     static RandomGenerator &global();
 
     std::uint32_t bounded(std::uint32_t highest);
+    // Returns a value in [lowest, highest). If highest <= lowest, returns lowest.
+    std::uint32_t bounded(std::uint32_t lowest, std::uint32_t highest);
     std::uint32_t generate();
     std::uint32_t generate32() { return generate(); }
     std::uint64_t generate64();
