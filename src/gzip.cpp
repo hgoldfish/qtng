@@ -185,7 +185,7 @@ int32_t GzipFile::write(const char *data, int32_t size)
         d->zstream.avail_out = static_cast<uint>(outBuf.size());
         int ret = deflate(&d->zstream, size > 0 ? Z_NO_FLUSH : Z_FINISH);
         if (ret < 0 || ret == Z_NEED_DICT) {
-            if ((ret == Z_NEED_DICT)) {
+            if (ret == Z_NEED_DICT) {
                 ngWarning() << "gzip report need dict?! why this happened?";
             }
             d->hasError = true;

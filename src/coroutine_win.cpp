@@ -186,7 +186,7 @@ BaseCoroutine* createMainCoroutine()
         }
 #else
         mainPrivate->context = ConvertThreadToFiber(nullptr);
-        if ((nullptr== mainPrivate->context)) {
+        if (nullptr == mainPrivate->context) {
             DWORD err = GetLastError();
             if (err == ERROR_ALREADY_FIBER) {
                 mainPrivate->context = GetCurrentFiber();
