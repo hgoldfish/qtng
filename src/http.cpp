@@ -245,7 +245,7 @@ HttpRequest::HttpRequest(const HttpRequest &other)
 HttpRequest::HttpRequest(HttpRequest &&other)
 {
     swap(d, other.d);
-    headers = move(other.headers);
+    headers = std::move(other.headers);
 }
 
 HttpRequest &HttpRequest::operator=(const HttpRequest &other)
@@ -499,7 +499,7 @@ HttpResponse::HttpResponse(const HttpResponse &other)
 HttpResponse::HttpResponse(HttpResponse &&other)
 {
     swap(d, other.d);
-    headers = move(other.headers);
+    headers = std::move(other.headers);
 }
 
 HttpResponse &HttpResponse::operator=(const HttpResponse &other)

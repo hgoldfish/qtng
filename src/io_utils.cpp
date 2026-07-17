@@ -681,7 +681,7 @@ public:
     {
     }
     explicit RawFile(unique_ptr<fstream> streamIn)
-        : stream(move(streamIn))
+        : stream(std::move(streamIn))
 #ifdef NG_OS_UNIX
         , fd(-1)
         , useFd(false)
@@ -853,7 +853,7 @@ shared_ptr<FileLike> RawFile::open(const string &filepath, const string &mode)
     if (!stream->is_open()) {
         return shared_ptr<FileLike>();
     }
-    return make_shared<RawFile>(move(stream));
+    return make_shared<RawFile>(std::move(stream));
 #endif
 }
 
@@ -1045,19 +1045,19 @@ void Pipe::setDebugLevel(int8_t debugLevel)
 
 void Pipe::setReadyReadCallback(function<void()> callback)
 {
-    d->readyReadCallback = move(callback);
+    d->readyReadCallback = std::move(callback);
 }
 
 void Pipe::setBytesWrittenCallback(function<void(int64_t)> callback)
 {
-    d->bytesWrittenCallback = move(callback);
+    d->bytesWrittenCallback = std::move(callback);
 }
 
 class FileToRead : public FileLike
 {
 public:
     explicit FileToRead(shared_ptr<PipePrivate> pp)
-        : pp(move(pp))
+        : pp(std::move(pp))
     {
     }
 
@@ -1089,7 +1089,7 @@ class FileToWrite : public FileLike
 {
 public:
     explicit FileToWrite(shared_ptr<PipePrivate> pp)
-        : pp(move(pp))
+        : pp(std::move(pp))
     {
     }
 
@@ -1127,7 +1127,7 @@ shared_ptr<FileLike> Pipe::fileToWrite(bool)
 struct PosixPathPrivate
 {
     explicit PosixPathPrivate(string pathIn)
-        : path(move(pathIn))
+        : path(std::move(pathIn))
     {
         while (!path.empty() && path.back() == '/') {
             path.pop_back();
@@ -1166,7 +1166,7 @@ PosixPath::PosixPath(const string &path)
 PosixPath::PosixPath(const PosixPath &other) = default;
 
 PosixPath::PosixPath(PosixPath &&other) noexcept
-    : d(move(other.d))
+    : d(std::move(other.d))
 {
 }
 
@@ -1176,7 +1176,7 @@ PosixPath &PosixPath::operator=(const PosixPath &other) = default;
 
 PosixPath &PosixPath::operator=(PosixPath &&other) noexcept
 {
-    d = move(other.d);
+    d = std::move(other.d);
     return *this;
 }
 

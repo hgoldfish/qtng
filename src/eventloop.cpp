@@ -32,7 +32,7 @@ class CoroutineSpawnHelper : public Coroutine
 {
 public:
     explicit CoroutineSpawnHelper(function<void()> f)
-        : f(make_unique<function<void()>>(move(f)))
+        : f(make_unique<function<void()>>(std::move(f)))
     {
     }
     ~CoroutineSpawnHelper() override = default;
@@ -48,7 +48,7 @@ private:
 
 Coroutine *Coroutine::spawn(function<void()> f)
 {
-    Coroutine *c = new CoroutineSpawnHelper(move(f));
+    Coroutine *c = new CoroutineSpawnHelper(std::move(f));
     c->start();
     return c;
 }

@@ -189,7 +189,7 @@ QAsn1Element QAsn1Element::fromVector(const vector<QAsn1Element> &items)
     MsgPackStream stream(&buffer, true);
     for (vector<QAsn1Element>::const_iterator it = items.cbegin(), end = items.cend(); it != end; ++it)
         it->write(stream);
-    seq.mValue = move(buffer);
+    seq.mValue = std::move(buffer);
     return seq;
 }
 

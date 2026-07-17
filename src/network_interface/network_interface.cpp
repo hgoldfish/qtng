@@ -115,7 +115,7 @@ NetworkAddressEntry::NetworkAddressEntry(const NetworkAddressEntry &other)
 }
 
 NetworkAddressEntry::NetworkAddressEntry(NetworkAddressEntry &&other) noexcept
-    : d(move(other.d))
+    : d(std::move(other.d))
 {
 }
 
@@ -127,7 +127,7 @@ NetworkAddressEntry &NetworkAddressEntry::operator=(const NetworkAddressEntry &o
 
 NetworkAddressEntry &NetworkAddressEntry::operator=(NetworkAddressEntry &&other) noexcept
 {
-    d = move(other.d);
+    d = std::move(other.d);
     return *this;
 }
 
