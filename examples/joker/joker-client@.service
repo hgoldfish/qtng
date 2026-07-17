@@ -1,0 +1,16 @@
+[Unit]
+Description=Joker Server for %I
+After=network-online.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nobody
+WorkingDirectory=/var/lib/nobody
+ExecStart=/usr/local/bin/joker-client /etc/joker/%i.conf
+LimitNOFILE=10240
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

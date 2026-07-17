@@ -1,0 +1,13 @@
+[general]
+password = 123456
+timeout = 10
+
+[kcp]
+address = 0.0.0.0
+port = 8000
+mode = normal
+
+[http]
+address = 0.0.0.0
+port = 8000
+root = ./htdocs/
