@@ -84,10 +84,14 @@ inline T ngFromBigEndian(const void *src)
 template<typename T>
 inline void ngToBigEndian(T src, void *dest)
 {
+    static_assert(sizeof(T) <= sizeof(std::uint64_t), "ngToBigEndian supports up to 8-byte types");
     unsigned char *d = static_cast<unsigned char *>(dest);
+    // Promote through uint64_t so the >>= 8 below is well-defined for 1-byte T
+    // (e.g. uint8_t), which would otherwise trigger -Wshift-count-overflow.
+    std::uint64_t value = static_cast<std::uint64_t>(src);
     for (int i = static_cast<int>(sizeof(T)) - 1; i >= 0; --i) {
-        d[i] = static_cast<unsigned char>(src & 0xFF);
-        src >>= 8;
+        d[i] = static_cast<unsigned char>(value & 0xFFu);
+        value >>= 8;
     }
 }
 

@@ -21,6 +21,7 @@
 #include "qtng/socket_utils.h"
 #include "qtng/coroutine_utils.h"
 #include "qtng/random.h"
+#include "qtng/utils/random.h"
 #include "qtng/private/socket_p.h"
 #include "./kcp/ikcp.h"
 #include "qtng/utils/datetime.h"
@@ -585,7 +586,9 @@ string KcpSocketPrivate::makeDataPacket(const char *data, int32_t size)
 
 string KcpSocketPrivate::makeShutdownPacket(uint32_t connectionId)
 {
-    string packet = randomBytes(5 + static_cast<int>(random() % (64 - 5)));
+    // Pad to a random length in [5, 64) so control packets are not fixed-size.
+    const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
+    string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_CLOSE;
     ngToBigEndian<uint32_t>(connectionId, &packet[1]);
     return packet;
@@ -593,7 +596,8 @@ string KcpSocketPrivate::makeShutdownPacket(uint32_t connectionId)
 
 string KcpSocketPrivate::makeKeepalivePacket()
 {
-    string packet = randomBytes(5 + static_cast<int>(random() % (64 - 5)));
+    const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
+    string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_KEEPALIVE;
     ngToBigEndian<uint32_t>(this->connectionId, &packet[1]);
     return packet;
@@ -601,7 +605,8 @@ string KcpSocketPrivate::makeKeepalivePacket()
 
 string KcpSocketPrivate::makeMultiPathPacket(uint32_t connectionId)
 {
-    string packet = randomBytes(5 + static_cast<int>(random() % (64 - 5)));
+    const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
+    string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_CREATE_MULTIPATH;
     ngToBigEndian<uint32_t>(connectionId, &packet[1]);
     return packet;

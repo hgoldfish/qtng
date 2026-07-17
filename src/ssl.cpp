@@ -1074,12 +1074,12 @@ int32_t SslConnection<SocketType>::send(const char *data, int32_t size, bool all
             }
         } else {
             total += result;
-            if ((total > size)) {
+            if (total > size) {
                 ngDebug() << "send too many data.";
                 if (!pumpOutgoing())
                     return -1;
                 return size;
-            } else if ((total == size)) {
+            } else if (total == size) {
                 if (!pumpOutgoing())
                     return -1;
                 return total;
