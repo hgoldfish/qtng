@@ -1,7 +1,7 @@
-using namespace std;
-
 #include "qtng/md.h"
 #include "qtng/private/crypto_p.h"
+
+using namespace std;
 
 namespace qtng {
 
@@ -10,31 +10,50 @@ const EVP_MD *getOpenSSL_MD(MessageDigest::Algorithm algo)
     const EVP_MD *md = nullptr;
     switch (algo) {
     case MessageDigest::Md4:
+#ifndef OPENSSL_NO_MD4
         md = EVP_md4();
+#endif
         break;
     case MessageDigest::Md5:
+#ifndef OPENSSL_NO_MD5
         md = EVP_md5();
+#endif
         break;
     case MessageDigest::Sha1:
+#ifndef OPENSSL_NO_SHA
         md = EVP_sha1();
+#endif
         break;
     case MessageDigest::Sha224:
+#ifndef OPENSSL_NO_SHA256
         md = EVP_sha224();
+#endif
         break;
     case MessageDigest::Sha256:
+#ifndef OPENSSL_NO_SHA256
         md = EVP_sha256();
+#endif
         break;
     case MessageDigest::Sha384:
+#ifndef OPENSSL_NO_SHA512
         md = EVP_sha384();
+#endif
         break;
     case MessageDigest::Sha512:
+#ifndef OPENSSL_NO_SHA512
         md = EVP_sha512();
+#endif
         break;
     case MessageDigest::Ripemd160:
+#ifndef OPENSSL_NO_RIPEMD
         md = EVP_ripemd160();
+#endif
         break;
     case MessageDigest::Whirlpool:
+        // LibreSSL 4.0+ removed Whirlpool; OPENSSL_NO_WHIRLPOOL is always defined there.
+#ifndef OPENSSL_NO_WHIRLPOOL
         md = EVP_whirlpool();
+#endif
         break;
     default:
         NG_UNREACHABLE();

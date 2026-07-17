@@ -2162,7 +2162,7 @@ SimpleHttpsServer : public SslServer<SimpleHttpRequestHandler>
 ^^^^^^^^^^^^^^^^
 MessageDigest
 ++++++++++++++
-提供消息摘要（哈希）功能，支持多种哈希算法，允许分块处理数据并生成摘要。支持MD4和MD5算法，Sha1, Sha224, Sha256, Sha384, Sha512一系列SHA系列算法以及Ripemd160, Whirlpool哈希算法。
+提供消息摘要（哈希）功能，支持多种哈希算法，允许分块处理数据并生成摘要。支持MD4和MD5算法，Sha1, Sha224, Sha256, Sha384, Sha512一系列SHA系列算法以及Ripemd160, Whirlpool哈希算法。可选算法是否可用取决于链接的 OpenSSL/LibreSSL 构建（尤其是 Whirlpool；LibreSSL 4.0+ 已移除 Whirlpool，MD4/RIPEMD 在部分构建中也可能不可用）。若算法不可用，构造会失败，``result()`` 返回空字符串。
 
 .. method:: MessageDigest(Algoritim algo)
     :no-index:
