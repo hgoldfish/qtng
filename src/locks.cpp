@@ -78,7 +78,9 @@ bool SemaphorePrivate::acquire(shared_ptr<SemaphorePrivate> self, int value, uin
         } catch (...) {
             // if we caught an exception, the release() must not touch me.
             // the waiter should be remove.
-            bool found = waiters.erase(remove(waiters.begin(), waiters.end(), BaseCoroutine::current()), waiters.end()) != waiters.end();
+            auto it = remove(waiters.begin(), waiters.end(), BaseCoroutine::current());
+            bool found = it != waiters.end();
+            waiters.erase(it, waiters.end());
             assert(found);
             if (callbackId) {
                 EventLoopCoroutine::get()->cancelCall(callbackId);
@@ -87,7 +89,11 @@ bool SemaphorePrivate::acquire(shared_ptr<SemaphorePrivate> self, int value, uin
             throw;
         }
 
-        bool found = waiters.erase(remove(waiters.begin(), waiters.end(), BaseCoroutine::current()), waiters.end()) != waiters.end();
+        // Still in waiters => timeout wake. Do not use erase()'s return value:
+        // erase(it, end()) always returns end(), so membership would always look false.
+        auto it = remove(waiters.begin(), waiters.end(), BaseCoroutine::current());
+        bool found = it != waiters.end();
+        waiters.erase(it, waiters.end());
         if (found) {  // timeout
             release(self, gotNum);  // release what has been acquired
             return false;
@@ -159,7 +165,8 @@ void SemaphorePrivate::scheduleDelete(shared_ptr<SemaphorePrivate> self)
         notified = 0;
     }
     counter = init_value;
-    EventLoopCoroutine::get()->callLater(0, new SemaphoreNotifyWaitersFunctor(self, true));
+    // acquire() asserts notified != 0 when woken via SemaphoreNotifyWaitersFunctor.
+    notified = EventLoopCoroutine::get()->callLater(0, new SemaphoreNotifyWaitersFunctor(self, true));
 }
 
 Semaphore::Semaphore(int value)
