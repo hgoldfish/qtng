@@ -32,6 +32,3 @@ add_executable(joker-client ${JOKER_CLIENT_SRC})
 target_link_libraries(joker-client PRIVATE qtng)
 set_target_properties(joker-client PROPERTIES LINK_FLAGS_MINSIZERELEASE -s)
 set_target_properties(joker-client PROPERTIES LINK_FLAGS_RELEASE -s)
-
-add_executable(test-socks5-google test_socks5_google.cpp)
-target_link_libraries(test-socks5-google PRIVATE qtng)
