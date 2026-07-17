@@ -36,10 +36,10 @@ void ngThreadEntry(NgThread *self)
 NgThread::~NgThread()
 {
     if (thread.joinable()) {
-        // If the destructor runs on the thread itself (e.g. DeferCallThread does
-        // `delete this` from run()), joining would self-deadlock (EDEADLK); detach
-        // instead and let the OS thread finish on its own. Otherwise join, so we
-        // never destroy a still-running thread from another thread.
+        // Joining the current thread would self-deadlock (EDEADLK); detach
+        // instead. Callers must not destroy a still-running NgThread from another
+        // thread without joining first (DeferCallThread joins on the event loop
+        // before delete).
         if (thread.get_id() == std::this_thread::get_id()) {
             thread.detach();
         } else {
@@ -124,11 +124,30 @@ DeferCallThread::DeferCallThread(function<void()> makeResult, shared_ptr<Event> 
 
 void DeferCallThread::run()
 {
+    // Do not delete this from the worker thread. ngThreadEntry() continues to
+    // touch the NgThread after run() returns (finished flag + callbacks); deleting
+    // here is a use-after-free that corrupts the heap (often detected later in
+    // OpenBSD ASR TLS destructors as "write to free mem"). Match qtnetworkng:
+    // signal completion immediately, then join+delete from the event loop.
+    struct Cleanup
+    {
+        DeferCallThread *self;
+        ~Cleanup()
+        {
+            auto loop = self->eventloop.lock();
+            if (!loop) {
+                return;
+            }
+            DeferCallThread *thread = self;
+            shared_ptr<Event> doneEvent = self->done;
+            loop->callLaterThreadSafe(0, new MarkDoneFunctor(doneEvent));
+            loop->callLaterThreadSafe(0, new LambdaFunctor([thread] {
+                thread->wait();
+                delete thread;
+            }));
+        }
+    } cleanup{this};
     makeResult();
-    if (auto loop = eventloop.lock()) {
-        loop->callLaterThreadSafe(0, new MarkDoneFunctor(done));
-    }
-    delete this;
 }
 
 shared_ptr<Event> spawnInThread(const function<void()> &func)
@@ -458,12 +477,14 @@ void ThreadPool::WorkThread::call(function<void()> func)
     ThreadPoolWorkItem item;
     item.makeResult = std::move(func);
     item.eventloop = currentLoop()->get();
+    // Keep a shared_ptr copy: push_back(std::move(item)) empties item.done.
+    shared_ptr<Event> done = item.done;
     {
         lock_guard<mutex> lock(queueMutex);
         queue.push_back(std::move(item));
     }
     hasWork.notify_all();
-    item.done->tryWait();
+    done->tryWait();
 }
 
 void ThreadPool::WorkThread::kill()
