@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -10,6 +8,8 @@ using namespace std;
 #include "qtng/http_cookie.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/url.h"
+
+using namespace std;
 
 namespace qtng {
 

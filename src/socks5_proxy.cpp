@@ -1,11 +1,11 @@
-using namespace std;
-
 #include <limits>
 
 #include "qtng/socks5_proxy.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/platform.h"
 #include "qtng/hostaddress.h"
+
+using namespace std;
 
 namespace qtng {
 

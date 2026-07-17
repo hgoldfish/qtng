@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <climits>
 #include <cstring>
@@ -16,6 +14,8 @@ using namespace std;
 #include "qtng/private/crypto_p.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.certificate");
 
@@ -839,7 +839,6 @@ bool CertificatePrivate::qtParse()
     MsgPackStream keyStream(elem.value());
     if (!elem.read(keyStream) || elem.type() != QAsn1Element::SequenceType)
         return false;
-
 
     // key algorithm
     if (!elem.read(elem.value()) || elem.type() != QAsn1Element::ObjectIdentifierType)

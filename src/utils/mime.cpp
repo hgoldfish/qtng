@@ -1,7 +1,7 @@
-using namespace std;
-
 #include "qtng/utils/mime.h"
 #include "qtng/utils/string_utils.h"
+
+using namespace std;
 
 namespace qtng {
 namespace utils {

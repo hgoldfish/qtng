@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -11,6 +9,7 @@ using namespace std;
 #include <string>
 #include <vector>
 
+
 #ifndef QTNG_NO_CRYPTO
 #  include "qtng/ssl.h"
 #endif
@@ -20,6 +19,8 @@ using namespace std;
 #include "qtng/utils/string_utils.h"
 #include "qtng/kcp.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.data_channel");
 

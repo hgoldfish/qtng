@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <atomic>
 #include <cassert>
 #include <cstring>
@@ -40,6 +38,8 @@ using namespace std;
 #endif
 
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.socket_unix");
 

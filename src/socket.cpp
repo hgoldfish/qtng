@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -14,6 +12,8 @@ using namespace std;
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.socket");
 

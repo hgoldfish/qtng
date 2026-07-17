@@ -1,11 +1,11 @@
-using namespace std;
-
 #include <cctype>
 #include <iomanip>
 #include <sstream>
 
 #include "qtng/utils/url.h"
 #include "qtng/utils/string_utils.h"
+
+using namespace std;
 
 namespace qtng {
 namespace utils {

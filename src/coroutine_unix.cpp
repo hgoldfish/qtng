@@ -1,7 +1,7 @@
-using namespace std;
-
 #include "qtng/coroutine.h"
 #include "qtng/private/coroutine_p.h"
+
+using namespace std;
 
 namespace qtng {
 
@@ -25,7 +25,6 @@ public:
     bool bad;
     NG_DECLARE_PUBLIC(BaseCoroutine)
 };
-
 
 void run_stub(BaseCoroutinePrivate *coroutine)
 {

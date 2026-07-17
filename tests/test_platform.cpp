@@ -1,9 +1,9 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
 
 #include "qtng/utils/platform.h"
+
+using namespace std;
 
 TEST_CASE("ngFromBigEndian and ngToBigEndian", "[platform]")
 {

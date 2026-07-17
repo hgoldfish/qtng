@@ -1,11 +1,11 @@
-using namespace std;
-
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "qtng/http_proxy.h"
 #include "qtng/utils/string_utils.h"
+
+using namespace std;
 
 namespace qtng {
 

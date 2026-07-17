@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -11,6 +9,8 @@ using namespace std;
 #include "qtng/lmdb.h"
 #include "qtng/utils/logging.h"
 #include "./liblmdb/lmdb.h"
+
+using namespace std;
 
 namespace qtng {
 
@@ -841,7 +841,6 @@ shared_ptr<Transaction> Transaction::fork()
 {
     return shared_ptr<Transaction>(new Transaction(makePrivateToWrite(d_ptr->env)));
 }
-
 
 static TransactionPrivate *makePrivateToRead(MDB_env * const env)
 {

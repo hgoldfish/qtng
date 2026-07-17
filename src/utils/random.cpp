@@ -1,10 +1,10 @@
-using namespace std;
-
 #include <chrono>
 #include <random>
 #include <sstream>
 
 #include "qtng/utils/random.h"
+
+using namespace std;
 
 namespace qtng {
 namespace utils {

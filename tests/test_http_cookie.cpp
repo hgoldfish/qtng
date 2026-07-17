@@ -1,13 +1,12 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 
 #include "qtng/http_cookie.h"
 #include "qtng/utils/datetime.h"
 
+using namespace std;
+
 using namespace qtng;
 using namespace qtng::utils;
-
 
 TEST_CASE("HttpCookie basic properties", "[http_cookie]")
 {

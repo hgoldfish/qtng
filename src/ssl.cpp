@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <array>
 #include <cassert>
 #include <cstring>
@@ -20,6 +18,8 @@ using namespace std;
 #include "qtng/io_utils.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.ssl");
 
@@ -1631,7 +1631,6 @@ int32_t SslSocket::peekRaw(char *data, int32_t size)
     NG_D(SslSocket);
     return d->peekRaw(data, size);
 }
-
 
 int32_t SslSocket::recv(char *data, int32_t size)
 {

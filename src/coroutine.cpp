@@ -1,8 +1,8 @@
-using namespace std;
-
 #include "qtng/coroutine.h"
 #include "qtng/private/coroutine_p.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.coroutine");
 

@@ -1,11 +1,11 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 #include <string>
 #include <variant>
 #include <vector>
 
 #include "qtng/msgpack.h"
+
+using namespace std;
 
 using namespace qtng;
 

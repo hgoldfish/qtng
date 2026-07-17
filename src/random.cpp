@@ -1,5 +1,3 @@
-using namespace std;
-
 #ifndef QTNG_NO_CRYPTO
 #  include "qtng/private/crypto_p.h"
 #  include <openssl/rand.h>
@@ -8,6 +6,8 @@ using namespace std;
 #include "qtng/random.h"
 #include "qtng/utils/random.h"
 #include "qtng/utils/datetime.h"
+
+using namespace std;
 
 namespace qtng {
 

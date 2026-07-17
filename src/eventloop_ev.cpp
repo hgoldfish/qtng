@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -14,6 +12,8 @@ using namespace std;
 #include "ev/ev.h"
 #include "qtng/private/eventloop_p.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.eventloop_ev");
 

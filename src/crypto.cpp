@@ -1,11 +1,11 @@
-using namespace std;
-
 #include <atomic>
 
 #include <openssl/ssl.h>
 #include "qtng/crypto.h"
 #include "qtng/utils/platform.h"
 #include "qtng/private/crypto_p.h"
+
+using namespace std;
 
 namespace qtng {
 

@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -9,6 +7,8 @@ using namespace std;
 #include "qtng/utils/string_utils.h"
 #include "qtng/socket_server.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.socks5server");
 

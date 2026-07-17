@@ -1,11 +1,11 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 #include <iostream>
 #include <sstream>
 #include <streambuf>
 
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 // NG_LOGGER may only be expanded at namespace scope (it emits file-static state
 // and inline no-arg overloads). It is placed here in the anonymous namespace so

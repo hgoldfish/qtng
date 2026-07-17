@@ -1,9 +1,9 @@
-using namespace std;
-
 #include <memory>
 
 #include "qtng/socket_server.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.socket_server");
 

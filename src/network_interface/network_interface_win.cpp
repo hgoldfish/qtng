@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <functional>
 #include <memory>
 #include <string>
@@ -9,12 +7,13 @@ using namespace std;
 #include "qtng/private/hostaddress_p.h"
 #include "qtng/private/network_interface_p.h"
 
+using namespace std;
+
 // In case these aren't defined
 #define IF_TYPE_IEEE80216_WMAN  237
 #define IF_TYPE_IEEE802154      259
 
 namespace qtng {
-
 
 typedef DWORD (WINAPI *PtrGetAdaptersInfo)(PIP_ADAPTER_INFO, PULONG);
 static PtrGetAdaptersInfo ptrGetAdaptersInfo = 0;

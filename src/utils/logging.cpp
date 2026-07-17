@@ -1,9 +1,9 @@
-using namespace std;
-
 #include <cstdlib>
 #include <iostream>
 
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 namespace qtng {
 namespace utils {

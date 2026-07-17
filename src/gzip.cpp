@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -8,9 +6,12 @@ using namespace std;
 
 #include "qtng/gzip.h"
 #include "qtng/utils/logging.h"
+
 extern "C" {
 #include <zlib.h>
 }
+
+using namespace std;
 
 NG_LOGGER("qtng.gzip");
 

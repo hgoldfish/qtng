@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
@@ -9,6 +7,7 @@ using namespace std;
 #include <mutex>
 #include <thread>
 #include <unordered_set>
+
 
 #ifdef NG_OS_WIN
 #include <windows.h>
@@ -20,6 +19,8 @@ using namespace std;
 #include "qtng/private/coroutine_utils_p.h"
 #include "qtng/eventloop.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.coroutine");
 

@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <thread>
@@ -7,8 +5,9 @@ using namespace std;
 
 #include "qtng/utils/thread_local.h"
 
-using namespace qtng::utils;
+using namespace std;
 
+using namespace qtng::utils;
 
 TEST_CASE("ThreadLocal starts empty", "[thread_local]")
 {

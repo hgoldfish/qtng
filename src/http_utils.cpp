@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cstring>
 #include <memory>
 #include <string>
@@ -9,6 +7,8 @@ using namespace std;
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.http")
 

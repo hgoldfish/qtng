@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <cassert>
 #include <condition_variable>
 #include <map>
@@ -13,6 +11,8 @@ using namespace std;
 #include "qtng/utils/platform.h"
 #include "qtng/private/eventloop_p.h"
 #include "qtng/utils/logging.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.eventloop_win");
 
@@ -47,7 +47,6 @@ WinWatcher *takeWatcher(map<int, WinWatcher *> &watchers, int watcherId)
 }  // namespace
 
 class WinEventLoopCoroutinePrivate;
-
 
 struct WinWatcher
 {

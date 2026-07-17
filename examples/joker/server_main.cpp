@@ -1,18 +1,16 @@
-using namespace std;
-
 #include <algorithm>
 #include <cstdio>
 
 #include "joker_config.h"
 #include "joker_server.h"
 
-using namespace qtng;
-using namespace qtng::utils;
-
 #ifdef NG_OS_UNIX
 #include <sys/resource.h>
 #endif
 
+using namespace std;
+using namespace qtng;
+using namespace qtng::utils;
 
 enum ParserResult
 {

@@ -1,5 +1,3 @@
-using namespace std;
-
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -9,6 +7,8 @@ using namespace std;
 
 #include "qtng/utils/punycode.h"
 #include "qtng/utils/string_utils.h"
+
+using namespace std;
 
 namespace qtng {
 namespace utils {

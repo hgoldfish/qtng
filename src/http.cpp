@@ -1,5 +1,3 @@
-using namespace std;
-
 #ifdef QTNG_HAVE_ZLIB
 #include "qtng/gzip.h"
 #endif
@@ -18,6 +16,8 @@ using namespace std;
 #include "qtng/msgpack.h"
 #include "qtng/utils/logging.h"
 #include "qtng/private/http_p.h"
+
+using namespace std;
 
 NG_LOGGER("qtng.http");
 
