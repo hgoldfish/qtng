@@ -3,7 +3,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "qtng/qtng.h"
 
@@ -14,7 +13,6 @@ public:
 public:
     std::shared_ptr<qtng::Cipher> templateCipher;
     float timeout;
-    int maxWeight;
 
     qtng::HostAddress localSocks5Address;
     std::uint16_t localSocks5Port;
@@ -35,8 +33,6 @@ public:
 public:
     JokerServerConnection();
     bool connect(std::shared_ptr<qtng::Cipher> templateCipher);
-    void increaseWeight(int maxWeight);
-    void decreaseWeight();
     bool isAlive() const { return channel && !channel->isBroken(); }
     void close() { channel.reset(); }
 public:
@@ -48,23 +44,16 @@ public:
     qtng::KcpSocket::Mode mode;
 public:
     std::shared_ptr<qtng::SocketChannel> channel;
-    int weight;
 private:
     bool connectKcp(std::shared_ptr<qtng::Cipher> templateCipher);
     bool connectHttp(std::shared_ptr<qtng::Cipher> templateCipher);
 };
 
 
-struct MakeChannelResult
-{
-    std::shared_ptr<qtng::VirtualChannel> forward;
-    std::shared_ptr<JokerServerConnection> selectedServer;
-};
-
 class JokerClient
 {
 public:
-    JokerClient(const JokerClientConfigure &configure, const std::vector<std::shared_ptr<JokerServerConnection>> &servers);
+    JokerClient(const JokerClientConfigure &configure, std::shared_ptr<JokerServerConnection> server);
     ~JokerClient();
 public:
     bool start();
@@ -75,14 +64,13 @@ private:
     void exchangeSync(std::shared_ptr<qtng::SocketLike> request, std::shared_ptr<qtng::SocketLike> forward);
     void logRequest(const std::string &type, const std::string &hostName, std::uint16_t port,
                     const qtng::HostAddress &realIP, bool success);
-    MakeChannelResult makeChannel();
-    MakeChannelResult _makeChannel();
+    std::shared_ptr<qtng::VirtualChannel> makeChannel();
+    std::shared_ptr<qtng::VirtualChannel> _makeChannel();
 private:
     qtng::CoroutineGroup *operations;
     qtng::Lock lock;
     JokerClientConfigure configure;
-    std::vector<std::shared_ptr<JokerServerConnection>> servers;
-    std::shared_ptr<JokerServerConnection> lastSelectedServer;
+    std::shared_ptr<JokerServerConnection> server;
     std::shared_ptr<class MakeChannelCoroutine> makeChannelCoroutine;
     std::shared_ptr<qtng::HttpSession> session;
     friend class JokerSocks5ProxyRequestHandler;

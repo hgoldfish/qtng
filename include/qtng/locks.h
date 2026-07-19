@@ -3,9 +3,11 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstdint>
 #include <deque>
-#include <functional>
 #include <memory>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "qtng/utils/shared_mutex_compat.h"
@@ -301,9 +303,13 @@ public:
     ~SizedQueueType();
     void setCapacity(std::uint32_t capacity);
     bool put(const T &e);
+    bool put(T &&e);
     bool putForcedly(const T &e);
+    bool putForcedly(T &&e);
     bool returns(const T &e);
+    bool returns(T &&e);
     bool returnsForcely(const T &e);
+    bool returnsForcely(T &&e);
 
     template<typename U = EventType>
     typename std::enable_if<std::is_same<U, ThreadEvent>::value, T>::type get()
@@ -319,7 +325,7 @@ public:
             lock.unlock();
         } while (true);
 
-        T e = queue.front();
+        T e = std::move(queue.front());
         queue.pop_front();
         currentSize -= SizeGetter::sizeOf(e);
         if (queue.empty()) {
@@ -340,7 +346,7 @@ public:
         }
         lock.lockForWrite();
 
-        T e = queue.front();
+        T e = std::move(queue.front());
         queue.pop_front();
         currentSize -= SizeGetter::sizeOf(e);
         if (queue.empty()) {
@@ -531,11 +537,44 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(const T &e
 }
 
 template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
+bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(T &&e)
+{
+    if (!notFull.tryWait()) {
+        return false;
+    }
+    lock.lockForWrite();
+    const std::uint32_t elementSize = SizeGetter::sizeOf(e);
+    queue.push_back(std::move(e));
+    currentSize += elementSize;
+    notEmpty.set();
+    if (currentSize >= mCapacity) {
+        notFull.clear();
+    }
+    lock.unlock();
+    return true;
+}
+
+template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
 bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::putForcedly(const T &e)
 {
     lock.lockForWrite();
     queue.push_back(e);
     currentSize += SizeGetter::sizeOf(e);
+    notEmpty.set();
+    if (currentSize >= mCapacity) {
+        notFull.clear();
+    }
+    lock.unlock();
+    return true;
+}
+
+template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
+bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::putForcedly(T &&e)
+{
+    lock.lockForWrite();
+    const std::uint32_t elementSize = SizeGetter::sizeOf(e);
+    queue.push_back(std::move(e));
+    currentSize += elementSize;
     notEmpty.set();
     if (currentSize >= mCapacity) {
         notFull.clear();
@@ -562,11 +601,44 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::returns(const 
 }
 
 template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
+bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::returns(T &&e)
+{
+    if (!notFull.tryWait()) {
+        return false;
+    }
+    lock.lockForWrite();
+    const std::uint32_t elementSize = SizeGetter::sizeOf(e);
+    queue.push_front(std::move(e));
+    currentSize += elementSize;
+    notEmpty.set();
+    if (currentSize >= mCapacity) {
+        notFull.clear();
+    }
+    lock.unlock();
+    return true;
+}
+
+template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
 bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::returnsForcely(const T &e)
 {
     lock.lockForWrite();
     queue.push_front(e);
     currentSize += SizeGetter::sizeOf(e);
+    notEmpty.set();
+    if (currentSize >= mCapacity) {
+        notFull.clear();
+    }
+    lock.unlock();
+    return true;
+}
+
+template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
+bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::returnsForcely(T &&e)
+{
+    lock.lockForWrite();
+    const std::uint32_t elementSize = SizeGetter::sizeOf(e);
+    queue.push_front(std::move(e));
+    currentSize += elementSize;
     notEmpty.set();
     if (currentSize >= mCapacity) {
         notFull.clear();
@@ -585,7 +657,7 @@ SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::peek()
         lock.unlock();
         return T();
     }
-    const T t = queue.front();
+    T t = queue.front();
     lock.unlock();
     return t;
 }
@@ -600,7 +672,7 @@ SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::peek()
         lock.unlock();
         return T();
     }
-    const T &t = queue.front();
+    T t = queue.front();
     lock.unlock();
     return t;
 }

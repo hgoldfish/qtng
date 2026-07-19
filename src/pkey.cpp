@@ -48,14 +48,12 @@ PublicKeyPrivate::PublicKeyPrivate()
     : context(nullptr)
     , hasPrivate(false)
 {
-    initOpenSSL();
 }
 
 PublicKeyPrivate::PublicKeyPrivate(PublicKeyPrivate *other)
     : context(nullptr)
     , hasPrivate(false)
 {
-    initOpenSSL();
     if (other->context && other->pkey) {
         context = EVP_PKEY_CTX_dup(other->context);
         pkey = other->pkey;
@@ -68,7 +66,6 @@ PublicKeyPrivate::~PublicKeyPrivate()
     if (context) {
         EVP_PKEY_CTX_free(context);
     }
-    cleanupOpenSSL();
 }
 
 PublicKey::Algorithm PublicKeyPrivate::algorithm() const

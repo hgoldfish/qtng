@@ -1679,7 +1679,7 @@ Encapsulates the creation, binding, and listening of TCP servers. Implements bus
 
 2.4.6 KcpServer
 ++++++++++++++++
-Detailed explanation of the KcpServer and KcpServerV2 classes, their methods, and implementation differences.
+KCP protocol server implementation.
 
 .. method:: KcpServer(const HostAddress &serverAddress, std::uint16_t serverPort)
 
@@ -1692,7 +1692,6 @@ Detailed explanation of the KcpServer and KcpServerV2 classes, their methods, an
 .. method:: virtual void processRequest(std::shared_ptr<SocketLike> request)
 
     After accepting a client connection, instantiate the user-defined RequestHandler and pass the KCP session (encapsulated as a SocketLike object) to the business logic processing module.
-
 
 3. Http Client
 --------------
@@ -2433,6 +2432,9 @@ SimpleHttpsServer : public SslServer<SimpleHttpRequestHandler>
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 There is no specific implementation yet
 
+5. Cryptography
+---------------
+
 5.1 Password Hash Table
 ^^^^^^^^^^^^^^^^^^^^^^^
 MessageDigest
@@ -3003,6 +3005,24 @@ Encryption cipher suite used in SSL/TLS connections. Contains detailed informati
 
     Determines cipher equality via name and protocol comparison, not all attributes.
 
+5.6 Noise Protocol
+^^^^^^^^^^^^^^^^^^
+
+Minimal Noise Protocol Framework support for ``Noise_XX_25519_ChaChaPoly_SHA256`` and
+``NoisePSK_XX_25519_ChaChaPoly_SHA256`` (header ``qtng/noise.h``).
+
+* ``NoiseKey`` — X25519 keypair generation, private-key import, and DH.
+* ``NoiseCipherState`` — ChaCha20-Poly1305 AEAD with a Noise-style 12-byte nonce
+  (4 zero bytes + 8-byte little-endian counter), plus a 64-bit sliding-window
+  anti-replay helper (``acceptIncomingNonce``). The overload
+  ``decryptWithAd(ad, ciphertext, nonce)`` is intended for multipath / reordered
+  delivery: the nonce window is committed only after AEAD authentication succeeds,
+  so forged or handshake-retransmit blobs cannot permanently poison the window.
+* ``NoiseHandshakeState`` — XX / PSK_XX handshake state machine; call ``split()``
+  after completion to obtain transport send/recv cipher states.
+* ``noiseHkdf`` / ``noiseHmacSha256`` — HKDF-SHA256 and HMAC-SHA256 helpers for
+  cookie MACs and similar uses.
+
 6. Configuration and Building
 ------------------------------
 6.1 Event loop (libev on Unix)
@@ -3034,9 +3054,11 @@ On Unix systems, qtng uses libev as its event loop backend. CMake selects the be
 CMake chooses the TLS/crypto library as follows:
 
 * If a ``libressl/`` subdirectory with its own ``CMakeLists.txt`` is present, bundled LibreSSL is built and linked automatically.
-* Otherwise, system OpenSSL is required (``find_package(OpenSSL REQUIRED)``).
+* Otherwise, system OpenSSL 1.1.0 or newer is required (``find_package(OpenSSL 1.1.0 REQUIRED)``).
 
 Install development packages on Debian/Ubuntu with ``libssl-dev`` when not using bundled LibreSSL.
+
+OpenSSL and LibreSSL initialize themselves on first use and remain available for the process lifetime. Applications do not need to call qtng-specific initialization or cleanup functions.
 
 
 6.3 Installing qtng
@@ -3345,3 +3367,192 @@ POSIX-compliant path handling for cross-platform file operations.
 .. method:: std::pair<std::string, std::string> safeJoinPath(const std::string &parentDir, const std::string &subPath)
 
     Normalize path joining with security checks.
+
+8. Advanced Programming
+-----------------------
+
+This chapter covers advanced features that are only needed in specialized scenarios.
+
+8.1 MultiStream
+^^^^^^^^^^^^^^^
+
+``MultiStream`` is a flat multiplexor over one ``SocketLike`` connection. Unlike ``VirtualChannel``, it has only two layers:
+
+* ``MultiStreamMaster`` — owns the physical connection and only manages slaves (no application payload I/O).
+* ``MultiStreamSlave`` — one logical stream; supports packet I/O and ``asSocketLike()`` byte-stream adaptation.
+
+Both endpoints hold a ``MultiStreamMaster``. Either side may call ``makeSlave()``; the peer accepts with ``takeSlave()``. Slaves cannot create further nested streams.
+
+**Head-of-line (HOL) blocking.** MultiStream guarantees *logical* multiplexing (independent stream
+numbers, per-stream queues, credit flow control, and priority scheduling). It does **not** guarantee
+independent latency across streams: all slaves share one ordered byte stream on the underlying
+connection. A lost or delayed TCP segment stalls every stream. Prefer:
+
+* **TCP** (or TLS over TCP) when you need reliable, ordered delivery and can tolerate HOL — bulk
+  transfer, control channels, or a small number of concurrent streams.
+* **KCP** (or another loss-tolerant transport) when many streams share one path and one stream's
+  loss/latency must not freeze the others — interactive or latency-sensitive workloads.
+
+Outbound scheduling: the command stream has highest priority; slave data uses weighted round-robin
+with per-slave ``priority()`` (larger value = higher priority; default ``0``; WRR weight =
+``priority + 1``). Packets are coalesced into one write until higher-priority work is drained or the
+batch reaches ``maxPacketSize()``.
+
+Wire frame format (big-endian)::
+
+    [payloadSize: u32][streamNumber: u32][payload]
+
+Stream ``0`` is the command channel. Application data uses stream numbers allocated from dual spaces
+(``MultiStreamPositivePole`` starts at ``1`` and increments; ``MultiStreamNegativePole`` starts at ``0xffffffff`` and decrements) so both sides can create slaves concurrently without collisions.
+
+Command payloads on stream ``0`` (big-endian)::
+
+    MAKE_SLAVE / SLAVE_MADE  [u8=1|2][u32 streamNumber][u32 initialWindow]
+    RESET                   [u8=3][u32 streamNumber][u32 resetCode]
+    WINDOW_UPDATE           [u8=4][u32 streamNumber][u32 creditIncrement]
+    KEEPALIVE               [u8=6]
+
+``resetCode`` values: ``0`` normal close, ``1`` abort, ``2`` protocol error, ``3`` refused.
+Flow control is credit-based: ``MAKE``/``SLAVE_MADE`` advertise the peer's initial receive window;
+``recvPacket()`` returns credit via ``WINDOW_UPDATE``.
+
+.. code-block:: c++
+    :caption: Bidirectional slave creation and packet exchange
+
+    MultiStreamMaster local(clientSocket, MultiStreamPositivePole);
+    MultiStreamMaster remote(serverSocket, MultiStreamNegativePole);
+
+    // Peer accepts incoming slaves.
+    std::shared_ptr<Coroutine> acceptor = Coroutine::spawn([&] {
+        std::shared_ptr<MultiStreamSlave> incoming = remote.takeSlave();
+        std::string packet = incoming->recvPacket();
+        incoming->sendPacket("pong");
+    });
+
+    std::shared_ptr<MultiStreamSlave> outgoing = local.makeSlave();
+    outgoing->sendPacket("ping");
+    std::string reply = outgoing->recvPacket();  // "pong"
+
+    // Byte-stream style:
+    std::shared_ptr<SocketLike> stream = asSocketLike(outgoing);
+    stream->sendall("hello");
+
+.. class:: MultiStreamMaster
+
+    Constructed with a connected ``Socket``, ``SslSocket``, ``KcpSocket``, or ``SocketLike`` plus a ``MultiStreamPole``.
+
+.. method:: std::shared_ptr<MultiStreamSlave> MultiStreamMaster::makeSlave()
+
+    Create a local slave immediately and notify the peer. Does not wait for the peer's acknowledgement.
+
+.. method:: std::shared_ptr<MultiStreamSlave> MultiStreamMaster::takeSlave()
+
+    Block until the peer creates a slave, then return it. Returns null if the master is broken.
+
+.. method:: std::shared_ptr<MultiStreamSlave> MultiStreamMaster::takeSlave(std::uint32_t streamNumber)
+
+    Non-blocking: return a pending slave with the given stream number, or null if it is not pending yet.
+
+.. method:: void MultiStreamMaster::setMaxPacketSize(std::uint32_t size)
+.. method:: void MultiStreamMaster::setPayloadSizeHint(std::uint32_t payloadSizeHint)
+.. method:: void MultiStreamMaster::setSlaveReceivingCapacity(std::uint32_t bytes)
+.. method:: std::uint32_t MultiStreamMaster::slaveReceivingCapacity() const
+.. method:: void MultiStreamMaster::setSlaveSendingCapacity(std::uint32_t bytes)
+.. method:: std::uint32_t MultiStreamMaster::slaveSendingCapacity() const
+.. method:: void MultiStreamMaster::setKeepaliveTimeout(float timeout)
+.. method:: void MultiStreamMaster::setKeepaliveInterval(float keepaliveInterval)
+
+    Configure framing, default receive/send queue capacity for new slaves, and keepalive.
+    Keepalive runs only on the master connection. Capacity changes apply to slaves created afterward.
+    ``slaveReceivingCapacity`` is also the initial receive window advertised in ``MAKE``/``SLAVE_MADE``.
+
+.. method:: void MultiStreamMaster::abort()
+
+    Shut down the master. All slaves become broken and pending ``takeSlave()`` waiters wake with null.
+
+.. class:: MultiStreamSlave
+
+    Obtained only via ``makeSlave()`` / ``takeSlave()``. Has no ``makeSlave`` API (two-layer limit).
+
+.. method:: bool MultiStreamSlave::sendPacket(const std::string &packet, bool waitSent = true)
+.. method:: bool MultiStreamSlave::sendPacket(std::string &&packet, bool waitSent = true)
+.. method:: bool MultiStreamSlave::sendPacketAsync(const std::string &packet)
+.. method:: bool MultiStreamSlave::sendPacketAsync(std::string &&packet)
+.. method:: std::string MultiStreamSlave::recvPacket()
+
+    Packet-oriented I/O with message boundaries preserved. Empty ``recvPacket()`` means the slave is closed or broken.
+    Passing a temporary string or using ``std::move(packet)`` selects the rvalue overload and transfers the
+    payload into the send queue without copying its byte buffer. Lvalue overloads keep their original
+    non-consuming behavior. Queue transfers and receive returns also use move semantics internally.
+    ``sendPacket`` waits for send credit; ``sendPacketAsync`` fails immediately when credit is insufficient.
+    ``recvPacket`` returns credit to the peer via ``WINDOW_UPDATE``.
+
+.. method:: void MultiStreamSlave::setReceivingCapacity(std::uint32_t bytes)
+.. method:: std::uint32_t MultiStreamSlave::receivingCapacity() const
+
+    Per-slave receive queue capacity. Increasing capacity sends a ``WINDOW_UPDATE`` for the delta.
+
+.. method:: void MultiStreamSlave::setPriority(int priority)
+.. method:: int MultiStreamSlave::priority() const
+
+    Scheduling priority for weighted round-robin. Larger values are preferred; default is ``0``.
+    Effective WRR weight is ``priority + 1`` (negative priorities still get weight ``1``).
+
+.. method:: MultiStreamResetCode MultiStreamSlave::resetCode() const
+
+    When ``error()`` is ``RemotePeerClosedError``, the peer's RESET reason:
+    ``MultiStreamResetNormalClose``, ``MultiStreamResetAbort``, ``MultiStreamResetProtocolError``,
+    or ``MultiStreamResetRefused``. Use this for retry policy (e.g. retry on abort, do not retry on
+    normal close).
+
+.. method:: void MultiStreamSlave::close()
+
+    Graceful close. Enter the ``closing`` state (new sends are rejected), flush packets already
+    queued for this slave, then send ``RESET(NormalClose)`` so the peer receives all prior data first.
+    ``close()`` blocks until the RESET has been written to the connection.
+    Locally queued receive packets are discarded and blocked ``recvPacket()`` calls wake with an
+    empty result. Pending sends are not discarded: they remain ahead of RESET in wire order.
+
+.. method:: void MultiStreamSlave::abort()
+
+    Hard teardown. Drop this slave's pending send packets and clear the receive queue, then send
+    ``RESET(Abort)`` immediately. Use this when discarding the stream without waiting for in-flight data.
+
+.. method:: bool MultiStreamSlave::isClosing() const
+
+    Return true while a graceful ``close()`` is flushing outbound packets and has not finished yet.
+
+.. function:: std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<MultiStreamSlave> slave)
+
+    Adapt a slave to ``SocketLike`` byte-stream semantics (auto-split on ``maxPayloadSize`` for send; concatenate packets for recv).
+
+8.2 KcpStream and DatagramLink
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``KcpStream`` (private header ``qtng/private/kcp.h``) is the transport-agnostic KCP session core:
+connection management, listen/connect/accept, keepalive, send-queue watermarks and Mode.
+It is a reliable byte stream only — no ``SocketLike`` adapter, and no bind / multicast / DNS /
+raw UDP I/O.
+
+I/O goes through a minimal ``DatagramLink`` (``recvfrom`` / ``sendto`` / ``close`` / ``abort``).
+Peers are identified by ``DatagramPath``, an opaque path key (``key()``) not tied to IP/port, so the
+same session logic can run over UDP, ICMP, or other custom datagram transports.
+
+For ordinary UDP use ``KcpSocket`` (``udp.h``). Internally it maps ``HostAddress``+port to
+``DatagramPath`` via private ``UdpDatagramLink`` / ``UdpDatagramPath``.
+``asSocketLike`` applies to ``KcpSocket`` only, not ``KcpStream``.
+
+The wire protocol is compatible with the historical ``KcpSocket`` framing
+(DATA / MULTIPATH / CLOSE / KEEPALIVE).
+
+``HeaderMode`` controls how ``sessionId`` appears on the wire:
+
+* ``Builtin`` (default): ``[1-byte type]`` plus a 4-byte big-endian ``sessionId``
+  overlaid on the ikcp conversation id (bytes 1–4). Client ``doReceive`` learns
+  the id from the peer.
+* ``External``: ``[1-byte type][payload]`` only — no ``sessionId`` overlay.
+  Use ``sessionId()`` / ``setSessionId()`` when the outer framing (e.g. Noise)
+  carries the id. Listening ``doAccept`` always uses Builtin framing.
+
+``wrapKcpStreamAsSocket`` is public: wrap any ``KcpStream`` (any ``DatagramLink``)
+as a ``KcpSocket``. UDP-only methods fail or no-op when the link is not UDP.

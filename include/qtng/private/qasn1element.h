@@ -1,15 +1,9 @@
 #ifndef QTNG_ASN1ELEMENT_P_H
 #define QTNG_ASN1ELEMENT_P_H
 
-#include <algorithm>
 #include <cstdint>
-#include <deque>
-#include <functional>
 #include <map>
-#include <memory>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 //

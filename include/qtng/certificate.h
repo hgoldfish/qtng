@@ -1,10 +1,11 @@
 #ifndef QTNG_CERTIFICATE_H
 #define QTNG_CERTIFICATE_H
 
-#include <algorithm>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "qtng/md.h"

@@ -1,9 +1,9 @@
 #ifndef QTNG_PKEY_H
 #define QTNG_PKEY_H
 
-#include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "qtng/cipher.h"
 #include "qtng/utils/platform.h"

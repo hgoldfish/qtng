@@ -1415,7 +1415,7 @@ DNS相关
 
 2.4.6 KcpServer
 ++++++++++++++++
-详细解释KcpServer 和 KcpServerV2这两个类和各个方法，并详细解释这两个类的实现区别
+KCP 协议的服务器实现。
 
 .. method:: KcpServer(const HostAddress &serverAddress, std::uint16_t serverPort)
     :no-index:
@@ -1429,23 +1429,6 @@ DNS相关
 .. method:: virtual void processRequest(std::shared_ptr<SocketLike> request)
 
     接收客户端连接后，实例化用户定义的RequestHandler，将KCP会话封装为SocketLike对象传递给业务逻辑处理模块。
-    
-2.4.7 KcpServerV2
-++++++++++++++++++
-更底层的KCP协议服务器实现，直接操作KCP会话实例。
-
-.. method:: KcpServerV2(const HostAddress &serverAddress, std::uint16_t serverPort)
-    :no-index:
-
-    初始化KCP服务器，绑定到指定地址和端口，直接调用 ``BaseStreamServer`` 的构造函数，若未指定地址则默认绑定所有网络接口(HostAddress::Any)
-
-.. method:: virtual std::shared_ptr<SocketLike> serverCreate()
-
-    调用createKcpServer()函数创建服务器。与KcpServer不同，此处可能直接管理UDP套接字，并通过回调函数处理KCP会话的输入/输出
-
-.. method:: virtual void processRequest(std::shared_ptr<SocketLike> request)
-
-    与KcpServer类似，但可能直接操作KCP会话对象（如调用kcp_input()解析数据包、kcp_recv()提取应用层数据）
 
 3. HTTP 客户端
 --------------
@@ -2748,6 +2731,20 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 
     通过名称和协议判断两个加密套件是否相同，而非比较所有属性。
 
+5.6 Noise 协议
+^^^^^^^^^^^^^^
+
+提供 Noise Protocol Framework 的精简实现，支持 ``Noise_XX_25519_ChaChaPoly_SHA256`` 与
+``NoisePSK_XX_25519_ChaChaPoly_SHA256``（头文件 ``qtng/noise.h``）。
+
+* ``NoiseKey`` — X25519 密钥对生成、从私钥导入、DH。
+* ``NoiseCipherState`` — ChaCha20-Poly1305 AEAD，Noise 风格 12 字节 nonce
+  （4 字节零 + 8 字节小端计数器），以及 64 位滑动窗口防重放（``acceptIncomingNonce``）。
+  重载 ``decryptWithAd(ad, ciphertext, nonce)`` 面向多路径乱序投递：仅在 AEAD
+  认证成功后才提交 nonce 窗口，避免伪造包或握手重传永久污染防重放状态。
+* ``NoiseHandshakeState`` — XX / PSK_XX 握手状态机；完成后调用 ``split()`` 得到传输层收发密码状态。
+* ``noiseHkdf`` / ``noiseHmacSha256`` — HKDF-SHA256 与 HMAC-SHA256 辅助函数（可用于 cookie MAC 等）。
+
 6. 配置和构建
 --------------
 6.1 事件循环（Unix 上使用 libev）
@@ -2779,9 +2776,11 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 CMake 按以下顺序选择 TLS/加密库：
 
 * 若存在带 ``CMakeLists.txt`` 的 ``libressl/`` 子目录，自动构建并链接内置 LibreSSL。
-* 否则需要系统 OpenSSL（``find_package(OpenSSL REQUIRED)``）。
+* 否则需要 OpenSSL 1.1.0 或更高版本（``find_package(OpenSSL 1.1.0 REQUIRED)``）。
 
 未使用内置 LibreSSL 时，Debian/Ubuntu 可安装 ``libssl-dev`` 开发包。
+
+OpenSSL 和 LibreSSL 会在首次使用时自行初始化，并在整个进程生命周期内保持可用。应用程序无需调用 qtng 专用的初始化或清理函数。
 
 
 6.3 安装 qtng
@@ -2840,8 +2839,8 @@ CMake 按以下顺序选择 TLS/加密库：
             return 0;
         }
 
-7.其他辅助类
-------------
+7. 其他辅助类
+-------------
 7.1 IO操作
 ^^^^^^^^^^
 该模块提供了一套跨平台的文件和内存IO抽象，结合协程友好的非阻塞操作，以及安全的POSIX路径管理工具，适用于需要高效、安全文件处理的网络应用。
@@ -3081,3 +3080,178 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 .. method:: std::pair<std::string, std::string> safeJoinPath(const std::string &parentDir, const std::string &subPath)
 
     规范化子路径（处理 ``.`` 和 ``..`` 等符号），安全地将子路径附加到父目录后
+
+8. 高级编程
+-----------
+
+本章介绍通常只在特殊场景中使用的高级功能。
+
+8.1 MultiStream
+^^^^^^^^^^^^^^^
+
+``MultiStream`` 是基于一条 ``SocketLike`` 连接的扁平多路复用工具。与 ``VirtualChannel`` 不同，它只有两层：
+
+* ``MultiStreamMaster`` — 持有物理连接，只负责管理 Slave（不收发业务数据）。
+* ``MultiStreamSlave`` — 一条逻辑流；支持包接口，并可通过 ``asSocketLike()`` 适配为字节流。
+
+连接两端各自持有一个 ``MultiStreamMaster``。任意一端都可调用 ``makeSlave()``，对端用 ``takeSlave()`` 接受。Slave 不能再创建下层流。
+
+**队头阻塞（HOL）。** MultiStream 保证的是*逻辑*多路（独立流号、每流队列、信贷流控与优先级调度），
+**不**保证跨流独立时延：所有 Slave 共享底层连接上的有序字节流。TCP 丢包或延迟会卡住所有流。选型建议：
+
+* **TCP**（或 TLS over TCP）：需要可靠有序、能容忍 HOL 时——批量传输、控制面、或并发流较少的场景。
+* **KCP**（或其他抗丢包传输）：多流共享同一路径，且某一流的丢包/延迟不能拖死其它流时——交互或时延敏感场景。
+
+发送调度：命令流优先级最高；业务流按加权轮询，``priority()`` 越大优先级越高（默认 ``0``，WRR 权重为
+``priority + 1``）。同一批会尽量合并多个包，直到更高优先级工作排空，或批量大小达到 ``maxPacketSize()``。
+
+线上帧格式（大端）::
+
+    [payloadSize: u32][streamNumber: u32][payload]
+
+流号 ``0`` 为命令通道。业务数据使用双编号空间分配流号
+（``MultiStreamPositivePole`` 从 ``1`` 递增；``MultiStreamNegativePole`` 从 ``0xffffffff`` 递减），因此双方可同时创建 Slave 而不会冲突。
+
+流 ``0`` 上的命令 payload（大端）::
+
+    MAKE_SLAVE / SLAVE_MADE  [u8=1|2][u32 streamNumber][u32 initialWindow]
+    RESET                   [u8=3][u32 streamNumber][u32 resetCode]
+    WINDOW_UPDATE           [u8=4][u32 streamNumber][u32 creditIncrement]
+    KEEPALIVE               [u8=6]
+
+``resetCode``：``0`` 正常关闭，``1`` abort，``2`` 协议错误，``3`` 拒绝。
+流控为信贷模型：``MAKE``/``SLAVE_MADE`` 通告初始接收窗口；``recvPacket()`` 通过 ``WINDOW_UPDATE`` 归还信贷。
+
+.. code-block:: c++
+    :caption: 双向创建 Slave 并交换数据包
+
+    MultiStreamMaster local(clientSocket, MultiStreamPositivePole);
+    MultiStreamMaster remote(serverSocket, MultiStreamNegativePole);
+
+    // 对端接受传入的 Slave。
+    std::shared_ptr<Coroutine> acceptor = Coroutine::spawn([&] {
+        std::shared_ptr<MultiStreamSlave> incoming = remote.takeSlave();
+        std::string packet = incoming->recvPacket();
+        incoming->sendPacket("pong");
+    });
+
+    std::shared_ptr<MultiStreamSlave> outgoing = local.makeSlave();
+    outgoing->sendPacket("ping");
+    std::string reply = outgoing->recvPacket();  // "pong"
+
+    // 字节流用法：
+    std::shared_ptr<SocketLike> stream = asSocketLike(outgoing);
+    stream->sendall("hello");
+
+.. class:: MultiStreamMaster
+
+    使用已连接的 ``Socket``、``SslSocket``、``KcpSocket`` 或 ``SocketLike``，并指定 ``MultiStreamPole`` 构造。
+
+.. method:: std::shared_ptr<MultiStreamSlave> MultiStreamMaster::makeSlave()
+
+    立即在本地创建 Slave 并通知对端。不等待对端确认。
+
+.. method:: std::shared_ptr<MultiStreamSlave> MultiStreamMaster::takeSlave()
+
+    阻塞直到对端创建 Slave 后返回。若 Master 已断开则返回空指针。
+
+.. method:: std::shared_ptr<MultiStreamSlave> MultiStreamMaster::takeSlave(std::uint32_t streamNumber)
+
+    非阻塞：返回指定流号的 pending Slave；若不在 pending 队列中则返回空指针。
+
+.. method:: void MultiStreamMaster::setMaxPacketSize(std::uint32_t size)
+.. method:: void MultiStreamMaster::setPayloadSizeHint(std::uint32_t payloadSizeHint)
+.. method:: void MultiStreamMaster::setSlaveReceivingCapacity(std::uint32_t bytes)
+.. method:: std::uint32_t MultiStreamMaster::slaveReceivingCapacity() const
+.. method:: void MultiStreamMaster::setSlaveSendingCapacity(std::uint32_t bytes)
+.. method:: std::uint32_t MultiStreamMaster::slaveSendingCapacity() const
+.. method:: void MultiStreamMaster::setKeepaliveTimeout(float timeout)
+.. method:: void MultiStreamMaster::setKeepaliveInterval(float keepaliveInterval)
+
+    配置分帧、新建 Slave 的默认收发队列容量，以及保活参数。保活仅在 Master 连接上运行。
+    容量变更只影响之后新建的 Slave。``slaveReceivingCapacity`` 同时作为 ``MAKE``/``SLAVE_MADE`` 通告的初始窗口。
+
+.. method:: void MultiStreamMaster::abort()
+
+    关闭 Master。所有 Slave 变为 broken，正在等待的 ``takeSlave()`` 会以空指针唤醒。
+
+.. class:: MultiStreamSlave
+
+    只能通过 ``makeSlave()`` / ``takeSlave()`` 获得。没有 ``makeSlave`` API（强制两层结构）。
+
+.. method:: bool MultiStreamSlave::sendPacket(const std::string &packet, bool waitSent = true)
+.. method:: bool MultiStreamSlave::sendPacket(std::string &&packet, bool waitSent = true)
+.. method:: bool MultiStreamSlave::sendPacketAsync(const std::string &packet)
+.. method:: bool MultiStreamSlave::sendPacketAsync(std::string &&packet)
+.. method:: std::string MultiStreamSlave::recvPacket()
+
+    保留消息边界的包接口。``recvPacket()`` 返回空字符串表示 Slave 已关闭或出错。
+    传入临时字符串或使用 ``std::move(packet)`` 会选择右值重载，将 payload 的缓冲区直接转移到发送队列，
+    避免复制字节内容。左值重载维持原有的不消费调用方数据语义；队列内部传递和接收返回同样使用移动语义。
+    ``sendPacket`` 会等待发送信贷；``sendPacketAsync`` 在信贷不足时立即失败。
+    ``recvPacket`` 通过对端 ``WINDOW_UPDATE`` 归还信贷。
+
+.. method:: void MultiStreamSlave::setReceivingCapacity(std::uint32_t bytes)
+.. method:: std::uint32_t MultiStreamSlave::receivingCapacity() const
+
+    单条 Slave 的接收队列容量。增大容量时会发送 ``WINDOW_UPDATE`` 通告增量。
+
+.. method:: void MultiStreamSlave::setPriority(int priority)
+.. method:: int MultiStreamSlave::priority() const
+
+    加权轮询的调度优先级。数值越大越优先；默认 ``0``。有效 WRR 权重为 ``priority + 1``
+    （负优先级仍至少为权重 ``1``）。
+
+.. method:: MultiStreamResetCode MultiStreamSlave::resetCode() const
+
+    当 ``error()`` 为 ``RemotePeerClosedError`` 时，表示对端 RESET 原因：
+    ``MultiStreamResetNormalClose``、``MultiStreamResetAbort``、``MultiStreamResetProtocolError``、
+    ``MultiStreamResetRefused``。可用于上层重试策略（例如 abort 可重试，正常关闭不重试）。
+
+.. method:: void MultiStreamSlave::close()
+
+    优雅关闭。进入 ``closing`` 状态（拒绝新的发送），先排空本 Slave 已入队的发送数据，再发送 ``RESET(NormalClose)``，
+    保证对端先收完数据再看到关闭。``close()`` 会阻塞直到 RESET 写入底层连接。
+    本地接收队列会被清空，阻塞中的 ``recvPacket()`` 会以空结果唤醒；待发送数据不会被丢弃，
+    在线路顺序中仍位于 RESET 之前。
+
+.. method:: void MultiStreamSlave::abort()
+
+    快速拆除。丢弃本 Slave 待发送数据并清空接收队列，然后立即发送 ``RESET(Abort)``。
+    适用于不需要等待在途数据、直接丢弃该流的场景。
+
+.. method:: bool MultiStreamSlave::isClosing() const
+
+    若正在执行优雅 ``close()``（发送队列尚未排空）则返回 true。
+
+.. function:: std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<MultiStreamSlave> slave)
+
+    将 Slave 适配为 ``SocketLike`` 字节流（发送按 ``maxPayloadSize`` 自动分包；接收将多个包拼接）。
+
+8.2 KcpStream 与 DatagramLink
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``KcpStream``（私有头 ``qtng/private/kcp.h``）是传输无关的 KCP 会话核心：连接管理、
+listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠字节流，不实现 ``SocketLike``，
+也不暴露 bind / 组播 / DNS / 原始 UDP 收发。
+
+底层通过精简的 ``DatagramLink``（``recvfrom`` / ``sendto`` / ``close`` / ``abort``）收发报文；
+对端身份用 ``DatagramPath`` 表示——它只是不透明路径键（``key()``），与 IP/端口无关，因此同一套
+会话逻辑可以跑在 UDP、ICMP 或其它自定义报文通道上。
+
+日常 UDP 场景请使用公开的 ``KcpSocket``（``udp.h``）。``KcpSocket`` 内部用私有
+``UdpDatagramLink`` / ``UdpDatagramPath`` 把 ``HostAddress``+端口映射为 ``DatagramPath``。
+``asSocketLike`` 仅针对 ``KcpSocket``，不适用于 ``KcpStream``。
+
+线协议与历史 ``KcpSocket`` 实现兼容（帧类型 DATA / MULTIPATH / CLOSE / KEEPALIVE）。
+
+``HeaderMode`` 控制 ``sessionId`` 在线路上的位置：
+
+* ``Builtin``（默认）：``[1 字节 type]``，并在 ikcp conversation id（字节 1–4）上叠加
+  4 字节大端 ``sessionId``。客户端 ``doReceive`` 从对端学习该 id。
+* ``External``：仅 ``[1 字节 type][payload]``，不叠加 ``sessionId``。
+  若外层成帧（如 Noise）携带 id，请用 ``sessionId()`` / ``setSessionId()``。
+  监听端 ``doAccept`` 始终使用 Builtin 成帧。
+
+``wrapKcpStreamAsSocket`` 为公开 API：可将任意 ``DatagramLink`` 上的 ``KcpStream``
+包装为 ``KcpSocket``；底层非 UDP 时，仅 UDP 相关方法会失败或空操作。

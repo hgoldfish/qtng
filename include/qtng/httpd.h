@@ -1,5 +1,11 @@
 #ifndef QTNG_HTTPD_H
 #define QTNG_HTTPD_H
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "qtng/socket_server.h"
 #include "qtng/http_utils.h"
 

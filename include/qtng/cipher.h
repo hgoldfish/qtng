@@ -1,16 +1,8 @@
 #ifndef QTNG_CIPHER_H
 #define QTNG_CIPHER_H
 
-#include <algorithm>
-#include <cstdint>
-#include <deque>
-#include <functional>
-#include <map>
-#include <memory>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
+#include <utility>
 
 #include "qtng/md.h"
 #include "qtng/utils/platform.h"

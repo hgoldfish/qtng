@@ -233,7 +233,6 @@ CipherPrivate::CipherPrivate(Cipher::Algorithm algo, Cipher::Mode mode, Cipher::
     , inited(false)
     , padding(true)
 {
-    initOpenSSL();
     cipher = getOpenSSL_CIPHER(algo, mode);
     if (!cipher) {
         hasError = true;
@@ -254,7 +253,6 @@ CipherPrivate::~CipherPrivate()
     if (context) {
         EVP_CIPHER_CTX_free(context);
     }
-    cleanupOpenSSL();
 }
 
 bool CipherPrivate::init()

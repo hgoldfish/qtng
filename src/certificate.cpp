@@ -895,13 +895,11 @@ bool CertificatePrivate::qtParse()
 Certificate::Certificate()
     : d(new CertificatePrivate)
 {
-    initOpenSSL();
 }
 
 Certificate::Certificate(const Certificate &other)
     : d(other.d)
 {
-    initOpenSSL();
 }
 
 Certificate::Certificate(Certificate &&other)
@@ -912,7 +910,6 @@ Certificate::Certificate(Certificate &&other)
 
 Certificate::~Certificate()
 {
-    cleanupOpenSSL();
 }
 
 Certificate &Certificate::operator=(const Certificate &other)

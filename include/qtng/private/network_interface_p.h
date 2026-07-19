@@ -1,15 +1,9 @@
 #ifndef QTNG_NETWORK_INTERFACE_P_H
 #define QTNG_NETWORK_INTERFACE_P_H
 
-#include <algorithm>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "qtng/network_interface.h"

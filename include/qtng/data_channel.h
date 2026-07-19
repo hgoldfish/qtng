@@ -1,16 +1,9 @@
 #ifndef QTNG_DATA_CHANNEL_H
 #define QTNG_DATA_CHANNEL_H
 
-#include <algorithm>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include "qtng/socket.h"
 #include "qtng/socket_utils.h"
@@ -69,7 +62,9 @@ public:
 
     bool isBroken() const;
     bool sendPacket(const std::string &packet, bool waitSent = true);
+    bool sendPacket(std::string &&packet, bool waitSent = true);
     bool sendPacketAsync(const std::string &packet);
+    bool sendPacketAsync(std::string &&packet);
     std::string recvPacket();
     void abort();
     std::shared_ptr<VirtualChannel> makeChannel();

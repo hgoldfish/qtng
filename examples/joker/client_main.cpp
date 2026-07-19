@@ -23,7 +23,7 @@ enum ParserResult
 };
 
 static ParserResult parseArguments(const string &configFilePath, JokerClientConfigure *configure,
-                                   vector<shared_ptr<JokerServerConnection>> *servers, string *errorMessage)
+                                   shared_ptr<JokerServerConnection> *server, string *errorMessage)
 {
     if (configFilePath == "-h") {
         *errorMessage = usage;
@@ -37,15 +37,9 @@ static ParserResult parseArguments(const string &configFilePath, JokerClientConf
     PosixPath configPath(configFilePath);
     if (!configPath.isReadable()) {
         if (isHostAddress(configFilePath)) {
-            shared_ptr<JokerServerConnection> kcpServer(new JokerServerConnection());
-            kcpServer->remoteAddress = configFilePath;
-            kcpServer->name = "kcp";
-            servers->push_back(kcpServer);
-            shared_ptr<JokerServerConnection> httpServer(new JokerServerConnection());
-            httpServer->type = JokerServerConnection::Http;
-            httpServer->remoteAddress = configFilePath;
-            httpServer->name = "http";
-            servers->push_back(httpServer);
+            *server = make_shared<JokerServerConnection>();
+            (*server)->remoteAddress = configFilePath;
+            (*server)->name = "kcp";
             return Success;
         }
         *errorMessage = "configure file `" + configFilePath + "` is not readable.";
@@ -76,21 +70,6 @@ static ParserResult parseArguments(const string &configFilePath, JokerClientConf
             *errorMessage = "timeout `" + timeoutStr + "` is invalid number.";
             return Failed;
         }
-    }
-
-    const string maxWeightStr = settings.value("general", "maxweight");
-    if (!maxWeightStr.empty()) {
-        bool ok = false;
-        int weight = parseInt(maxWeightStr, &ok);
-        if (!ok) {
-            *errorMessage = "max weight `" + maxWeightStr + "` is invalid number.";
-            return Failed;
-        }
-        if (weight < 1) {
-            *errorMessage = "the max weight should ge greater than 1.";
-            return Failed;
-        }
-        configure->maxWeight = weight;
     }
 
     const string localSocks5AddressStr = settings.value("local/socks5", "address");
@@ -129,81 +108,53 @@ static ParserResult parseArguments(const string &configFilePath, JokerClientConf
         }
     }
 
-    for (const string &childGroup : settings.childGroups("remote")) {
-        const string section = "remote/" + childGroup;
-        shared_ptr<JokerServerConnection> server(new JokerServerConnection());
-        server->name = childGroup;
-
-        const string addressStr = settings.value(section, "address");
-        if (addressStr.empty()) {
-            continue;
-        }
-        server->remoteAddress = addressStr;
-
-        const string typeStr = toLower(settings.value(section, "type"));
-        if (typeStr.empty()) {
-            *errorMessage = "remote `" + childGroup + "` has an no type. choices are `kcp` and `http`.";
-            return Failed;
-        }
-        if (typeStr == "http") {
-            server->type = JokerServerConnection::Http;
-        } else if (typeStr == "kcp") {
-            server->type = JokerServerConnection::Kcp;
-        } else {
-            *errorMessage = "remote `" + childGroup + "` has an unknown type `" + typeStr + "`.";
-            return Failed;
-        }
-
-        const string portStr = settings.value(section, "port");
-        if (!portStr.empty()) {
-            if (!parseUInt16(portStr, &server->remotePort)) {
-                *errorMessage = "the port `" + portStr + "` of remote `" + childGroup + "` is invalid number.";
-                return Failed;
-            }
-        }
-
-        const string mtuStr = settings.value(section, "mtu");
-        if (!mtuStr.empty()) {
-            if (!parseUInt16(mtuStr, &server->mtu)) {
-                *errorMessage = "the MTU `" + mtuStr + "` of remote `" + childGroup + "` is invalid number.";
-                return Failed;
-            }
-        }
-
-        const string weightStr = settings.value(section, "weight");
-        if (!weightStr.empty()) {
-            bool ok = false;
-            int weight = parseInt(weightStr, &ok);
-            if (!ok) {
-                *errorMessage = "the weight `" + weightStr + "` of remote `" + childGroup + "` is invalid number.";
-                return Failed;
-            }
-            if (weight < 1) {
-                *errorMessage = "the weight of remote `" + childGroup + "` should ge greater than 1.";
-                return Failed;
-            }
-            if (weight > configure->maxWeight) {
-                *errorMessage = "the weight of remote `" + childGroup + "` should not greater than "
-                                + number(configure->maxWeight) + ".";
-                return Failed;
-            }
-            server->weight = weight;
-        }
-
-        if (server->type == JokerServerConnection::Kcp) {
-            const string modeStr = settings.value(section, "mode");
-            if (!parseKcpMode(modeStr, &server->mode, errorMessage)) {
-                *errorMessage = "the kcp mode `" + modeStr + "` of remote `" + childGroup + "` is unknown.";
-                return Failed;
-            }
-        }
-
-        servers->push_back(server);
+    const string addressStr = settings.value("remote", "address");
+    if (addressStr.empty()) {
+        *errorMessage = "remote address must be specified.";
+        return Failed;
     }
 
-    if (servers->empty()) {
-        *errorMessage = "either remote http or remote kcp address must be specified.";
+    *server = make_shared<JokerServerConnection>();
+    (*server)->remoteAddress = addressStr;
+
+    const string typeStr = toLower(settings.value("remote", "type"));
+    if (typeStr.empty()) {
+        *errorMessage = "remote has no type. choices are `kcp` and `http`.";
         return Failed;
+    }
+    if (typeStr == "http") {
+        (*server)->type = JokerServerConnection::Http;
+        (*server)->name = "http";
+    } else if (typeStr == "kcp") {
+        (*server)->type = JokerServerConnection::Kcp;
+        (*server)->name = "kcp";
+    } else {
+        *errorMessage = "remote has an unknown type `" + typeStr + "`.";
+        return Failed;
+    }
+
+    const string portStr = settings.value("remote", "port");
+    if (!portStr.empty()) {
+        if (!parseUInt16(portStr, &(*server)->remotePort)) {
+            *errorMessage = "the remote port `" + portStr + "` is invalid number.";
+            return Failed;
+        }
+    }
+
+    const string mtuStr = settings.value("remote", "mtu");
+    if (!mtuStr.empty()) {
+        if (!parseUInt16(mtuStr, &(*server)->mtu)) {
+            *errorMessage = "the remote MTU `" + mtuStr + "` is invalid number.";
+            return Failed;
+        }
+    }
+
+    if ((*server)->type == JokerServerConnection::Kcp) {
+        const string modeStr = settings.value("remote", "mode");
+        if (!parseKcpMode(modeStr, &(*server)->mode, errorMessage)) {
+            *errorMessage = "the remote kcp mode `" + modeStr + "` is unknown.";
+            return Failed;
+        }
     }
 
     return Success;
@@ -212,12 +163,12 @@ static ParserResult parseArguments(const string &configFilePath, JokerClientConf
 int main(int argc, char **argv)
 {
     JokerClientConfigure configure;
-    vector<shared_ptr<JokerServerConnection>> servers;
+    shared_ptr<JokerServerConnection> server;
     string errorMessage;
 
     if (argc > 1) {
         const string configFilePath = argv[1];
-        const ParserResult result = parseArguments(configFilePath, &configure, &servers, &errorMessage);
+        const ParserResult result = parseArguments(configFilePath, &configure, &server, &errorMessage);
         if (result == Help || result == Version) {
             printf("%s\n", errorMessage.c_str());
             return 0;
@@ -244,7 +195,7 @@ int main(int argc, char **argv)
     }
 #endif
 
-    JokerClient client(configure, servers);
+    JokerClient client(configure, server);
     if (!client.start()) {
         errorMessage = formatMessage("can not start server. there may be some application use the local port: %1:%2 or %3:%4",
                                      {configure.localSocks5Address.toString(),

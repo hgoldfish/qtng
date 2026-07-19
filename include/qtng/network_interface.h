@@ -3,13 +3,10 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <map>
 #include <memory>
+#include <ostream>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "qtng/hostaddress.h"
@@ -129,7 +126,6 @@ private:
 }  // namespace qtng
 
 #ifndef NG_NO_DEBUG_STREAM
-#include <ostream>
 std::ostream &operator<<(std::ostream &debug, const qtng::NetworkAddressEntry &entry);
 std::ostream &operator<<(std::ostream &debug, const qtng::NetworkInterface &networkInterface);
 #endif

@@ -1,22 +1,17 @@
-#ifndef QTNG_KCP_H
-#define QTNG_KCP_H
+#ifndef QTNG_UDP_H
+#define QTNG_UDP_H
 
-#include <algorithm>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
+#include "qtng/network_interface.h"
 #include "qtng/socket.h"
 #include "qtng/utils/platform.h"
 
 namespace qtng {
 
+class KcpStream;
 class KcpSocketPrivate;
 class KcpSocket
 {
@@ -107,13 +102,16 @@ public:
     // if backlog == 0, do not bind and listen.
     static KcpSocket *createServer(const HostAddress &host, std::uint16_t port, int backlog = 50);
 private:
-    // for create SlaveKcpSocket.
-    KcpSocket(KcpSocketPrivate *d, const HostAddress &addr, const std::uint16_t port, KcpSocket::Mode mode);
-    friend class SlaveKcpSocketPrivate;
+    explicit KcpSocket(std::shared_ptr<KcpStream> stream);
+    friend KcpSocket *wrapKcpStreamAsSocket(std::shared_ptr<KcpStream> stream);
 private:
     KcpSocketPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(KcpSocket)
 };
+
+// Wrap an existing KcpStream (any DatagramLink) as a KcpSocket. UDP-only helpers
+// are no-ops / fail when the underlying link is not UdpDatagramLink.
+KcpSocket *wrapKcpStreamAsSocket(std::shared_ptr<KcpStream> stream);
 
 std::shared_ptr<class SocketLike> asSocketLike(std::shared_ptr<KcpSocket> s);
 
@@ -125,4 +123,4 @@ inline std::shared_ptr<class SocketLike> asSocketLike(KcpSocket *s)
 std::shared_ptr<KcpSocket> convertSocketLikeToKcpSocket(std::shared_ptr<class SocketLike> socket);
 
 }  // namespace qtng
-#endif
+#endif  // QTNG_UDP_H

@@ -15,7 +15,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libressl/CMakeLists.txt")
     set(QTNG_SSL_LIBRARIES crypto ssl)
 else()
     message(STATUS "libressl/ not found, using system OpenSSL")
-    find_package(OpenSSL REQUIRED)
+    find_package(OpenSSL 1.1.0 REQUIRED)
     set(QTNG_SSL_INCLUDE ${OPENSSL_INCLUDE_DIR})
     set(QTNG_SSL_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
 endif()
@@ -48,6 +48,7 @@ set(QTNG_SRC
     src/socks5_proxy.cpp
     src/msgpack.cpp
     src/data_channel.cpp
+    src/multi_stream.cpp
     src/hostaddress.cpp
     src/gzip.cpp
     src/socket_server.cpp
@@ -55,9 +56,8 @@ set(QTNG_SRC
     src/httpd2.cpp
     src/socks5_server.cpp
     src/websocket.cpp
+    src/udp.cpp
     src/kcp.cpp
-    src/kcp_base_p.h
-    src/kcp_base.cpp
     src/kcp/ikcp.c
     src/kcp/ikcp.h
     src/network_interface/network_interface.cpp
@@ -83,8 +83,8 @@ set(QTNG_PUBLIC_INCLUDE
     include/qtng/qtng.h
     include/qtng/msgpack.h
     include/qtng/data_channel.h
-    include/qtng/kcp.h
-    include/qtng/kcp_base.h
+    include/qtng/multi_stream.h
+    include/qtng/udp.h
     include/qtng/hostaddress.h
     include/qtng/network_interface.h
     include/qtng/gzip.h
@@ -96,6 +96,7 @@ set(QTNG_PRIVATE_INCLUDE
     include/qtng/private/coroutine_p.h
     include/qtng/private/coroutine_utils_p.h
     include/qtng/private/socket_p.h
+    include/qtng/private/kcp.h
     include/qtng/private/http_p.h
     include/qtng/private/hostaddress_p.h
     include/qtng/private/network_interface_p.h
@@ -103,13 +104,13 @@ set(QTNG_PRIVATE_INCLUDE
 
 set(QTNG_CRYPTO_SRC
     src/ssl.cpp
-    src/crypto.cpp
     src/random.cpp
     src/md.cpp
     src/pkey.cpp
     src/cipher.cpp
     src/certificate.cpp
     src/qasn1element.cpp
+    src/noise.cpp
 )
 
 set(QTNG_CRYPTO_INCLUDE
@@ -122,6 +123,7 @@ set(QTNG_CRYPTO_INCLUDE
     include/qtng/cipher.h
     include/qtng/pkey.h
     include/qtng/certificate.h
+    include/qtng/noise.h
 )
 
 set(QTNG_CRYPTO_PRIVATE_INCLUDE
