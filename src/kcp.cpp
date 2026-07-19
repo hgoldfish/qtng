@@ -1,4 +1,5 @@
-#include "qtng/kcp.h"
+#include "qtng/private/kcp.h"
+#include "qtng/socket_utils.h"
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -31,7 +32,7 @@
 
 using namespace std;
 
-NG_LOGGER("qtng.kcp");
+NG_LOGGER("qtng.kcp_stream");
 
 namespace qtng {
 
@@ -40,61 +41,66 @@ const char PACKET_TYPE_CREATE_MULTIPATH = 0x02;
 const char PACKET_TYPE_CLOSE = 0X03;
 const char PACKET_TYPE_KEEPALIVE = 0x04;
 
+
+DatagramPath::DatagramPath()
+{
+}
+
+DatagramPath::DatagramPath(const string &key)
+    : m_key(key)
+{
+}
+
+string DatagramPath::key() const { return m_key; }
+
+bool DatagramPath::isNull() const
+{
+    return m_key.empty();
+}
+
+bool DatagramPath::operator==(const DatagramPath &other) const { return m_key == other.m_key; }
+bool DatagramPath::operator<(const DatagramPath &other) const { return m_key < other.m_key; }
+
+DatagramLink::~DatagramLink() {}
+Socket::SocketError DatagramLink::error() const { return Socket::NoError; }
+string DatagramLink::errorString() const { return string(); }
+
 //#define DEBUG_PROTOCOL 1
 
-class SlaveKcpSocketPrivate;
-class KcpSocketPrivate
+class SlaveKcpStreamPrivate;
+class KcpStreamPrivate
 {
 public:
-    KcpSocketPrivate(KcpSocket *q);
-    virtual ~KcpSocketPrivate();
+    KcpStreamPrivate(KcpStream *q);
+    virtual ~KcpStreamPrivate();
 public:
     virtual Socket::SocketError getError() const = 0;
     virtual string getErrorString() const = 0;
     virtual bool isValid() const = 0;
-    virtual HostAddress localAddress() const = 0;
-    virtual uint16_t localPort() const = 0;
-    HostAddress peerAddress() const;
-    string peerName() const;
-    uint16_t peerPort() const;
-    Socket::SocketType type() const;
-    virtual HostAddress::NetworkLayerProtocol protocol() const = 0;
 public:
-    virtual KcpSocket *accept() = 0;
-    virtual KcpSocket *accept(const HostAddress &addr, uint16_t port) = 0;
-    virtual KcpSocket *accept(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) = 0;
-    virtual bool bind(const HostAddress &address, uint16_t port, Socket::BindMode mode) = 0;
-    virtual bool bind(uint16_t port, Socket::BindMode mode) = 0;
-    virtual bool connect(const HostAddress &addr, uint16_t port) = 0;
-    virtual bool connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) = 0;
+    virtual KcpStream *accept() = 0;
+    virtual KcpStream *accept(const DatagramPath &remote) = 0;
+    virtual bool connect(const DatagramPath &remote) = 0;
     virtual bool close(bool force) = 0;
     virtual bool listen(int backlog) = 0;
-    virtual bool setOption(Socket::SocketOption option, int value) = 0;
-    virtual int option(Socket::SocketOption option) const = 0;
-    virtual bool joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface) = 0;
-    virtual bool leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface) = 0;
-    virtual NetworkInterface multicastInterface() const = 0;
-    virtual bool setMulticastInterface(const NetworkInterface &iface) = 0;
 public:
-    void setMode(KcpSocket::Mode mode);
+    void setMode(KcpStream::Mode mode);
     int32_t send(const char *data, int32_t size, bool all);
     int32_t recv(char *data, int32_t size, bool all);
     int32_t peek(char *data, int32_t size);
-    virtual int32_t peekRaw(char *data, int32_t size) = 0;
     bool handleDatagram(const char *buf, uint32_t len);
     void updateKcp();
     void updateStatus();
     void doUpdate();
     virtual int32_t rawSend(const char *data, int32_t size) = 0;
-    virtual int32_t udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port) = 0;
 
     string makeDataPacket(const char *data, int32_t size);
-    string makeShutdownPacket(uint32_t connectionId);
+    string makeShutdownPacket(uint32_t sessionId);
     string makeKeepalivePacket();
-    string makeMultiPathPacket(uint32_t connectionId);
+    string makeMultiPathPacket(uint32_t sessionId);
 public:
-    KcpSocket * const q_ptr;
-    NG_DECLARE_PUBLIC(KcpSocket)
+    KcpStream * const q_ptr;
+    NG_DECLARE_PUBLIC(KcpStream)
 public:
     CoroutineGroup *operations;
     string errorString;
@@ -114,123 +120,84 @@ public:
     uint64_t tearDownTime;
     ikcpcb *kcp;
     uint32_t waterLine;
-    uint32_t connectionId;
+    uint32_t sessionId;
 
-    HostAddress remoteAddress;
-    uint16_t remotePort;
+    DatagramPath remotePath;
 
-    KcpSocket::Mode mode;
+    KcpStream::Mode mode;
+    KcpStream::HeaderMode headerMode;
 };
 
-static inline string concat(const HostAddress &addr, uint16_t port)
-{
-    return addr.toString() + ":" + utils::number(port);
-}
 
-class MasterKcpSocketPrivate : public KcpSocketPrivate
+class MasterKcpStreamPrivate : public KcpStreamPrivate
 {
 public:
-    MasterKcpSocketPrivate(HostAddress::NetworkLayerProtocol protocol, KcpSocket *q);
-    MasterKcpSocketPrivate(intptr_t socketDescriptor, KcpSocket *q);
-    MasterKcpSocketPrivate(shared_ptr<Socket> rawSocket, KcpSocket *q);
-    virtual ~MasterKcpSocketPrivate() override;
+    explicit MasterKcpStreamPrivate(shared_ptr<DatagramLink> link, KcpStream *q);
+    virtual ~MasterKcpStreamPrivate() override;
 public:
     virtual Socket::SocketError getError() const override;
     virtual string getErrorString() const override;
     virtual bool isValid() const override;
-    virtual HostAddress localAddress() const override;
-    virtual uint16_t localPort() const override;
-    virtual HostAddress::NetworkLayerProtocol protocol() const override;
 public:
-    virtual KcpSocket *accept() override;
-    virtual KcpSocket *accept(const HostAddress &addr, uint16_t port) override;
-    virtual KcpSocket *accept(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) override;
-    virtual bool bind(const HostAddress &address, uint16_t port, Socket::BindMode mode) override;
-    virtual bool bind(uint16_t port, Socket::BindMode mode) override;
-    virtual bool connect(const HostAddress &addr, uint16_t port) override;
-    virtual bool connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) override;
+    virtual KcpStream *accept() override;
+    virtual KcpStream *accept(const DatagramPath &remote) override;
+    virtual bool connect(const DatagramPath &remote) override;
     virtual bool close(bool force) override;
     virtual bool listen(int backlog) override;
-    virtual bool setOption(Socket::SocketOption option, int value) override;
-    virtual int option(Socket::SocketOption option) const override;
-    virtual bool joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface) override;
-    virtual bool leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface) override;
-    virtual NetworkInterface multicastInterface() const override;
-    virtual bool setMulticastInterface(const NetworkInterface &iface) override;
 public:
-    virtual int32_t peekRaw(char *data, int32_t size) override;
     virtual int32_t rawSend(const char *data, int32_t size) override;
-    virtual int32_t udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port) override;
 public:
     void removeSlave(const string &originalHostAndPort) { receiversByHostAndPort.erase(originalHostAndPort); }
-    void removeSlave(uint32_t connectionId) { receiversByConnectionId.erase(connectionId); }
-    uint32_t nextConnectionId();
+    void removeSlave(uint32_t sessionId) { receiversBySessionId.erase(sessionId); }
+    uint32_t nextSessionId();
     void doReceive();
     void doAccept();
     bool startReceivingCoroutine();
-    HostAddress resolve(const string &hostName, shared_ptr<SocketDnsCache> dnsCache);
 public:
-    map<string, SlaveKcpSocketPrivate *> receiversByHostAndPort;
-    map<uint32_t, SlaveKcpSocketPrivate *> receiversByConnectionId;
-    shared_ptr<Socket> rawSocket;
-    Queue<KcpSocket *> pendingSlaves;
-    int nextPathSocket;  // 0 for rawSocket
+    map<string, SlaveKcpStreamPrivate *> receiversByHostAndPort;
+    map<uint32_t, SlaveKcpStreamPrivate *> receiversBySessionId;
+    shared_ptr<DatagramLink> link;
+    Queue<KcpStream *> pendingSlaves;
 };
 
-class SlaveKcpSocketPrivate : public KcpSocketPrivate
+class SlaveKcpStreamPrivate : public KcpStreamPrivate
 {
 public:
-    SlaveKcpSocketPrivate(MasterKcpSocketPrivate *parent, const HostAddress &addr, uint16_t port, KcpSocket *q);
-    virtual ~SlaveKcpSocketPrivate() override;
+    SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, const DatagramPath &remote, KcpStream *q);
+    virtual ~SlaveKcpStreamPrivate() override;
 public:
-    static KcpSocket *create(KcpSocketPrivate *d, const HostAddress &addr, uint16_t port, KcpSocket::Mode mode);
-    static SlaveKcpSocketPrivate *getPrivateHelper(KcpSocket *s);
+    static KcpStream *create(KcpStreamPrivate *d, const DatagramPath &remote, KcpStream::Mode mode);
+    static SlaveKcpStreamPrivate *getPrivateHelper(KcpStream *s);
 public:
     virtual Socket::SocketError getError() const override;
     virtual string getErrorString() const override;
     virtual bool isValid() const override;
-    virtual HostAddress localAddress() const override;
-    virtual uint16_t localPort() const override;
-    virtual HostAddress::NetworkLayerProtocol protocol() const override;
 public:
-    virtual KcpSocket *accept() override;
-    virtual KcpSocket *accept(const HostAddress &addr, uint16_t port) override;
-    virtual KcpSocket *accept(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) override;
-    virtual bool bind(const HostAddress &address, uint16_t port, Socket::BindMode mode) override;
-    virtual bool bind(uint16_t port, Socket::BindMode mode) override;
-    virtual bool connect(const HostAddress &addr, uint16_t port) override;
-    virtual bool connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) override;
+    virtual KcpStream *accept() override;
+    virtual KcpStream *accept(const DatagramPath &remote) override;
+    virtual bool connect(const DatagramPath &remote) override;
     virtual bool close(bool force) override;
     virtual bool listen(int backlog) override;
-    virtual bool setOption(Socket::SocketOption option, int value) override;
-    virtual int option(Socket::SocketOption option) const override;
-    virtual bool joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface) override;
-    virtual bool leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface) override;
-    virtual NetworkInterface multicastInterface() const override;
-    virtual bool setMulticastInterface(const NetworkInterface &iface) override;
 public:
-    virtual int32_t peekRaw(char *data, int32_t size) override;
     virtual int32_t rawSend(const char *data, int32_t size) override;
-    virtual int32_t udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port) override;
 public:
     string originalHostAndPort;
-    MasterKcpSocketPrivate *parent;
+    MasterKcpStreamPrivate *parent;
 };
 
-KcpSocket *SlaveKcpSocketPrivate::create(KcpSocketPrivate *d, const HostAddress &addr, uint16_t port,
-                                         KcpSocket::Mode mode)
+KcpStream *SlaveKcpStreamPrivate::create(KcpStreamPrivate *d, const DatagramPath &remote, KcpStream::Mode mode)
 {
-    return new KcpSocket(d, addr, port, mode);
+    return new KcpStream(d, remote, mode);
 }
 
-SlaveKcpSocketPrivate *SlaveKcpSocketPrivate::getPrivateHelper(KcpSocket *s)
+SlaveKcpStreamPrivate *SlaveKcpStreamPrivate::getPrivateHelper(KcpStream *s)
 {
-    return static_cast<SlaveKcpSocketPrivate *>(s->d_ptr);
+    return static_cast<SlaveKcpStreamPrivate *>(s->d_ptr);
 }
 
 int kcp_callback(const char *buf, int len, ikcpcb *, void *user)
 {
-    KcpSocketPrivate *p = static_cast<KcpSocketPrivate *>(user);
+    KcpStreamPrivate *p = static_cast<KcpStreamPrivate *>(user);
     if (!p || !buf || len > 65535) {
         ngWarning() << "kcp_callback got invalid data.";
         return -1;
@@ -251,7 +218,7 @@ int kcp_callback(const char *buf, int len, ikcpcb *, void *user)
     return sentBytes;
 }
 
-KcpSocketPrivate::KcpSocketPrivate(KcpSocket *q)
+KcpStreamPrivate::KcpStreamPrivate(KcpStream *q)
     : q_ptr(q)
     , operations(new CoroutineGroup)
     , state(Socket::UnconnectedState)
@@ -261,9 +228,9 @@ KcpSocketPrivate::KcpSocketPrivate(KcpSocket *q)
     , lastKeepaliveTimestamp(zeroTimestamp)
     , tearDownTime(1000 * 30)
     , waterLine(1024)
-    , connectionId(0)
-    , remotePort(0)
-    , mode(KcpSocket::Internet)
+    , sessionId(0)
+    , mode(KcpStream::Internet)
+    , headerMode(KcpStream::Builtin)
 {
     kcp = ikcp_create(0, this);
     ikcp_setoutput(kcp, kcp_callback);
@@ -275,47 +242,26 @@ KcpSocketPrivate::KcpSocketPrivate(KcpSocket *q)
     setMode(mode);
 }
 
-KcpSocketPrivate::~KcpSocketPrivate()
+KcpStreamPrivate::~KcpStreamPrivate()
 {
     delete operations;
     ikcp_release(kcp);
 }
 
-HostAddress KcpSocketPrivate::peerAddress() const
-{
-    return remoteAddress;
-}
-
-string KcpSocketPrivate::peerName() const
-{
-    return remoteAddress.toString();
-}
-
-uint16_t KcpSocketPrivate::peerPort() const
-{
-    return remotePort;
-}
-
-Socket::SocketType KcpSocketPrivate::type() const
-{
-    return Socket::KcpSocket;
-}
-
-// bool KcpSocketPrivate::close()
 //{
 // }
 
-void KcpSocketPrivate::setMode(KcpSocket::Mode mode)
+void KcpStreamPrivate::setMode(KcpStream::Mode mode)
 {
     this->mode = mode;
     switch (mode) {
-    case KcpSocket::LargeDelayInternet:
+    case KcpStream::LargeDelayInternet:
         waterLine = 512;
         ikcp_nodelay(kcp, 0, 20, 32, 1);
         ikcp_setmtu(kcp, 1400);
         ikcp_wndsize(kcp, 1024, 1024);
         break;
-    case KcpSocket::Internet:
+    case KcpStream::Internet:
         waterLine = 256;
         ikcp_nodelay(kcp, 1, 10, 16, 1);
         ikcp_setmtu(kcp, 1400);
@@ -323,7 +269,7 @@ void KcpSocketPrivate::setMode(KcpSocket::Mode mode)
         kcp->rx_minrto = 30;
         // kcp->interval = 5;
         break;
-    case KcpSocket::FastInternet:
+    case KcpStream::FastInternet:
         waterLine = 192;
         ikcp_nodelay(kcp, 1, 10, 8, 1);
         ikcp_setmtu(kcp, 1400);
@@ -331,7 +277,7 @@ void KcpSocketPrivate::setMode(KcpSocket::Mode mode)
         kcp->rx_minrto = 20;
         // kcp->interval = 2;
         break;
-    case KcpSocket::Ethernet:
+    case KcpStream::Ethernet:
         waterLine = 64;
         ikcp_nodelay(kcp, 1, 10, 4, 1);
         ikcp_setmtu(kcp, 1024 * 32);
@@ -339,7 +285,7 @@ void KcpSocketPrivate::setMode(KcpSocket::Mode mode)
         kcp->rx_minrto = 10;
         // kcp->interval = 1;
         break;
-    case KcpSocket::Loopback:
+    case KcpStream::Loopback:
         waterLine = 64;
         ikcp_nodelay(kcp, 1, 10, 1, 1);
         ikcp_setmtu(kcp, 1024 * 64 - 256);
@@ -350,7 +296,7 @@ void KcpSocketPrivate::setMode(KcpSocket::Mode mode)
     }
 }
 
-int32_t KcpSocketPrivate::send(const char *data, int32_t size, bool all)
+int32_t KcpStreamPrivate::send(const char *data, int32_t size, bool all)
 {
     if (size <= 0 || !isValid()) {
         return -1;
@@ -362,7 +308,7 @@ int32_t KcpSocketPrivate::send(const char *data, int32_t size, bool all)
     while (count < size) {
         if (state != Socket::ConnectedState) {
             error = Socket::SocketAccessError;
-            errorString = "KcpSocket is not connected.";
+            errorString = "KcpStream is not connected.";
             return -1;
         }
         bool ok = sendingQueueNotFull.tryWait();
@@ -397,12 +343,12 @@ int32_t KcpSocketPrivate::send(const char *data, int32_t size, bool all)
     return isValid() ? count : -1;
 }
 
-int32_t KcpSocketPrivate::recv(char *data, int32_t size, bool all)
+int32_t KcpStreamPrivate::recv(char *data, int32_t size, bool all)
 {
     while (true) {
         if (state != Socket::ConnectedState) {
             error = Socket::SocketAccessError;
-            errorString = "KcpSocket is not connected.";
+            errorString = "KcpStream is not connected.";
             return -1;
         }
         if (!receivingBuffer.empty()) {
@@ -434,7 +380,7 @@ int32_t KcpSocketPrivate::recv(char *data, int32_t size, bool all)
     }
 }
 
-int32_t KcpSocketPrivate::peek(char *data, int32_t size)
+int32_t KcpStreamPrivate::peek(char *data, int32_t size)
 {
     if (state != Socket::ConnectedState) {
         return -1;
@@ -447,9 +393,13 @@ int32_t KcpSocketPrivate::peek(char *data, int32_t size)
     return 0;
 }
 
-bool KcpSocketPrivate::handleDatagram(const char *buf, uint32_t len)
+bool KcpStreamPrivate::handleDatagram(const char *buf, uint32_t len)
 {
-    if (len < 5) {
+    if (headerMode == KcpStream::External) {
+        if (len < 1) {
+            return true;
+        }
+    } else if (len < 5) {
         return true;
     }
     switch (buf[0]) {
@@ -485,7 +435,7 @@ bool KcpSocketPrivate::handleDatagram(const char *buf, uint32_t len)
     return true;
 }
 
-void KcpSocketPrivate::doUpdate()
+void KcpStreamPrivate::doUpdate()
 {
     // in close(), state is set to Socket::UnconnectedState but error = NoError.
     while (state == Socket::ConnectedState || (state == Socket::UnconnectedState && error == Socket::NoError)) {
@@ -498,7 +448,7 @@ void KcpSocketPrivate::doUpdate()
             ngDebug() << "kcp socket tearDown!";
 #endif
             error = Socket::SocketTimeoutError;
-            errorString = "KcpSocket is timeout.";
+            errorString = "KcpStream is timeout.";
             close(true);
             return;
         }
@@ -542,7 +492,7 @@ void KcpSocketPrivate::doUpdate()
     }
 }
 
-void KcpSocketPrivate::updateKcp()
+void KcpStreamPrivate::updateKcp()
 {
     shared_ptr<Coroutine> t = operations->spawnWithName(
             "update_kcp", [this] { doUpdate(); }, false);
@@ -550,9 +500,9 @@ void KcpSocketPrivate::updateKcp()
     forceToUpdate.open();
 }
 
-void KcpSocketPrivate::updateStatus()
+void KcpStreamPrivate::updateStatus()
 {
-        int sendingQueueSize = ikcp_waitsnd(kcp);
+    int sendingQueueSize = ikcp_waitsnd(kcp);
     if (sendingQueueSize <= 0) {
         sendingQueueNotFull.set();
         sendingQueueEmpty.set();
@@ -575,108 +525,88 @@ void KcpSocketPrivate::updateStatus()
     }
 }
 
-string KcpSocketPrivate::makeDataPacket(const char *data, int32_t size)
+string KcpStreamPrivate::makeDataPacket(const char *data, int32_t size)
 {
     string packet(size + 1, '\0');
     packet[0] = PACKET_TYPE_UNCOMPRESSED_DATA;
     memcpy(&packet[1], data, static_cast<size_t>(size));
-    ngToBigEndian<uint32_t>(this->connectionId, &packet[1]);
+    if (headerMode == KcpStream::Builtin) {
+        ngToBigEndian<uint32_t>(this->sessionId, &packet[1]);
+    }
     return packet;
 }
 
-string KcpSocketPrivate::makeShutdownPacket(uint32_t connectionId)
+string KcpStreamPrivate::makeShutdownPacket(uint32_t sessionId)
 {
     // Pad to a random length in [5, 64) so control packets are not fixed-size.
     const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_CLOSE;
-    ngToBigEndian<uint32_t>(connectionId, &packet[1]);
+    if (headerMode == KcpStream::Builtin) {
+        ngToBigEndian<uint32_t>(sessionId, &packet[1]);
+    }
     return packet;
 }
 
-string KcpSocketPrivate::makeKeepalivePacket()
+string KcpStreamPrivate::makeKeepalivePacket()
 {
     const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_KEEPALIVE;
-    ngToBigEndian<uint32_t>(this->connectionId, &packet[1]);
+    if (headerMode == KcpStream::Builtin) {
+        ngToBigEndian<uint32_t>(this->sessionId, &packet[1]);
+    }
     return packet;
 }
 
-string KcpSocketPrivate::makeMultiPathPacket(uint32_t connectionId)
+string KcpStreamPrivate::makeMultiPathPacket(uint32_t sessionId)
 {
     const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_CREATE_MULTIPATH;
-    ngToBigEndian<uint32_t>(connectionId, &packet[1]);
+    if (headerMode == KcpStream::Builtin) {
+        ngToBigEndian<uint32_t>(sessionId, &packet[1]);
+    }
     return packet;
 }
 
-MasterKcpSocketPrivate::MasterKcpSocketPrivate(HostAddress::NetworkLayerProtocol protocol, KcpSocket *q)
-    : KcpSocketPrivate(q)
-    , rawSocket(new Socket(protocol, Socket::UdpSocket))
-    , nextPathSocket(0)
+MasterKcpStreamPrivate::MasterKcpStreamPrivate(shared_ptr<DatagramLink> link, KcpStream *q)
+    : KcpStreamPrivate(q)
+    , link(link)
 {
 }
 
-MasterKcpSocketPrivate::MasterKcpSocketPrivate(intptr_t socketDescriptor, KcpSocket *q)
-    : KcpSocketPrivate(q)
-    , rawSocket(new Socket(socketDescriptor))
-    , nextPathSocket(0)
+
+MasterKcpStreamPrivate::~MasterKcpStreamPrivate()
 {
+    MasterKcpStreamPrivate::close(true);
 }
 
-MasterKcpSocketPrivate::MasterKcpSocketPrivate(shared_ptr<Socket> rawSocket, KcpSocket *q)
-    : KcpSocketPrivate(q)
-    , rawSocket(rawSocket)
-    , nextPathSocket(0)
-{
-}
-
-MasterKcpSocketPrivate::~MasterKcpSocketPrivate()
-{
-    MasterKcpSocketPrivate::close(true);
-}
-
-Socket::SocketError MasterKcpSocketPrivate::getError() const
+Socket::SocketError MasterKcpStreamPrivate::getError() const
 {
     if (error != Socket::NoError) {
         return error;
     } else {
-        return rawSocket->error();
+        return link->error();
     }
 }
 
-string MasterKcpSocketPrivate::getErrorString() const
+string MasterKcpStreamPrivate::getErrorString() const
 {
     if (!errorString.empty()) {
         return errorString;
     } else {
-        return rawSocket->errorString();
+        return link->errorString();
     }
 }
 
-bool MasterKcpSocketPrivate::isValid() const
+bool MasterKcpStreamPrivate::isValid() const
 {
     return state == Socket::ConnectedState || state == Socket::BoundState || state == Socket::ListeningState;
 }
 
-HostAddress MasterKcpSocketPrivate::localAddress() const
-{
-    return rawSocket->localAddress();
-}
 
-uint16_t MasterKcpSocketPrivate::localPort() const
-{
-    return rawSocket->localPort();
-}
-
-HostAddress::NetworkLayerProtocol MasterKcpSocketPrivate::protocol() const
-{
-    return rawSocket->protocol();
-}
-
-bool MasterKcpSocketPrivate::close(bool force)
+bool MasterKcpStreamPrivate::close(bool force)
 {
     // if `force` is true, must not block. see doUpdate()
     if (state == Socket::UnconnectedState) {
@@ -690,23 +620,23 @@ bool MasterKcpSocketPrivate::close(bool force)
                     return false;
                 }
             }
-            const string &packet = makeShutdownPacket(this->connectionId);
+            const string &packet = makeShutdownPacket(this->sessionId);
             rawSend(packet.data(), packet.size());
         }
     } else if (state == Socket::ListeningState) {
         state = Socket::UnconnectedState;
-        map<string, SlaveKcpSocketPrivate *> receiversByHostAndPort(this->receiversByHostAndPort);
+        map<string, SlaveKcpStreamPrivate *> receiversByHostAndPort(this->receiversByHostAndPort);
         this->receiversByHostAndPort.clear();
         for (const auto &item : receiversByHostAndPort) {
-            SlaveKcpSocketPrivate *receiver = item.second;
+            SlaveKcpStreamPrivate *receiver = item.second;
             if (receiver) {
                 receiver->close(force);
             }
         }
-        receiversByConnectionId.clear();
+        receiversBySessionId.clear();
     } else {  // BoundState
         state = Socket::UnconnectedState;
-        rawSocket->abort();
+        link->abort();
         return true;
     }
 
@@ -718,9 +648,9 @@ bool MasterKcpSocketPrivate::close(bool force)
     // connected and listen state would do more cleaning work.
     operations->killall();
     // always kill operations before release resources.
-    rawSocket->abort();
+    link->abort();
     //    if (force) {
-    //        rawSocket->abort();
+    //        link->abort();
     //    } else {
     //        rawSocket->close();
     //    }
@@ -729,12 +659,12 @@ bool MasterKcpSocketPrivate::close(bool force)
     sendingQueueEmpty.set();
     sendingQueueNotFull.set();
 #ifdef DEBUG_PROTOCOL
-    ngDebug() << "MasterKcpSocketPrivate::close() done";
+    ngDebug() << "MasterKcpStreamPrivate::close() done";
 #endif
     return true;
 }
 
-bool MasterKcpSocketPrivate::listen(int backlog)
+bool MasterKcpStreamPrivate::listen(int backlog)
 {
     if (state != Socket::BoundState || backlog <= 0) {
         return false;
@@ -744,31 +674,39 @@ bool MasterKcpSocketPrivate::listen(int backlog)
     return true;
 }
 
-uint32_t MasterKcpSocketPrivate::nextConnectionId()
+uint32_t MasterKcpStreamPrivate::nextSessionId()
 {
     uint32_t id;
     do {
         const string bytes = randomBytes(4);
         memcpy(&id, bytes.data(), sizeof(id));
-    } while (receiversByConnectionId.find(id) != receiversByConnectionId.end());
+    } while (receiversBySessionId.find(id) != receiversBySessionId.end());
     return id;
 }
 
-void MasterKcpSocketPrivate::doReceive()
+void MasterKcpStreamPrivate::doReceive()
 {
-        HostAddress addr;
-    uint16_t port;
     string buf(1024 * 64, '\0');
     while (true) {
-        int32_t len = rawSocket->recvfrom(&buf[0], buf.size(), &addr, &port);
-        if ((len < 0 || addr.isNull() || port == 0)) {
+        DatagramPath who;
+        int32_t len = link->recvfrom(&buf[0], buf.size(), &who);
+        if (len == 0) {
+            continue;
+        }
+        if (len < 0 || who.isNull()) {
 #ifdef DEBUG_PROTOCOL
-            ngDebug() << "KcpSocket can not receive udp packet." << rawSocket->errorString();
+            ngDebug() << "KcpStream can not receive packet." << link->errorString();
 #endif
-            MasterKcpSocketPrivate::close(true);
+            MasterKcpStreamPrivate::close(true);
             return;
         }
-        if (q_ptr->filter(&buf[0], &len, &addr, &port)) {
+        if (headerMode == KcpStream::External) {
+            if (len < 1) {
+                continue;
+            }
+            if (!handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
+                return;
+            }
             continue;
         }
         if (len < 5) {
@@ -778,19 +716,19 @@ void MasterKcpSocketPrivate::doReceive()
             continue;
         }
 
-        const uint32_t packetConnectionId = ngFromBigEndian<uint32_t>(buf.data() + 1);
-        if (packetConnectionId == 0) {
+        const uint32_t packetSessionId = ngFromBigEndian<uint32_t>(buf.data() + 1);
+        if (packetSessionId == 0) {
 #ifdef DEBUG_PROTOCOL
-            ngDebug() << "the kcp server side returns an invalid packet with zero connection id.";
+            ngDebug() << "the kcp server side returns an invalid packet with zero session id.";
 #endif
             continue;
         } else {
-            if (this->connectionId == 0) {
-                this->connectionId = packetConnectionId;
+            if (this->sessionId == 0) {
+                this->sessionId = packetSessionId;
             } else {
-                if (packetConnectionId != this->connectionId) {
+                if (packetSessionId != this->sessionId) {
 #ifdef DEBUG_PROTOCOL
-                    ngDebug() << "the kcp server side returns an invalid packet with mismatched connection id.";
+                    ngDebug() << "the kcp server side returns an invalid packet with mismatched session id.";
 #endif
                     continue;
                 } else {
@@ -805,22 +743,21 @@ void MasterKcpSocketPrivate::doReceive()
     }
 }
 
-void MasterKcpSocketPrivate::doAccept()
+void MasterKcpStreamPrivate::doAccept()
 {
-        HostAddress addr;
-    uint16_t port;
     string buf(1024 * 64, '\0');
     while (true) {
-        int32_t len = rawSocket->recvfrom(&buf[0], buf.size(), &addr, &port);
-        if ((len < 0 || addr.isNull() || port == 0)) {
-#ifdef DEBUG_PROTOCOL
-            ngDebug() << "KcpSocket can not receive udp packet." << rawSocket->errorString();
-#endif
-            MasterKcpSocketPrivate::close(true);
-            return;
-        }
-        if (q_ptr->filter(&buf[0], &len, &addr, &port)) {
+        DatagramPath who;
+        int32_t len = link->recvfrom(&buf[0], buf.size(), &who);
+        if (len == 0) {
             continue;
+        }
+        if (len < 0 || who.isNull()) {
+#ifdef DEBUG_PROTOCOL
+            ngDebug() << "KcpStream can not receive packet." << link->errorString();
+#endif
+            MasterKcpStreamPrivate::close(true);
+            return;
         }
         if (len < 5) {
 #ifdef DEBUG_PROTOCOL
@@ -829,87 +766,85 @@ void MasterKcpSocketPrivate::doAccept()
             continue;
         }
 
-        uint32_t connectionId = ngFromBigEndian<uint32_t>(buf.data() + 1);
+        uint32_t sessionId = ngFromBigEndian<uint32_t>(buf.data() + 1);
         ngToBigEndian<uint32_t>(0, reinterpret_cast<uint8_t *>(&buf[1]));
-        const string &key = concat(addr, port);
-        SlaveKcpSocketPrivate *receiver = nullptr;
+        const string &key = who.key();
+        SlaveKcpStreamPrivate *receiver = nullptr;
         auto hostIt = receiversByHostAndPort.find(key);
         if (hostIt != receiversByHostAndPort.end()) {
             receiver = hostIt->second;
         }
         if (receiver) {
-            receiver->remoteAddress = addr;
-            receiver->remotePort = port;
-            if (connectionId != 0) {
-                if (receiver->connectionId == 0) {
-                    // only if the slave was created by accept(host, port), we had zero id.
-                    // if this connectionId is unique in client. we add it to the receiversByConnectionId map.
+            receiver->remotePath = who;
+            if (sessionId != 0) {
+                if (receiver->sessionId == 0) {
+                    // only if the slave was created by accept(path), we had zero id.
+                    // if this sessionId is unique in client. we add it to the receiversBySessionId map.
                     // if it is not, say sorry, and disable the multipath feature.
-                    if (receiversByConnectionId.find(connectionId) == receiversByConnectionId.end()) {
-                        // only happened in the newly accept(host, port) connections.
-                        // or remote create new conn with the same port as old, and the old packet is received.
-                        receiver->connectionId = connectionId;
-                        receiversByConnectionId[connectionId] = receiver;
+                    if (receiversBySessionId.find(sessionId) == receiversBySessionId.end()) {
+                        // only happened in the newly accept(path) connections.
+                        // or remote create new conn with the same path as old, and the old packet is received.
+                        receiver->sessionId = sessionId;
+                        receiversBySessionId[sessionId] = receiver;
                     }
-                } else if (connectionId != receiver->connectionId) {
+                } else if (sessionId != receiver->sessionId) {
 #ifdef DEBUG_PROTOCOL
-                    ngDebug() << "the client sent a invalid connection id";
+                    ngDebug() << "the client sent a invalid session id";
 #endif
                     continue;
                 }
             }
             if (!receiver->handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
                 receiversByHostAndPort.erase(receiver->originalHostAndPort);
-                receiversByConnectionId.erase(receiver->connectionId);
+                receiversBySessionId.erase(receiver->sessionId);
             }
         } else {
-            if (connectionId != 0) {  // a multipath packet.
-                const auto it = receiversByConnectionId.find(connectionId);
-                receiver = (it != receiversByConnectionId.end()) ? it->second : nullptr;
+            if (sessionId != 0) {  // a multipath packet.
+                const auto it = receiversBySessionId.find(sessionId);
+                receiver = (it != receiversBySessionId.end()) ? it->second : nullptr;
                 if (!receiver) {
                     // it must be bad packet.
-                    const string &closePacket = makeShutdownPacket(connectionId);
-                    if (rawSocket->sendto(closePacket, addr, port) != closePacket.size()) {
+                    const string &closePacket = makeShutdownPacket(sessionId);
+                    if (link->sendto(closePacket.data(), closePacket.size(), who) != static_cast<int32_t>(closePacket.size())) {
                         if (error == Socket::NoError) {
                             error = Socket::SocketResourceError;
-                            errorString = "KcpSocket can not send udp packet.";
+                            errorString = "KcpStream can not send packet.";
                         }
 #ifdef DEBUG_PROTOCOL
                         ngDebug() << errorString;
 #endif
-                        MasterKcpSocketPrivate::close(true);
+                        MasterKcpStreamPrivate::close(true);
                     }
                 } else {
-                    assert(connectionId == receiver->connectionId);
-                    receiver->remoteAddress = addr;
-                    receiver->remotePort = port;
+                    assert(sessionId == receiver->sessionId);
+                    receiver->remotePath = who;
                     if (!receiver->handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
 #ifdef DEBUG_PROTOCOL
                         ngDebug() << "can not handle multipath packet.";
 #endif
                         receiversByHostAndPort.erase(receiver->originalHostAndPort);
-                        receiversByConnectionId.erase(receiver->connectionId);
+                        receiversBySessionId.erase(receiver->sessionId);
                     }
                 }
             } else if (pendingSlaves.size() < pendingSlaves.capacity()) {  // not full. process new connection.
-                unique_ptr<KcpSocket> slave(SlaveKcpSocketPrivate::create(this, addr, port, this->mode));
-                SlaveKcpSocketPrivate *d = SlaveKcpSocketPrivate::getPrivateHelper(slave.get());
+                unique_ptr<KcpStream> slave(SlaveKcpStreamPrivate::create(this, who, this->mode));
+                SlaveKcpStreamPrivate *d = SlaveKcpStreamPrivate::getPrivateHelper(slave.get());
                 d->originalHostAndPort = key;
-                d->connectionId = nextConnectionId();
+                d->sessionId = nextSessionId();
                 if (d->handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
                     receiversByHostAndPort[key] = d;
-                    receiversByConnectionId[d->connectionId] = d;
+                    receiversBySessionId[d->sessionId] = d;
                     pendingSlaves.put(slave.release());
-                    const string &multiPathPacket = makeMultiPathPacket(d->connectionId);
-                    if (rawSocket->sendto(multiPathPacket, addr, port) != multiPathPacket.size()) {
+                    const string &multiPathPacket = makeMultiPathPacket(d->sessionId);
+                    if (link->sendto(multiPathPacket.data(), multiPathPacket.size(), who) != static_cast<int32_t>(multiPathPacket.size())) {
                         if (error == Socket::NoError) {
                             error = Socket::SocketResourceError;
-                            errorString = "KcpSocket can not send udp packet.";
+                            errorString = "KcpStream can not send packet.";
                         }
 #ifdef DEBUG_PROTOCOL
                         ngDebug() << errorString;
 #endif
-                        MasterKcpSocketPrivate::close(true);
+                        MasterKcpStreamPrivate::close(true);
                     }
                 }
             }
@@ -917,7 +852,7 @@ void MasterKcpSocketPrivate::doAccept()
     }
 }
 
-bool MasterKcpSocketPrivate::startReceivingCoroutine()
+bool MasterKcpStreamPrivate::startReceivingCoroutine()
 {
     if (operations->get("receiving")) {
         return true;
@@ -939,7 +874,7 @@ bool MasterKcpSocketPrivate::startReceivingCoroutine()
     return true;
 }
 
-KcpSocket *MasterKcpSocketPrivate::accept()
+KcpStream *MasterKcpStreamPrivate::accept()
 {
     if (state != Socket::ListeningState) {
         return nullptr;
@@ -948,243 +883,95 @@ KcpSocket *MasterKcpSocketPrivate::accept()
     return pendingSlaves.get();
 }
 
-KcpSocket *MasterKcpSocketPrivate::accept(const HostAddress &addr, uint16_t port)
+KcpStream *MasterKcpStreamPrivate::accept(const DatagramPath &remote)
 {
-    if (state != Socket::ListeningState || addr.isNull() || port == 0) {
+    if (state != Socket::ListeningState || remote.isNull()) {
         return nullptr;
     }
     startReceivingCoroutine();
-    const string &key = concat(addr, port);
-    SlaveKcpSocketPrivate *receiver;
+    const string &key = remote.key();
+    SlaveKcpStreamPrivate *receiver;
     receiver = receiversByHostAndPort.at(key);
     if (receiver && receiver->isValid()) {
         return nullptr;
     } else {
-        unique_ptr<KcpSocket> slave(SlaveKcpSocketPrivate::create(this, addr, port, this->mode));
-        SlaveKcpSocketPrivate *d = SlaveKcpSocketPrivate::getPrivateHelper(slave.get());
+        unique_ptr<KcpStream> slave(SlaveKcpStreamPrivate::create(this, remote, this->mode));
+        SlaveKcpStreamPrivate *d = SlaveKcpStreamPrivate::getPrivateHelper(slave.get());
         d->originalHostAndPort = key;
         d->updateKcp();
         receiversByHostAndPort[key] = d;
-        // the connectionId is generated in server side. accept() is acually a connect().
-        // receiversByConnectionId[d->connectionId] = d;
+        // the sessionId is generated in server side. accept() is acually a connect().
+        // receiversBySessionId[d->sessionId] = d;
         return slave.release();
     }
 }
 
-KcpSocket *MasterKcpSocketPrivate::accept(const string &hostName, uint16_t port,
-                                          shared_ptr<SocketDnsCache> dnsCache)
-{
-    if (state != Socket::ListeningState || hostName.empty() || port == 0) {
-        return nullptr;
-    }
-    const HostAddress &addr = resolve(hostName, dnsCache);
-    if (addr.isNull()) {
-        return nullptr;
-    } else {
-        return accept(addr, port);
-    }
-}
 
-bool MasterKcpSocketPrivate::connect(const HostAddress &addr, uint16_t port)
+bool MasterKcpStreamPrivate::connect(const DatagramPath &remote)
 {
-    if ((state != Socket::UnconnectedState && state != Socket::BoundState) || addr.isNull()) {
+    if ((state != Socket::UnconnectedState && state != Socket::BoundState) || remote.isNull()) {
         return false;
     }
-    remoteAddress = addr;
-    remotePort = port;
+    remotePath = remote;
     state = Socket::ConnectedState;
     return true;
 }
 
-bool MasterKcpSocketPrivate::connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
-{
-    if (state != Socket::UnconnectedState && state != Socket::BoundState) {
-        return false;
-    }
-    const HostAddress &addr = resolve(hostName, dnsCache);
-    if (addr.isNull()) {
-        return false;
-    } else {
-        return connect(addr, port);
-    }
-}
 
-HostAddress MasterKcpSocketPrivate::resolve(const string &hostName, shared_ptr<SocketDnsCache> dnsCache)
-{
-    vector<HostAddress> addresses;
-    HostAddress t;
-    if (t.setAddress(hostName)) {
-        addresses.push_back(t);
-    } else {
-        if (!dnsCache) {
-            addresses = Socket::resolve(hostName);
-        } else {
-            addresses = dnsCache->resolve(hostName);
-        }
-    }
-    for (int i = 0; i < addresses.size(); ++i) {
-        const HostAddress &addr = addresses[i];
-        if (rawSocket->protocol() == HostAddress::IPv4Protocol && addr.protocol() == HostAddress::IPv6Protocol) {
-            continue;
-        }
-        if (rawSocket->protocol() == HostAddress::IPv6Protocol && addr.protocol() == HostAddress::IPv4Protocol) {
-            continue;
-        }
-        return addr;
-    }
-    return HostAddress();
-}
-
-int32_t MasterKcpSocketPrivate::peekRaw(char *data, int32_t size)
-{
-    return rawSocket->peek(data, size);
-}
-
-int32_t MasterKcpSocketPrivate::rawSend(const char *data, int32_t size)
+int32_t MasterKcpStreamPrivate::rawSend(const char *data, int32_t size)
 {
     lastKeepaliveTimestamp = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
     startReceivingCoroutine();
-    return rawSocket->sendto(data, size, remoteAddress, remotePort);
+    return link->sendto(data, size, remotePath);
 }
 
-int32_t MasterKcpSocketPrivate::udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port)
-{
-    return rawSocket->sendto(data, size, addr, port);
-}
 
-bool MasterKcpSocketPrivate::bind(const HostAddress &address, uint16_t port, Socket::BindMode mode)
-{
-    if (state != Socket::UnconnectedState) {
-        return false;
-    }
-    if (mode & Socket::ReuseAddressHint) {
-        rawSocket->setOption(Socket::AddressReusable, true);
-    }
-    if (rawSocket->bind(address, port, mode)) {
-        state = Socket::BoundState;
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool MasterKcpSocketPrivate::bind(uint16_t port, Socket::BindMode mode)
-{
-    if (state != Socket::UnconnectedState) {
-        return false;
-    }
-    if (mode & Socket::ReuseAddressHint) {
-        rawSocket->setOption(Socket::AddressReusable, true);
-    }
-    if (rawSocket->bind(port, mode)) {
-        state = Socket::BoundState;
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool MasterKcpSocketPrivate::setOption(Socket::SocketOption option, int value)
-{
-    return rawSocket->setOption(option, value);
-}
-
-int MasterKcpSocketPrivate::option(Socket::SocketOption option) const
-{
-    return rawSocket->option(option);
-}
-
-bool MasterKcpSocketPrivate::joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
-{
-    return rawSocket->joinMulticastGroup(groupAddress, iface);
-}
-
-bool MasterKcpSocketPrivate::leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
-{
-    return rawSocket->leaveMulticastGroup(groupAddress, iface);
-}
-
-NetworkInterface MasterKcpSocketPrivate::multicastInterface() const
-{
-    return rawSocket->multicastInterface();
-}
-
-bool MasterKcpSocketPrivate::setMulticastInterface(const NetworkInterface &iface)
-{
-    return rawSocket->setMulticastInterface(iface);
-}
-
-SlaveKcpSocketPrivate::SlaveKcpSocketPrivate(MasterKcpSocketPrivate *parent, const HostAddress &addr, uint16_t port,
-                                             KcpSocket *q)
-    : KcpSocketPrivate(q)
+SlaveKcpStreamPrivate::SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, const DatagramPath &remote, KcpStream *q)
+    : KcpStreamPrivate(q)
     , parent(parent)
 {
-    remoteAddress = addr;
-    remotePort = port;
+    remotePath = remote;
     state = Socket::ConnectedState;
 }
 
-SlaveKcpSocketPrivate::~SlaveKcpSocketPrivate()
+SlaveKcpStreamPrivate::~SlaveKcpStreamPrivate()
 {
-    SlaveKcpSocketPrivate::close(true);
+    SlaveKcpStreamPrivate::close(true);
 }
 
-Socket::SocketError SlaveKcpSocketPrivate::getError() const
+Socket::SocketError SlaveKcpStreamPrivate::getError() const
 {
     if (error != Socket::NoError) {
         return error;
     } else {
         if (parent) {
-            return parent->rawSocket->error();
+            return parent->link->error();
         } else {
             return Socket::SocketAccessError;
         }
     }
 }
 
-string SlaveKcpSocketPrivate::getErrorString() const
+string SlaveKcpStreamPrivate::getErrorString() const
 {
     if (!errorString.empty()) {
         return errorString;
     } else {
         if (parent) {
-            return parent->rawSocket->errorString();
+            return parent->link->errorString();
         } else {
             return "Invalid socket descriptor";
         }
     }
 }
 
-bool SlaveKcpSocketPrivate::isValid() const
+bool SlaveKcpStreamPrivate::isValid() const
 {
     return state == Socket::ConnectedState && parent;
 }
 
-HostAddress SlaveKcpSocketPrivate::localAddress() const
-{
-    if (!parent) {
-        return HostAddress();
-    }
-    return parent->rawSocket->localAddress();
-}
 
-uint16_t SlaveKcpSocketPrivate::localPort() const
-{
-    if (!parent) {
-        return 0;
-    }
-    return parent->rawSocket->localPort();
-}
-
-HostAddress::NetworkLayerProtocol SlaveKcpSocketPrivate::protocol() const
-{
-    if (!parent) {
-        return HostAddress::UnknownNetworkLayerProtocol;
-    }
-    return parent->rawSocket->protocol();
-}
-
-bool SlaveKcpSocketPrivate::close(bool force)
+bool SlaveKcpStreamPrivate::close(bool force)
 {
         // if `force` is true, must not block. it is called by doUpdate()
     if (state == Socket::UnconnectedState) {
@@ -1198,7 +985,7 @@ bool SlaveKcpSocketPrivate::close(bool force)
                     return false;
                 }
             }
-            const string &packet = makeShutdownPacket(this->connectionId);
+            const string &packet = makeShutdownPacket(this->sessionId);
             rawSend(packet.data(), packet.size());
         }
     } else {  // there can be no other states.
@@ -1207,7 +994,7 @@ bool SlaveKcpSocketPrivate::close(bool force)
     operations->killall();
     if (parent) {
         parent->removeSlave(originalHostAndPort);
-        parent->removeSlave(connectionId);
+        parent->removeSlave(sessionId);
         parent = nullptr;
     }
     // await all pending recv()/send()
@@ -1217,185 +1004,109 @@ bool SlaveKcpSocketPrivate::close(bool force)
     q_ptr->notBusy.set();
     q_ptr->busy.set();
 #ifdef DEBUG_PROTOCOL
-    ngDebug() << "SlaveKcpSocketPrivate::close() done.";
+    ngDebug() << "SlaveKcpStreamPrivate::close() done.";
 #endif
     return true;
 }
 
-bool SlaveKcpSocketPrivate::listen(int)
+bool SlaveKcpStreamPrivate::listen(int)
 {
     return false;
 }
 
-KcpSocket *SlaveKcpSocketPrivate::accept()
+KcpStream *SlaveKcpStreamPrivate::accept()
 {
     return nullptr;
 }
 
-KcpSocket *SlaveKcpSocketPrivate::accept(const HostAddress &, uint16_t)
+KcpStream *SlaveKcpStreamPrivate::accept(const DatagramPath &)
 {
     return nullptr;
 }
 
-KcpSocket *SlaveKcpSocketPrivate::accept(const string &, uint16_t, shared_ptr<SocketDnsCache>)
-{
-    return nullptr;
-}
 
-bool SlaveKcpSocketPrivate::connect(const HostAddress &, uint16_t)
+bool SlaveKcpStreamPrivate::connect(const DatagramPath &)
 {
     return false;
 }
 
-bool SlaveKcpSocketPrivate::connect(const string &, uint16_t, shared_ptr<SocketDnsCache>)
-{
-    return false;
-}
 
-int32_t SlaveKcpSocketPrivate::peekRaw(char *data, int32_t size)
-{
-    if (!parent) {
-        return -1;
-    }
-    return parent->rawSocket->peek(data, size);
-}
-
-int32_t SlaveKcpSocketPrivate::rawSend(const char *data, int32_t size)
+int32_t SlaveKcpStreamPrivate::rawSend(const char *data, int32_t size)
 {
     if (!parent) {
         return -1;
     } else {
         lastKeepaliveTimestamp = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
-        return parent->rawSocket->sendto(data, size, remoteAddress, remotePort);
+        return parent->link->sendto(data, size, remotePath);
     }
 }
 
-int32_t SlaveKcpSocketPrivate::udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port)
-{
-    if (!parent) {
-        return -1;
-    } else {
-        return parent->rawSocket->sendto(data, size, addr, port);
-    }
-}
 
-bool SlaveKcpSocketPrivate::bind(const HostAddress &, uint16_t, Socket::BindMode)
-{
-    return false;
-}
 
-bool SlaveKcpSocketPrivate::bind(uint16_t, Socket::BindMode)
-{
-    return false;
-}
-
-bool SlaveKcpSocketPrivate::setOption(Socket::SocketOption, int)
-{
-    return false;
-}
-
-int SlaveKcpSocketPrivate::option(Socket::SocketOption option) const
-{
-    if (!parent) {
-        return -1;
-    } else {
-        return parent->rawSocket->option(option);
-    }
-}
-
-bool SlaveKcpSocketPrivate::joinMulticastGroup(const HostAddress &, const NetworkInterface &)
-{
-    return false;
-}
-
-bool SlaveKcpSocketPrivate::leaveMulticastGroup(const HostAddress &, const NetworkInterface &)
-{
-    return false;
-}
-
-NetworkInterface SlaveKcpSocketPrivate::multicastInterface() const
-{
-    return NetworkInterface();
-}
-
-bool SlaveKcpSocketPrivate::setMulticastInterface(const NetworkInterface &)
-{
-    return false;
-}
-
-KcpSocket::KcpSocket(HostAddress::NetworkLayerProtocol protocol)
-    : d_ptr(new MasterKcpSocketPrivate(protocol, this))
+KcpStream::KcpStream(shared_ptr<DatagramLink> link)
+    : d_ptr(new MasterKcpStreamPrivate(link, this))
 {
 }
 
-KcpSocket::KcpSocket(intptr_t socketDescriptor)
-    : d_ptr(new MasterKcpSocketPrivate(socketDescriptor, this))
-{
-}
 
-KcpSocket::KcpSocket(shared_ptr<Socket> rawSocket)
-    : d_ptr(new MasterKcpSocketPrivate(rawSocket, this))
-{
-}
-
-KcpSocket::KcpSocket(KcpSocketPrivate *parent, const HostAddress &addr, const uint16_t port, KcpSocket::Mode mode)
-    : d_ptr(new SlaveKcpSocketPrivate(static_cast<MasterKcpSocketPrivate *>(parent), addr, port, this))
+KcpStream::KcpStream(KcpStreamPrivate *parent, const DatagramPath &remote, KcpStream::Mode mode)
+    : d_ptr(new SlaveKcpStreamPrivate(static_cast<MasterKcpStreamPrivate *>(parent), remote, this))
 {
     setMode(mode);
 }
 
-KcpSocket::~KcpSocket()
+KcpStream::~KcpStream()
 {
     delete d_ptr;
 }
 
-void KcpSocket::setMode(Mode mode)
+void KcpStream::setMode(Mode mode)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     d->setMode(mode);
 }
 
-KcpSocket::Mode KcpSocket::mode() const
+KcpStream::Mode KcpStream::mode() const
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->mode;
 }
 
-void KcpSocket::setUdpPacketSize(uint32_t udpPacketSize)
+void KcpStream::setPacketSize(uint32_t udpPacketSize)
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     if (udpPacketSize < 65535) {
         ikcp_setmtu(d->kcp, static_cast<int>(udpPacketSize));
     }
 }
 
-uint32_t KcpSocket::udpPacketSize() const
+uint32_t KcpStream::packetSize() const
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->kcp->mtu;
 }
 
-void KcpSocket::setSendQueueSize(uint32_t sendQueueSize)
+void KcpStream::setSendQueueSize(uint32_t sendQueueSize)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     d->waterLine = sendQueueSize;
 }
 
-uint32_t KcpSocket::sendQueueSize() const
+uint32_t KcpStream::sendQueueSize() const
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->waterLine;
 }
 
-uint32_t KcpSocket::payloadSizeHint() const
+uint32_t KcpStream::payloadSizeHint() const
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->kcp->mss;
 }
 
-void KcpSocket::setTearDownTime(float secs)
+void KcpStream::setTearDownTime(float secs)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     if (secs > 0) {
         d->tearDownTime = static_cast<uint64_t>(secs * 1000);
         if (d->tearDownTime < 1000) {
@@ -1404,228 +1115,82 @@ void KcpSocket::setTearDownTime(float secs)
     }
 }
 
-float KcpSocket::tearDownTime() const
+float KcpStream::tearDownTime() const
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->tearDownTime / 1000.0f;
 }
 
-Socket::SocketError KcpSocket::error() const
+Socket::SocketError KcpStream::error() const
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->getError();
 }
 
-string KcpSocket::errorString() const
+string KcpStream::errorString() const
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->getErrorString();
 }
 
-bool KcpSocket::isValid() const
+bool KcpStream::isValid() const
 {
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->isValid();
 }
 
-HostAddress KcpSocket::localAddress() const
+Socket::SocketState KcpStream::state() const
 {
-    NG_D(const KcpSocket);
-    return d->localAddress();
-}
-
-uint16_t KcpSocket::localPort() const
-{
-    NG_D(const KcpSocket);
-    return d->localPort();
-}
-
-HostAddress KcpSocket::peerAddress() const
-{
-    NG_D(const KcpSocket);
-    return d->peerAddress();
-}
-
-string KcpSocket::peerName() const
-{
-    NG_D(const KcpSocket);
-    return d->peerName();
-}
-
-uint16_t KcpSocket::peerPort() const
-{
-    NG_D(const KcpSocket);
-    return d->peerPort();
-}
-
-Socket::SocketType KcpSocket::type() const
-{
-    NG_D(const KcpSocket);
-    return d->type();
-}
-
-Socket::SocketState KcpSocket::state() const
-{
-    NG_D(const KcpSocket);
+    NG_D(const KcpStream);
     return d->state;
 }
 
-HostAddress::NetworkLayerProtocol KcpSocket::protocol() const
+KcpStream *KcpStream::accept()
 {
-    NG_D(const KcpSocket);
-    return d->protocol();
-}
-
-string KcpSocket::localAddressURI() const
-{
-    NG_D(const KcpSocket);
-    string address = "kcp://%1:%2";
-    const HostAddress &localAddress = d->localAddress();
-    if (localAddress.protocol() == HostAddress::IPv6Protocol) {
-        address = utils::formatMessage("[%1]", {localAddress.toString()});
-    } else {
-        address = localAddress.toString();
-    }
-    address = utils::formatMessage("%1:%2", {address, utils::number(d->localPort())});
-    return address;
-}
-
-string KcpSocket::peerAddressURI() const
-{
-    NG_D(const KcpSocket);
-    string address = "kcp://%1:%2";
-    if (d->remoteAddress.protocol() == HostAddress::IPv6Protocol) {
-        address = utils::formatMessage("[%1]", {d->remoteAddress.toString()});
-    } else {
-        address = d->remoteAddress.toString();
-    }
-    address = utils::formatMessage("%1:%2", {address, utils::number(d->remotePort)});
-    return address;
-}
-
-KcpSocket *KcpSocket::accept()
-{
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     return d->accept();
 }
 
-KcpSocket *KcpSocket::accept(const HostAddress &addr, uint16_t port)
+void KcpStream::close()
 {
-    NG_D(KcpSocket);
-    return d->accept(addr, port);
-}
-
-KcpSocket *KcpSocket::accept(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
-{
-    NG_D(KcpSocket);
-    return d->accept(hostName, port, dnsCache);
-}
-
-bool KcpSocket::bind(const HostAddress &address, uint16_t port, Socket::BindMode mode)
-{
-    NG_D(KcpSocket);
-    return d->bind(address, port, mode);
-}
-
-bool KcpSocket::bind(uint16_t port, Socket::BindMode mode)
-{
-    NG_D(KcpSocket);
-    return d->bind(port, mode);
-}
-
-bool KcpSocket::connect(const HostAddress &addr, uint16_t port)
-{
-    NG_D(KcpSocket);
-    return d->connect(addr, port);
-}
-
-bool KcpSocket::connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
-{
-    NG_D(KcpSocket);
-    return d->connect(hostName, port, dnsCache);
-}
-
-void KcpSocket::close()
-{
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     d->close(false);
 }
 
-void KcpSocket::abort()
+void KcpStream::abort()
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     d->close(true);
 }
 
-bool KcpSocket::listen(int backlog)
+bool KcpStream::listen(int backlog)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     return d->listen(backlog);
 }
 
-bool KcpSocket::setOption(Socket::SocketOption option, int value)
+int32_t KcpStream::peek(char *data, int32_t size)
 {
-    NG_D(KcpSocket);
-    return d->setOption(option, value);
-}
-
-int KcpSocket::option(Socket::SocketOption option) const
-{
-    NG_D(const KcpSocket);
-    return d->option(option);
-}
-
-bool KcpSocket::joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
-{
-    NG_D(KcpSocket);
-    return d->joinMulticastGroup(groupAddress, iface);
-}
-
-bool KcpSocket::leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
-{
-    NG_D(KcpSocket);
-    return d->leaveMulticastGroup(groupAddress, iface);
-}
-
-NetworkInterface KcpSocket::multicastInterface() const
-{
-    NG_D(const KcpSocket);
-    return d->multicastInterface();
-}
-
-bool KcpSocket::setMulticastInterface(const NetworkInterface &iface)
-{
-    NG_D(KcpSocket);
-    return d->setMulticastInterface(iface);
-}
-
-int32_t KcpSocket::peek(char *data, int32_t size)
-{
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     return d->peek(data, size);
 }
 
-int32_t KcpSocket::peekRaw(char *data, int32_t size)
-{
-    NG_D(KcpSocket);
-    return d->peekRaw(data, size);
-}
 
-int32_t KcpSocket::recv(char *data, int32_t size)
+int32_t KcpStream::recv(char *data, int32_t size)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     return d->recv(data, size, false);
 }
 
-int32_t KcpSocket::recvall(char *data, int32_t size)
+int32_t KcpStream::recvall(char *data, int32_t size)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     return d->recv(data, size, true);
 }
 
-int32_t KcpSocket::send(const char *data, int32_t size)
+int32_t KcpStream::send(const char *data, int32_t size)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     int32_t bytesSent = d->send(data, size, false);
     if (bytesSent == 0 && !d->isValid()) {
         return -1;
@@ -1634,15 +1199,15 @@ int32_t KcpSocket::send(const char *data, int32_t size)
     }
 }
 
-int32_t KcpSocket::sendall(const char *data, int32_t size)
+int32_t KcpStream::sendall(const char *data, int32_t size)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     return d->send(data, size, true);
 }
 
-string KcpSocket::recv(int32_t size)
+string KcpStream::recv(int32_t size)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     string bs(size, '\0');
 
     int32_t bytes = d->recv(&bs[0], bs.size(), false);
@@ -1653,9 +1218,9 @@ string KcpSocket::recv(int32_t size)
     return string();
 }
 
-string KcpSocket::recvall(int32_t size)
+string KcpStream::recvall(int32_t size)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     string bs(size, '\0');
 
     int32_t bytes = d->recv(&bs[0], bs.size(), true);
@@ -1666,9 +1231,9 @@ string KcpSocket::recvall(int32_t size)
     return string();
 }
 
-int32_t KcpSocket::send(const string &data)
+int32_t KcpStream::send(const string &data)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     int32_t bytesSent = d->send(data.data(), data.size(), false);
     if (bytesSent == 0 && !d->isValid()) {
         return -1;
@@ -1677,293 +1242,79 @@ int32_t KcpSocket::send(const string &data)
     }
 }
 
-int32_t KcpSocket::sendall(const string &data)
+int32_t KcpStream::sendall(const string &data)
 {
-    NG_D(KcpSocket);
+    NG_D(KcpStream);
     return d->send(data.data(), data.size(), true);
 }
 
-bool KcpSocket::filter(char *data, int32_t *len, HostAddress *addr, uint16_t *port)
+shared_ptr<DatagramLink> KcpStream::link() const
 {
-    (void)(data);
-    (void)(len);
-    (void)(addr);
-    (void)(port);
-    return false;
-}
-
-int32_t KcpSocket::udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port)
-{
-    NG_D(KcpSocket);
-    return d->udpSend(data, size, addr, port);
-}
-
-KcpSocket *KcpSocket::createConnection(const HostAddress &host, uint16_t port, Socket::SocketError *error,
-                                       int allowProtocol)
-{
-    return qtng::createConnection<KcpSocket>(host, port, error, allowProtocol,
-                                                              MakeSocketType<KcpSocket>);
-}
-
-KcpSocket *KcpSocket::createConnection(const string &hostName, uint16_t port, Socket::SocketError *error,
-                                       shared_ptr<SocketDnsCache> dnsCache, int allowProtocol)
-{
-    return qtng::createConnection<KcpSocket>(hostName, port, error, dnsCache, allowProtocol,
-                                                              MakeSocketType<KcpSocket>);
-}
-
-KcpSocket *KcpSocket::createServer(const HostAddress &host, uint16_t port, int backlog)
-{
-    return qtng::createServer<KcpSocket>(host, port, backlog, MakeSocketType<KcpSocket>);
-}
-
-namespace {
-
-class KcpSocketLikeImpl : public SocketLike
-{
-public:
-    KcpSocketLikeImpl(shared_ptr<KcpSocket> s);
-public:
-    virtual Socket::SocketError error() const override;
-    virtual string errorString() const override;
-    virtual bool isValid() const override;
-    virtual HostAddress localAddress() const override;
-    virtual uint16_t localPort() const override;
-    virtual HostAddress peerAddress() const override;
-    virtual string peerName() const override;
-    virtual uint16_t peerPort() const override;
-    virtual intptr_t fileno() const override;
-    virtual Socket::SocketType type() const override;
-    virtual Socket::SocketState state() const override;
-    virtual HostAddress::NetworkLayerProtocol protocol() const override;
-    virtual string localAddressURI() const override;
-    virtual string peerAddressURI() const override;
-
-    virtual Socket *acceptRaw() override;
-    virtual shared_ptr<SocketLike> accept() override;
-    virtual bool bind(const HostAddress &address, uint16_t port, Socket::BindMode mode) override;
-    virtual bool bind(uint16_t port, Socket::BindMode mode) override;
-    virtual bool connect(const HostAddress &addr, uint16_t port) override;
-    virtual bool connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) override;
-    virtual void close() override;
-    virtual void abort() override;
-    virtual bool listen(int backlog) override;
-    virtual bool setOption(Socket::SocketOption option, int value) override;
-    virtual int option(Socket::SocketOption option) const override;
-
-    virtual int32_t peek(char *data, int32_t size) override;
-    virtual int32_t peekRaw(char *data, int32_t size) override;
-    virtual int32_t recv(char *data, int32_t size) override;
-    virtual int32_t recvall(char *data, int32_t size) override;
-    virtual int32_t send(const char *data, int32_t size) override;
-    virtual int32_t sendall(const char *data, int32_t size) override;
-    virtual string recv(int32_t size) override;
-    virtual string recvall(int32_t size) override;
-    virtual int32_t send(const string &data) override;
-    virtual int32_t sendall(const string &data) override;
-public:
-    shared_ptr<KcpSocket> s;
-};
-
-KcpSocketLikeImpl::KcpSocketLikeImpl(shared_ptr<KcpSocket> s)
-    : s(s)
-{
-}
-
-Socket::SocketError KcpSocketLikeImpl::error() const
-{
-    return s->error();
-}
-
-string KcpSocketLikeImpl::errorString() const
-{
-    return s->errorString();
-}
-
-bool KcpSocketLikeImpl::isValid() const
-{
-    return s->isValid();
-}
-
-HostAddress KcpSocketLikeImpl::localAddress() const
-{
-    return s->localAddress();
-}
-
-uint16_t KcpSocketLikeImpl::localPort() const
-{
-    return s->localPort();
-}
-
-HostAddress KcpSocketLikeImpl::peerAddress() const
-{
-    return s->peerAddress();
-}
-
-string KcpSocketLikeImpl::peerName() const
-{
-    return s->peerName();
-}
-
-uint16_t KcpSocketLikeImpl::peerPort() const
-{
-    return s->peerPort();
-}
-
-intptr_t KcpSocketLikeImpl::fileno() const
-{
-    return -1;
-}
-
-Socket::SocketType KcpSocketLikeImpl::type() const
-{
-    return s->type();
-}
-
-Socket::SocketState KcpSocketLikeImpl::state() const
-{
-    return s->state();
-}
-
-HostAddress::NetworkLayerProtocol KcpSocketLikeImpl::protocol() const
-{
-    return s->protocol();
-}
-
-string KcpSocketLikeImpl::localAddressURI() const
-{
-    return s->localAddressURI();
-}
-
-string KcpSocketLikeImpl::peerAddressURI() const
-{
-    return s->peerAddressURI();
-}
-
-Socket *KcpSocketLikeImpl::acceptRaw()
-{
-    return nullptr;
-}
-
-shared_ptr<SocketLike> KcpSocketLikeImpl::accept()
-{
-    return asSocketLike(s->accept());
-}
-
-bool KcpSocketLikeImpl::bind(const HostAddress &address, uint16_t port = 0,
-                             Socket::BindMode mode = Socket::DefaultForPlatform)
-{
-    return s->bind(address, port, mode);
-}
-
-bool KcpSocketLikeImpl::bind(uint16_t port, Socket::BindMode mode)
-{
-    return s->bind(port, mode);
-}
-
-bool KcpSocketLikeImpl::connect(const HostAddress &addr, uint16_t port)
-{
-    return s->connect(addr, port);
-}
-
-bool KcpSocketLikeImpl::connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
-{
-    return s->connect(hostName, port, dnsCache);
-}
-
-void KcpSocketLikeImpl::close()
-{
-    s->close();
-}
-
-void KcpSocketLikeImpl::abort()
-{
-    s->abort();
-}
-
-bool KcpSocketLikeImpl::listen(int backlog)
-{
-    return s->listen(backlog);
-}
-
-bool KcpSocketLikeImpl::setOption(Socket::SocketOption option, int value)
-{
-    return s->setOption(option, value);
-}
-
-int KcpSocketLikeImpl::option(Socket::SocketOption option) const
-{
-    return s->option(option);
-}
-
-int32_t KcpSocketLikeImpl::peek(char *data, int32_t size)
-{
-    return s->peek(data, size);
-}
-
-int32_t KcpSocketLikeImpl::peekRaw(char *data, int32_t size)
-{
-    return s->peekRaw(data, size);
-}
-
-int32_t KcpSocketLikeImpl::recv(char *data, int32_t size)
-{
-    return s->recv(data, size);
-}
-
-int32_t KcpSocketLikeImpl::recvall(char *data, int32_t size)
-{
-    return s->recvall(data, size);
-}
-
-int32_t KcpSocketLikeImpl::send(const char *data, int32_t size)
-{
-    return s->send(data, size);
-}
-
-int32_t KcpSocketLikeImpl::sendall(const char *data, int32_t size)
-{
-    return s->sendall(data, size);
-}
-
-string KcpSocketLikeImpl::recv(int32_t size)
-{
-    return s->recv(size);
-}
-
-string KcpSocketLikeImpl::recvall(int32_t size)
-{
-    return s->recvall(size);
-}
-
-int32_t KcpSocketLikeImpl::send(const string &data)
-{
-    return s->send(data);
-}
-
-int32_t KcpSocketLikeImpl::sendall(const string &data)
-{
-    return s->sendall(data);
-}
-
-}  // namespace
-
-shared_ptr<SocketLike> asSocketLike(shared_ptr<KcpSocket> s)
-{
-    if (!s) {
-        return shared_ptr<SocketLike>();
+    NG_D(const KcpStream);
+    const MasterKcpStreamPrivate *master = dynamic_cast<const MasterKcpStreamPrivate *>(d);
+    if (master) {
+        return master->link;
     }
-    return make_shared<KcpSocketLikeImpl>(s);
+    const SlaveKcpStreamPrivate *slave = dynamic_cast<const SlaveKcpStreamPrivate *>(d);
+    if (slave && slave->parent) {
+        return slave->parent->link;
+    }
+    return shared_ptr<DatagramLink>();
 }
 
-shared_ptr<KcpSocket> convertSocketLikeToKcpSocket(shared_ptr<SocketLike> socket)
+void KcpStream::setHeaderMode(HeaderMode mode)
 {
-    shared_ptr<KcpSocketLikeImpl> impl = dynamic_pointer_cast<KcpSocketLikeImpl>(socket);
-    if (!impl) {
-        return shared_ptr<KcpSocket>();
-    } else {
-        return impl->s;
-    }
+    NG_D(KcpStream);
+    d->headerMode = mode;
 }
+
+KcpStream::HeaderMode KcpStream::headerMode() const
+{
+    NG_D(const KcpStream);
+    return d->headerMode;
+}
+
+uint32_t KcpStream::sessionId() const
+{
+    NG_D(const KcpStream);
+    return d->sessionId;
+}
+
+void KcpStream::setSessionId(uint32_t id)
+{
+    NG_D(KcpStream);
+    d->sessionId = id;
+}
+
+DatagramPath KcpStream::peerPath() const
+{
+    NG_D(const KcpStream);
+    return d->remotePath;
+}
+
+bool KcpStream::connect(const DatagramPath &remote)
+{
+    NG_D(KcpStream);
+    return d->connect(remote);
+}
+
+
+bool KcpStream::markBound()
+{
+    NG_D(KcpStream);
+    if (d->state != Socket::UnconnectedState) {
+        return false;
+    }
+    d->state = Socket::BoundState;
+    return true;
+}
+
+KcpStream *KcpStream::accept(const DatagramPath &remote)
+{
+    NG_D(KcpStream);
+    return d->accept(remote);
+}
+
+
 
 }  // namespace qtng

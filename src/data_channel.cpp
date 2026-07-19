@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 
@@ -17,7 +18,7 @@
 #include "qtng/coroutine_utils.h"
 #include "qtng/data_channel.h"
 #include "qtng/utils/string_utils.h"
-#include "qtng/kcp.h"
+#include "qtng/udp.h"
 #include "qtng/utils/logging.h"
 
 using namespace std;
@@ -124,13 +125,15 @@ public:
     shared_ptr<VirtualChannel> peekChannel(uint32_t channelNumber);
     string recvPacket();
     bool sendPacket(const string &packet, bool waitSent);
+    bool sendPacket(string &&packet, bool waitSent);
     bool sendPacketAsync(const string &packet);
+    bool sendPacketAsync(string &&packet);
     string toString() const;
 
     // must be implemented by subclasses
     virtual void abort(DataChannel::ChannelError reason);
     virtual bool isBroken() const = 0;
-    virtual bool sendPacketRaw(uint32_t channelNumber, const string &payload, BlockFlag blocking) = 0;
+    virtual bool sendPacketRaw(uint32_t channelNumber, string payload, BlockFlag blocking) = 0;
     virtual void cleanChannel(uint32_t channelNumber, bool sendDestroyPacket) = 0;
     virtual void cleanSendingPacket(uint32_t subChannelNumber,
                                     function<bool(const string &)> subCheckPacket) = 0;
@@ -142,7 +145,7 @@ public:
     // called by the subclasses.
     bool handleCommand(const string &packet);
     void notifyChannelClose(uint32_t channelNumber);
-    DataChannel::ChannelError handleIncomingPacket(uint32_t channelNumber, const string &payload);
+    DataChannel::ChannelError handleIncomingPacket(uint32_t channelNumber, string payload);
 
     string name;
     DataChannelPole pole;
@@ -182,8 +185,8 @@ public:
         : channelNumber(0)
     {
     }
-    WritingPacket(uint32_t channelNumber, const string &packet, shared_ptr<ValueEvent<bool>> done)
-        : packet(packet)
+    WritingPacket(uint32_t channelNumber, string packet, shared_ptr<ValueEvent<bool>> done)
+        : packet(std::move(packet))
         , done(done)
         , channelNumber(channelNumber)
     {
@@ -203,7 +206,7 @@ public:
     virtual ~SocketChannelPrivate() override;
     virtual bool isBroken() const override;
     virtual void abort(DataChannel::ChannelError reason) override;
-    virtual bool sendPacketRaw(uint32_t channelNumber, const string &packet, BlockFlag blocking) override;
+    virtual bool sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking) override;
     virtual void cleanChannel(uint32_t channelNumber, bool sendDestroyPacket) override;
     virtual void cleanSendingPacket(uint32_t subChannelNumber,
                                     function<bool(const string &)> subCheckPacket) override;
@@ -236,7 +239,7 @@ public:
     virtual ~VirtualChannelPrivate() override;
     virtual bool isBroken() const override;
     virtual void abort(DataChannel::ChannelError reason) override;
-    virtual bool sendPacketRaw(uint32_t channelNumber, const string &packet, BlockFlag blocking) override;
+    virtual bool sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking) override;
     virtual void cleanChannel(uint32_t channelNumber, bool sendDestroyPacket) override;
     virtual void cleanSendingPacket(uint32_t subChannelNumber,
                                     function<bool(const string &)> subCheckPacket) override;
@@ -314,10 +317,11 @@ void DataChannelPrivate::abort(DataChannel::ChannelError reason)
     subChannels.clear();
 }
 
-DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t channelNumber, const string &payload)
+DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t channelNumber, string payload)
 {
     if (pluggedChannel) {
-        if (!getPrivateHelper(pluggedChannel)->sendPacketRaw(channelNumber, payload, BlockFlag::Block_Until_Sent)) {
+        if (!getPrivateHelper(pluggedChannel)
+                     ->sendPacketRaw(channelNumber, std::move(payload), BlockFlag::Block_Until_Sent)) {
             return DataChannel::PluggedChannelError;
         } else {
             return DataChannel::NoError;
@@ -329,7 +333,7 @@ DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t chan
             slowDownRequested = true;
             sendPacketRaw(CommandChannelNumber, packSlowDownRequest(), BlockFlag::Block_And_Not_Wait_Sent);
         }
-        receivingQueue.put(payload);
+        receivingQueue.put(std::move(payload));
     } else if (channelNumber == CommandChannelNumber) {
         if (!handleCommand(payload)) {
             return DataChannel::InvalidCommand;
@@ -353,9 +357,9 @@ DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t chan
                 return DataChannel::InvalidPacket;
             }
             uint32_t nestedChannelNumber = ngFromBigEndian<uint32_t>(payload.data());
-            const string &packet = payload.substr(headerSize);
+            string packet = payload.substr(headerSize);
             DataChannel::ChannelError handlePacketResult =
-                    channel->d_func()->handleIncomingPacket(nestedChannelNumber, packet);
+                    channel->d_func()->handleIncomingPacket(nestedChannelNumber, std::move(packet));
             if (handlePacketResult != DataChannel::NoError) {
 #ifdef DEBUG_PROTOCOL
                 ngDebug() << "the sub channel got an too small packet: " << channelNumber << payload.size()
@@ -446,7 +450,7 @@ string DataChannelPrivate::recvPacket()
     if (receivingQueue.isEmpty() && error != DataChannel::NoError) {
         return string();
     }
-    const string &packet = receivingQueue.get();
+    string packet = receivingQueue.get();
     if (packet.empty()) {
         return string();
     }
@@ -465,9 +469,23 @@ bool DataChannelPrivate::sendPacket(const string &packet, bool waitSent)
     return sendPacketRaw(DataChannelNumber, packet, waitSent ? BlockFlag::Block_Until_Sent : BlockFlag::Block_And_Not_Wait_Sent);
 }
 
+bool DataChannelPrivate::sendPacket(string &&packet, bool waitSent)
+{
+    if (!goThrough.tryWait()) {
+        return false;
+    }
+    return sendPacketRaw(DataChannelNumber, std::move(packet),
+                         waitSent ? BlockFlag::Block_Until_Sent : BlockFlag::Block_And_Not_Wait_Sent);
+}
+
 bool DataChannelPrivate::sendPacketAsync(const string &packet)
 {
     return sendPacketRaw(DataChannelNumber, packet, BlockFlag::NonBlock);
+}
+
+bool DataChannelPrivate::sendPacketAsync(string &&packet)
+{
+    return sendPacketRaw(DataChannelNumber, std::move(packet), BlockFlag::NonBlock);
 }
 
 bool DataChannelPrivate::handleCommand(const string &packet)
@@ -582,7 +600,7 @@ SocketChannelPrivate::~SocketChannelPrivate()
     delete operations;
 }
 
-bool SocketChannelPrivate::sendPacketRaw(uint32_t channelNumber, const string &packet, BlockFlag blocking)
+bool SocketChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking)
 {
     if (error != DataChannel::NoError || packet.empty()) {
         return false;
@@ -595,14 +613,15 @@ bool SocketChannelPrivate::sendPacketRaw(uint32_t channelNumber, const string &p
     }
     switch (blocking) {
     case BlockFlag::NonBlock:
-        sendingQueue.putForcedly(WritingPacket(channelNumber, packet, shared_ptr<ValueEvent<bool>>()));
+        sendingQueue.putForcedly(
+                WritingPacket(channelNumber, std::move(packet), shared_ptr<ValueEvent<bool>>()));
         return true;
     case BlockFlag::Block_And_Not_Wait_Sent:
-        sendingQueue.put(WritingPacket(channelNumber, packet, shared_ptr<ValueEvent<bool>>()));
+        sendingQueue.put(WritingPacket(channelNumber, std::move(packet), shared_ptr<ValueEvent<bool>>()));
         return true;
     case BlockFlag::Block_Until_Sent: {
         shared_ptr<ValueEvent<bool>> done(new ValueEvent<bool>());
-        sendingQueue.put(WritingPacket(channelNumber, packet, done));
+        sendingQueue.put(WritingPacket(channelNumber, std::move(packet), done));
         bool success = done->tryWait();
         return success;
     }
@@ -635,20 +654,20 @@ void SocketChannelPrivate::doSend()
                 assert(error != DataChannel::NoError);
                 return;
             }
-            writingPackets.push_back(writingPacket);
+            writingPackets.push_back(std::move(writingPacket));
 #define CHANNEL_HEAD_SIZE (sizeof(uint32_t) + sizeof(uint32_t))
-            count = CHANNEL_HEAD_SIZE + writingPacket.packet.size();
+            count = CHANNEL_HEAD_SIZE + writingPackets.back().packet.size();
             while (count + CHANNEL_HEAD_SIZE < maxSendSize && !sendingQueue.isEmpty()) {
-                WritingPacket writingPacket = sendingQueue.peek();
+                WritingPacket writingPacket = sendingQueue.get();
                 if (!writingPacket.isValid()) {
                     break;
                 }
                 if (count + CHANNEL_HEAD_SIZE + writingPacket.packet.size() > maxSendSize) {
+                    sendingQueue.returnsForcely(std::move(writingPacket));
                     break;
                 }
                 count += CHANNEL_HEAD_SIZE + writingPacket.packet.size();
-                sendingQueue.get();
-                writingPackets.push_back(writingPacket);
+                writingPackets.push_back(std::move(writingPacket));
             }
         } catch (CoroutineExitException) {
             assert(error != DataChannel::NoError);
@@ -730,7 +749,8 @@ void SocketChannelPrivate::doReceive()
         } catch (...) {
             return abort(DataChannel::UnknownError);
         }
-        DataChannel::ChannelError handlePacketResult = handleIncomingPacket(channelNumber, payload);
+        DataChannel::ChannelError handlePacketResult =
+                handleIncomingPacket(channelNumber, std::move(payload));
         if (handlePacketResult != DataChannel::NoError) {
             return abort(handlePacketResult);
         }
@@ -781,7 +801,7 @@ void SocketChannelPrivate::abort(DataChannel::ChannelError reason)
     connection->abort();
 
     while (!sendingQueue.isEmpty()) {
-        const WritingPacket &writingPacket = sendingQueue.get();
+        WritingPacket writingPacket = sendingQueue.get();
         if (writingPacket.done) {
             writingPacket.done->send(false);
         }
@@ -825,17 +845,17 @@ void SocketChannelPrivate::cleanSendingPacket(uint32_t subChannelNumber,
 {
     vector<WritingPacket> reserved;
     while (!sendingQueue.isEmpty()) {
-        const WritingPacket &writingPacket = sendingQueue.get();
+        WritingPacket writingPacket = sendingQueue.get();
         if (writingPacket.channelNumber == subChannelNumber && subCheckPacket(writingPacket.packet)) {
             if (writingPacket.done) {
                 writingPacket.done.get()->send(false);
             }
         } else {
-            reserved.push_back(writingPacket);
+            reserved.push_back(std::move(writingPacket));
         }
     }
-    for (const WritingPacket &writingPacket : reserved) {
-        sendingQueue.putForcedly(writingPacket);
+    for (WritingPacket &writingPacket : reserved) {
+        sendingQueue.putForcedly(std::move(writingPacket));
     }
 }
 
@@ -872,7 +892,7 @@ VirtualChannelPrivate::~VirtualChannelPrivate()
     VirtualChannelPrivate::abort(DataChannel::UserShutdown);
 }
 
-bool VirtualChannelPrivate::sendPacketRaw(uint32_t channelNumber, const string &packet, BlockFlag blocking)
+bool VirtualChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking)
 {
     if (error != DataChannel::NoError || !parentChannel || packet.empty()) {
 #ifdef DEBUG_PROTOCOL
@@ -887,7 +907,7 @@ bool VirtualChannelPrivate::sendPacketRaw(uint32_t channelNumber, const string &
     data.reserve(packet.size() + static_cast<int>(sizeof(uint32_t)));
     data.append(reinterpret_cast<char *>(header), sizeof(uint32_t));
     data.append(packet);
-    return getPrivateHelper(parentChannel)->sendPacketRaw(this->channelNumber, data, blocking);
+    return getPrivateHelper(parentChannel)->sendPacketRaw(this->channelNumber, std::move(data), blocking);
 }
 
 void VirtualChannelPrivate::abort(DataChannel::ChannelError reason)
@@ -1104,10 +1124,22 @@ bool DataChannel::sendPacket(const string &packet, bool waitSent/* = true*/)
     return d->sendPacket(packet, waitSent);
 }
 
+bool DataChannel::sendPacket(string &&packet, bool waitSent/* = true*/)
+{
+    NG_D(DataChannel);
+    return d->sendPacket(std::move(packet), waitSent);
+}
+
 bool DataChannel::sendPacketAsync(const string &packet)
 {
     NG_D(DataChannel);
     return d->sendPacketAsync(packet);
+}
+
+bool DataChannel::sendPacketAsync(string &&packet)
+{
+    NG_D(DataChannel);
+    return d->sendPacketAsync(std::move(packet));
 }
 
 string DataChannel::recvPacket()
@@ -1627,12 +1659,12 @@ void exchange(shared_ptr<DataChannel> incoming, shared_ptr<DataChannel> outgoing
     DataChannelPrivate *outgoingPrivate = DataChannelPrivate::getPrivateHelper(outgoing);
 
     while (!incomingPrivate->receivingQueue.isEmpty()) {
-        const string &packet = incomingPrivate->receivingQueue.get();
-        outgoingPrivate->sendPacketRaw(DataChannelNumber, packet, BlockFlag::NonBlock);
+        string packet = incomingPrivate->receivingQueue.get();
+        outgoingPrivate->sendPacketRaw(DataChannelNumber, std::move(packet), BlockFlag::NonBlock);
     }
     while (!outgoingPrivate->receivingQueue.isEmpty()) {
-        const string &packet = outgoingPrivate->receivingQueue.get();
-        incomingPrivate->sendPacketRaw(DataChannelNumber, packet, BlockFlag::NonBlock);
+        string packet = outgoingPrivate->receivingQueue.get();
+        incomingPrivate->sendPacketRaw(DataChannelNumber, std::move(packet), BlockFlag::NonBlock);
     }
 
     incomingPrivate->pluggedChannel = outgoing;

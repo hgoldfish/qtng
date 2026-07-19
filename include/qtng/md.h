@@ -1,16 +1,7 @@
 #ifndef QTNG_MD_H
 #define QTNG_MD_H
 
-#include <algorithm>
-#include <cstdint>
-#include <deque>
-#include <functional>
-#include <map>
-#include <memory>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include "qtng/crypto.h"
 #include "qtng/utils/string_utils.h"

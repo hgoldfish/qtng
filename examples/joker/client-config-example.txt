@@ -2,20 +2,12 @@
 password = 123456
 timeout = 10
 
-[remote/kcp]
+[remote]
 type = kcp
 #address = yourhost.com
 port = 8000
 mode = normal
 mtu = 1400
-weight = 2
-
-[remote/http]
-type = http
-#address = yourhost.com
-port = 8000
-mtu = 1400
-weight = 1
 
 [local/socks5]
 address = 0.0.0.0
@@ -24,4 +16,3 @@ port = 8085
 [local/http]
 address = 0.0.0.0
 port = 8118
-

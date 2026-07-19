@@ -21,7 +21,7 @@ Cross platforms
 
 qtng is tested in Linux, Android, Windows, MacOS, and OpenBSD. And support gcc, clang, mingw32, msvc.
 
-Building qtng requires a C++11 compiler, zlib, and TLS/crypto support via bundled LibreSSL (when a ``libressl/`` subdirectory is present) or system OpenSSL/LibreSSL. The bundled unit tests require C++17 and a system-installed Catch2 v3 (or newer); they are not built by default. Catch2 is never downloaded automatically — see "Build and run tests" below for how to install it.
+Building qtng requires a C++11 compiler, zlib, and TLS/crypto support via bundled LibreSSL (when a ``libressl/`` subdirectory is present) or system OpenSSL 1.1.0 or newer. The bundled unit tests require C++17 and a system-installed Catch2 v3 (or newer); they are not built by default. Catch2 is never downloaded automatically — see "Build and run tests" below for how to install it.
 
 The coroutine is implemented using boost::context asm code, and support native posix `ucontext` and windows `fiber` API. Running tests is success in ARM, ARM64, x86, amd64.
 
@@ -183,7 +183,8 @@ The ``Socket`` class is a straightforward transliteration of the bsd socket inte
 
 ``Socket`` and ``SslSocket`` objects can be converted to ``SocketLike`` objects, which are useful for functions accept both ``Socket`` and ``SslSocket`` parameter.
 
-There is a ``KcpSocket`` implementing KCP over UDP. It has a simpliar API like ``Socket``, and support converting to ``SocketLike`` too.
+``KcpSocket`` is the recommended KCP-over-UDP API. It mirrors ``Socket`` and can be converted to
+``SocketLike``.
 
 
 Create Socket client

@@ -1,6 +1,7 @@
 #ifndef QTNG_EVENTLOOP_H
 #define QTNG_EVENTLOOP_H
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>

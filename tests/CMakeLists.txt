@@ -83,3 +83,12 @@ target_include_directories(qtng_test_msgpack PRIVATE "${CMAKE_SOURCE_DIR}/includ
 set_target_properties(qtng_test_msgpack PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
 catch_discover_tests(qtng_test_msgpack)
+
+add_executable(qtng_test_multi_stream
+    test_multi_stream.cpp
+)
+target_link_libraries(qtng_test_multi_stream PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_multi_stream PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_multi_stream PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+catch_discover_tests(qtng_test_multi_stream)

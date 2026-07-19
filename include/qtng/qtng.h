@@ -13,8 +13,7 @@
 #include "qtng/socks5_proxy.h"
 #include "qtng/msgpack.h"
 #include "qtng/httpd.h"
-#include "qtng/kcp.h"
-#include "qtng/kcp_base.h"
+#include "qtng/udp.h"
 #include "qtng/socket_server.h"
 #include "qtng/network_interface.h"
 #include "qtng/websocket.h"
@@ -27,6 +26,7 @@
 #  include "qtng/cipher.h"
 #  include "qtng/pkey.h"
 #  include "qtng/certificate.h"
+#  include "qtng/noise.h"
 #endif
 
 #ifdef QTNG_HAVE_ZLIB
@@ -34,5 +34,6 @@
 #endif
 
 #include "qtng/data_channel.h"
+#include "qtng/multi_stream.h"
 
 #endif  // QTNG_QTNG_H

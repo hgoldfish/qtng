@@ -1,19 +1,11 @@
 #ifndef QTNG_SOCKET_SERVER_H
 #define QTNG_SOCKET_SERVER_H
 
-#include <algorithm>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
-#include "qtng/kcp.h"
-#include "qtng/kcp_base.h"
+#include "qtng/udp.h"
 #include "qtng/socket_utils.h"
 #include "qtng/coroutine_utils.h"
 #ifndef QTNG_NO_CRYPTO
@@ -132,38 +124,6 @@ std::shared_ptr<SocketLike> KcpServer<RequestHandler>::serverCreate()
 
 template<typename RequestHandler>
 void KcpServer<RequestHandler>::processRequest(std::shared_ptr<SocketLike> request)
-{
-    RequestHandler handler;
-    handler.request = request;
-    handler.server = this;
-    handler.run();
-}
-
-template<typename RequestHandler>
-class KcpServerV2 : public BaseStreamServer
-{
-public:
-    KcpServerV2(const HostAddress &serverAddress, std::uint16_t serverPort)
-        : BaseStreamServer(serverAddress, serverPort)
-    {
-    }
-    KcpServerV2(std::uint16_t serverPort)
-        : BaseStreamServer(HostAddress::Any, serverPort)
-    {
-    }
-protected:
-    virtual std::shared_ptr<SocketLike> serverCreate() override;
-    virtual void processRequest(std::shared_ptr<SocketLike> request) override;
-};
-
-template<typename RequestHandler>
-std::shared_ptr<SocketLike> KcpServerV2<RequestHandler>::serverCreate()
-{
-    return createKcpServer(serverAddress(), serverPort(), 0);
-}
-
-template<typename RequestHandler>
-void KcpServerV2<RequestHandler>::processRequest(std::shared_ptr<SocketLike> request)
 {
     RequestHandler handler;
     handler.request = request;

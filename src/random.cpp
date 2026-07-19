@@ -1,5 +1,4 @@
 #ifndef QTNG_NO_CRYPTO
-#  include "qtng/private/crypto_p.h"
 #  include <openssl/rand.h>
 #endif
 
@@ -15,11 +14,9 @@ namespace qtng {
 
 string randomBytes(int numBytes)
 {
-    initOpenSSL();
     string b;
     b.resize(static_cast<size_t>(numBytes));
     RAND_bytes(reinterpret_cast<unsigned char *>(&b[0]), numBytes);
-    cleanupOpenSSL();
     return b;
 }
 

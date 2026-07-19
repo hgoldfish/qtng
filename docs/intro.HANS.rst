@@ -26,7 +26,7 @@ qtng是基于协程的网络编程工具包，类似 boost::asio，并借鉴 Pyt
 
 qtng已在Linux、Android、Windows、MacOS和OpenBSD平台测试通过，支持gcc、clang、mingw32、msvc编译器。
 
-构建qtng需要 C++11 编译器、zlib，以及 TLS/加密支持（可通过 ``libressl/`` 子目录使用内置 LibreSSL，或使用系统 OpenSSL/LibreSSL）。内置单元测试需要 C++17 以及本机安装的 Catch2 v3（或更高版本），且默认不编译。Catch2 不会被自动下载，安装方式见下文"构建并运行测试"。
+构建qtng需要 C++11 编译器、zlib，以及 TLS/加密支持（可通过 ``libressl/`` 子目录使用内置 LibreSSL，或使用系统 OpenSSL 1.1.0 或更高版本）。内置单元测试需要 C++17 以及本机安装的 Catch2 v3（或更高版本），且默认不编译。Catch2 不会被自动下载，安装方式见下文"构建并运行测试"。
 
 协程实现采用boost::context汇编代码，同时支持原生posix ``ucontext``和windows ``fiber`` API，已在ARM、ARM64、x86、amd64架构成功运行测试。
 
@@ -187,7 +187,7 @@ qtng旨在简化C++网络编程。 ``Socket`` 类是对BSD socket接口的面向
 
 ``Socket`` 和 ``SslSocket`` 可转换为``SocketLike``接口，便于统一处理。
 
-``KcpSocket`` 实现基于UDP的KCP协议，提供类似``Socket``的API，同样支持``SocketLike``转换。
+``KcpSocket`` 是推荐的 UDP 上 KCP API，接口类似 ``Socket``，并支持 ``SocketLike`` 转换。
 
 
 创建Socket客户端

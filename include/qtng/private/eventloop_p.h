@@ -1,7 +1,10 @@
 #ifndef QTNG_EVENTLOOP_P_H
 #define QTNG_EVENTLOOP_P_H
 
+#include <cstdint>
+#include <functional>
 #include <memory>
+
 #include "qtng/eventloop.h"
 #include "qtng/utils/thread_local.h"
 #include "qtng/utils/platform.h"

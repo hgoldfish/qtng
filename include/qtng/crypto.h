@@ -49,9 +49,6 @@ enum PeerVerifyMode {
 };
 }  // namespace Ssl
 
-void initOpenSSL();
-void cleanupOpenSSL();
-
 }  // namespace qtng
 
 #endif  // QTNG_CRYPTO_H

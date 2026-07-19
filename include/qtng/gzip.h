@@ -1,16 +1,8 @@
 #ifndef QTNG_GZIP_H
 #define QTNG_GZIP_H
 
-#include <algorithm>
 #include <cstdint>
-#include <deque>
-#include <functional>
-#include <map>
 #include <memory>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include "qtng/io_utils.h"
 #include "qtng/utils/platform.h"

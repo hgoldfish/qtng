@@ -1,7 +1,10 @@
 #ifndef QTNG_COROUTINE_UTILS_H
 #define QTNG_COROUTINE_UTILS_H
 
+#include <atomic>
 #include <cassert>
+#include <climits>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>

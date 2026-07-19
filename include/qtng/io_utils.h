@@ -1,9 +1,11 @@
 #ifndef QTNG_IO_UTILS_H
 #define QTNG_IO_UTILS_H
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 #include "qtng/utils/platform.h"
 

@@ -779,20 +779,17 @@ template<typename SocketType>
 SslConnection<SocketType>::SslConnection(const SslConfiguration &config)
     : config(config)
 {
-    initOpenSSL();
 }
 
 template<typename SocketType>
 SslConnection<SocketType>::SslConnection()
 {
-    initOpenSSL();
 }
 
 template<typename SocketType>
 SslConnection<SocketType>::~SslConnection()
 {
     rawSocket->abort();
-    cleanupOpenSSL();
 }
 
 template<typename SocketType>

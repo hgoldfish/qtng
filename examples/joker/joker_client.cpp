@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <cstdio>
 
 #include "joker_client.h"
@@ -39,13 +38,12 @@ public:
     }
     void run() override;
 public:
-    MakeChannelResult result;
+    shared_ptr<VirtualChannel> result;
     JokerClient *parent;
 };
 
 JokerClientConfigure::JokerClientConfigure()
     : timeout(5.0f)
-    , maxWeight(5)
     , localSocks5Address(HostAddress::Any)
     , localSocks5Port(8085)
     , localHttpAddress(HostAddress::Any)
@@ -62,7 +60,6 @@ JokerServerConnection::JokerServerConnection()
     , remotePort(8000)
     , mtu(1400)
     , mode(KcpSocket::Internet)
-    , weight(3)
 {
 }
 
@@ -99,20 +96,6 @@ bool JokerServerConnection::connect(shared_ptr<Cipher> templateCipher)
         return false;
     }
     return true;
-}
-
-void JokerServerConnection::increaseWeight(int maxWeight)
-{
-    if (weight < maxWeight) {
-        ++weight;
-    }
-}
-
-void JokerServerConnection::decreaseWeight()
-{
-    if (weight > 1) {
-        --weight;
-    }
 }
 
 bool JokerServerConnection::connectKcp(shared_ptr<Cipher> templateCipher)
@@ -207,10 +190,10 @@ void JokerHttpProxyRequestHandler::exchangeAsync(shared_ptr<SocketLike> request,
     userData<JokerClient>()->exchangeAsync(request, forward);
 }
 
-JokerClient::JokerClient(const JokerClientConfigure &configure, const vector<shared_ptr<JokerServerConnection>> &servers)
+JokerClient::JokerClient(const JokerClientConfigure &configure, shared_ptr<JokerServerConnection> server)
     : operations(new CoroutineGroup())
     , configure(configure)
-    , servers(servers)
+    , server(server)
     , session(make_shared<HttpSession>())
 {
     session->setManagingCookies(false);
@@ -265,48 +248,31 @@ bool JokerClient::start()
     return true;
 }
 
-static bool compareConnection(const shared_ptr<JokerServerConnection> &x, const shared_ptr<JokerServerConnection> &y)
+shared_ptr<VirtualChannel> JokerClient::_makeChannel()
 {
-    return x->weight > y->weight;
-}
-
-MakeChannelResult JokerClient::_makeChannel()
-{
-    vector<shared_ptr<JokerServerConnection>> aliveServers = servers;
-    sort(aliveServers.begin(), aliveServers.end(), compareConnection);
-
-    for (shared_ptr<JokerServerConnection> server : aliveServers) {
-        if (!server->isAlive()) {
-            bool success = false;
-            try {
-                Timeout timeout(configure.timeout);
-                success = server->connect(configure.templateCipher);
-            } catch (TimeoutException &) {
-            }
-            if (!success) {
-                continue;
-            }
-        }
-
-        shared_ptr<VirtualChannel> forward;
+    if (!server->isAlive()) {
+        bool success = false;
         try {
             Timeout timeout(configure.timeout);
-            forward = server->channel->makeChannel();
+            success = server->connect(configure.templateCipher);
         } catch (TimeoutException &) {
         }
-        if (forward && !forward->isBroken()) {
-            MakeChannelResult result;
-            result.forward = forward;
-            result.selectedServer = server;
-            if (lastSelectedServer != server) {
-                lastSelectedServer = server;
-                printf("Selected server connection `%s`.\n", server->name.c_str());
-            }
-            return result;
+        if (!success) {
+            return shared_ptr<VirtualChannel>();
         }
+        printf("Connected to server `%s`.\n", server->name.c_str());
     }
 
-    return MakeChannelResult();
+    shared_ptr<VirtualChannel> forward;
+    try {
+        Timeout timeout(configure.timeout);
+        forward = server->channel->makeChannel();
+    } catch (TimeoutException &) {
+    }
+    if (forward && !forward->isBroken()) {
+        return forward;
+    }
+    return shared_ptr<VirtualChannel>();
 }
 
 void MakeChannelCoroutine::run()
@@ -314,18 +280,18 @@ void MakeChannelCoroutine::run()
     result = parent->_makeChannel();
 }
 
-MakeChannelResult JokerClient::makeChannel()
+shared_ptr<VirtualChannel> JokerClient::makeChannel()
 {
     ScopedLock<Lock> l(lock);
     if (!l.isSuccess()) {
-        return MakeChannelResult();
+        return shared_ptr<VirtualChannel>();
     }
     if (!makeChannelCoroutine) {
         makeChannelCoroutine = make_shared<MakeChannelCoroutine>(this);
         makeChannelCoroutine->start();
     }
     makeChannelCoroutine->join();
-    MakeChannelResult result = makeChannelCoroutine->result;
+    shared_ptr<VirtualChannel> result = makeChannelCoroutine->result;
     makeChannelCoroutine.reset();
     return result;
 }
@@ -352,45 +318,39 @@ shared_ptr<SocketLike> JokerClient::connectToRemoteHost(const string &hostName, 
         return shared_ptr<SocketLike>();
     }
 
-    MakeChannelResult result;
+    shared_ptr<VirtualChannel> forward;
     try {
         Timeout handshakeTimeout(configure.timeout);
         (void) handshakeTimeout;
 
-        result = makeChannel();
-        if (!result.forward) {
+        forward = makeChannel();
+        if (!forward) {
             *forwardAddress = HostAddress();
             return shared_ptr<SocketLike>();
         }
-        if (!result.forward->sendPacket(command)) {
-            result.selectedServer->decreaseWeight();
+        if (!forward->sendPacket(command)) {
             *forwardAddress = HostAddress();
             return shared_ptr<SocketLike>();
         }
     } catch (TimeoutException &) {
         *forwardAddress = HostAddress();
-        if (result.selectedServer) {
-            result.selectedServer->decreaseWeight();
-        }
         return shared_ptr<SocketLike>();
     }
 
     try {
         Timeout replyTimeout(configure.timeout);
         (void) replyTimeout;
-        const string &reply = result.forward->recvPacket();
+        const string &reply = forward->recvPacket();
         MsgPackStream replyStream(reply);
         string s;
         replyStream >> s;
         *forwardAddress = HostAddress(s);
-        result.selectedServer->increaseWeight(configure.maxWeight);
     } catch (TimeoutException &) {
         *forwardAddress = HostAddress();
-        result.selectedServer->decreaseWeight();
         return shared_ptr<SocketLike>();
     }
 
-    return asSocketLike(result.forward);
+    return asSocketLike(forward);
 }
 
 void JokerClient::exchangeAsync(shared_ptr<SocketLike> request, shared_ptr<SocketLike> forward)
@@ -410,15 +370,11 @@ void JokerClient::exchangeSync(shared_ptr<SocketLike> request, shared_ptr<Socket
 void JokerClient::logRequest(const string &type, const string &hostName, uint16_t port, const HostAddress &realIP,
                              bool success)
 {
-    string serverName;
-    if (lastSelectedServer) {
-        serverName = lastSelectedServer->name;
-    }
     const string successStr = success ? "SUCC" : "FAIL";
     const string msg = formatMessage("[%1,%2,%3] %4 -- %5:%6 -> %7",
                                      {type,
                                       successStr,
-                                      serverName,
+                                      server->name,
                                       DateTime::currentDateTimeUtc().toString(),
                                       hostName,
                                       number(port),

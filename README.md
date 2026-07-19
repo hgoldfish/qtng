@@ -111,7 +111,7 @@ Dependencies
 
 * **C++11** compiler for the library (GCC, Clang, MSVC); C++17 is required only to build the bundled unit tests, which are off by default (`-DQTNG_BUILD_TESTS=ON`)
 * **zlib** (system library, for gzip support)
-* **OpenSSL or LibreSSL** for TLS/crypto:
+* **OpenSSL 1.1.0+ or LibreSSL** for TLS/crypto:
   * Place LibreSSL sources in `libressl/` to build a bundled copy, or
   * Install system OpenSSL development packages (e.g. `libssl-dev` on Debian/Ubuntu)
 

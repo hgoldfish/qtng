@@ -111,7 +111,7 @@ qtng 以 LGPL 3.0 许可证发布。
 
 * **C++11** 编译器即可构建库本身（GCC、Clang、MSVC）；仅编译内置单元测试时需要 C++17，测试默认关闭（`-DQTNG_BUILD_TESTS=ON` 启用）
 * **zlib**（系统库，用于 gzip）
-* **OpenSSL 或 LibreSSL**（TLS/加密）：
+* **OpenSSL 1.1.0+ 或 LibreSSL**（TLS/加密）：
   * 将 LibreSSL 源码放入 `libressl/` 可内嵌编译，或
   * 安装系统 OpenSSL 开发包（如 Debian/Ubuntu 的 `libssl-dev`）
 

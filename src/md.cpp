@@ -79,7 +79,6 @@ MessageDigestPrivate::MessageDigestPrivate(MessageDigest::Algorithm algo)
     , algo(algo)
     , hasError(false)
 {
-    initOpenSSL();
     const EVP_MD *md = getOpenSSL_MD(algo);
 
     if (!md) {
@@ -106,7 +105,6 @@ MessageDigestPrivate::~MessageDigestPrivate()
     if (context) {
         EVP_MD_CTX_free(context);
     }
-    cleanupOpenSSL();
 }
 
 void MessageDigestPrivate::addData(const char *buf, int len)
@@ -163,7 +161,6 @@ string MessageDigest::result()
 string PBKDF2_HMAC(int keylen, const string &password, const string &salt,
                        const MessageDigest::Algorithm hashAlgo, int i)
 {
-    initOpenSSL();
     const EVP_MD *dgst = getOpenSSL_MD(hashAlgo);
 
     if (!dgst || salt.empty() || password.empty() || i <= 0) {
@@ -186,7 +183,6 @@ string PBKDF2_HMAC(int keylen, const string &password, const string &salt,
 // string scrypt(const string &password, int keylen, const string &salt,
 //                   int n, int r, int p)
 //{
-//     initOpenSSL();
 //     EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_SCRYPT, nullptr);
 
 //    if(!pctx || password.empty() || salt.empty()) {
