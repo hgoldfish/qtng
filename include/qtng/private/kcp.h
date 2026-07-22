@@ -52,19 +52,34 @@ public:
         Ethernet,
         Loopback,
     };
-    // Builtin: [1-byte type][4-byte BE sessionId overlay on ikcp conv][payload]
-    // External: [1-byte type][payload] — sessionId is managed outside the wire header.
-    enum HeaderMode { Builtin, External };
+    // Wire framing always carries sessionId on KcpStream control commands
+    // (CREATE_MULTIPATH / CLOSE / KEEPALIVE): [1-byte type][4-byte BE sessionId][pad...]
+    //
+    // DatagramLink feeds packets that start at cmd (no leading ikcp conv):
+    //   - cmd 0x51-0x54: native ikcp body. Recv loops (doReceive / doAccept) keep
+    //     4 bytes of headroom before the wire payload so handleDatagram can pass
+    //     a zero-conv prefix to ikcp_input without copying.
+    //   - cmd 0x01: legacy DATA; conv overlay is zeroed in place at bytes 1-4
+    //   - cmd 0x02-0x04: KcpStream control
+    //
+    // protocolVersion controls how ikcp output is sent:
+    //   1 (default, KcpSocket): wrap as DATA with sessionId overlaid on conv
+    //   2 (SlowSocket): strip the 4-byte conv and send [cmd][payload...] directly
+    enum ProtocolVersion : std::uint8_t {
+        Version1 = 1,
+        Version2 = 2,
+    };
 public:
-    explicit KcpStream(std::shared_ptr<DatagramLink> link);
+    explicit KcpStream(std::shared_ptr<DatagramLink> link, std::uint32_t sessionId = 0);
     virtual ~KcpStream();
 public:
     std::shared_ptr<DatagramLink> link() const;
 
-    void setHeaderMode(HeaderMode mode);
-    HeaderMode headerMode() const;
     std::uint32_t sessionId() const;
     void setSessionId(std::uint32_t id);
+
+    void setProtocolVersion(std::uint8_t version);
+    std::uint8_t protocolVersion() const;
 
     void setMode(Mode mode);
     Mode mode() const;

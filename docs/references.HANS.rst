@@ -3245,13 +3245,18 @@ listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠
 
 线协议与历史 ``KcpSocket`` 实现兼容（帧类型 DATA / MULTIPATH / CLOSE / KEEPALIVE）。
 
-``HeaderMode`` 控制 ``sessionId`` 在线路上的位置：
+线成帧统一为：
 
-* ``Builtin``（默认）：``[1 字节 type]``，并在 ikcp conversation id（字节 1–4）上叠加
-  4 字节大端 ``sessionId``。客户端 ``doReceive`` 从对端学习该 id。
-* ``External``：仅 ``[1 字节 type][payload]``，不叠加 ``sessionId``。
-  若外层成帧（如 Noise）携带 id，请用 ``sessionId()`` / ``setSessionId()``。
-  监听端 ``doAccept`` 始终使用 Builtin 成帧。
+* DatagramLink 投递 ``[1 字节 cmd][payload...]``，不含前导 ikcp ``conv``。
+  接收缓冲区在线载荷前预留 4 字节 headroom，使原生 ikcp 命令（0x51–0x54）
+  无需拷贝即可交给 ``ikcp_input``（conv 置零）；旧版 ``DATA``（0x01）则原地
+  清零叠加的 conversation 字段。
+* KcpStream 控制包（CREATE_MULTIPATH / CLOSE / KEEPALIVE）始终在字节 1–4 携带
+  4 字节大端 ``sessionId``。构造时传入，或使用 ``setSessionId()``。
+* ``protocolVersion`` 选择 ikcp 输出格式：版本 1（``KcpSocket`` 默认）将段包装为
+  ``DATA`` 并在 conv 上叠加 ``sessionId``；版本 2（``SlowSocket`` 默认）剥掉
+  4 字节 ``conv``，直接发送 ``[cmd][payload...]``。对端按入站线格式协商为
+  ``min(local, peer)``。
 
 ``wrapKcpStreamAsSocket`` 为公开 API：可将任意 ``DatagramLink`` 上的 ``KcpStream``
 包装为 ``KcpSocket``；底层非 UDP 时，仅 UDP 相关方法会失败或空操作。

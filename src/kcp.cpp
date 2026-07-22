@@ -41,6 +41,36 @@ const char PACKET_TYPE_CREATE_MULTIPATH = 0x02;
 const char PACKET_TYPE_CLOSE = 0X03;
 const char PACKET_TYPE_KEEPALIVE = 0x04;
 
+// ikcp segment commands (see IKCP_CMD_* in ikcp.c). They share the unified cmd byte
+// (wire offset 0) with KcpStream / upper-layer types.
+//
+// Zero-copy recv layout (doReceive / doAccept -> handleDatagram):
+//
+//   buf:  [ headroom: 4 bytes ][ wire: cmd | payload... ]
+//          ^                    ^
+//          buf[0]               buf[kIkcpConvHeadroom]  <-- recvfrom writes here
+//                               |
+//                               wire pointer passed to handleDatagram
+//
+// DatagramLink delivers [cmd][payload...] with no leading ikcp conv. The 4-byte
+// headroom lets handleDatagram synthesize a zero conv in place for ikcp_input
+// (protocol v2) instead of allocating and memcpy'ing a new segment.
+const uint8_t PACKET_TYPE_KCP_PUSH = 81;  // 0x51
+const uint8_t PACKET_TYPE_KCP_ACK = 82;   // 0x52
+const uint8_t PACKET_TYPE_KCP_WASK = 83;  // 0x53
+const uint8_t PACKET_TYPE_KCP_WINS = 84;  // 0x54
+
+// Size of the writable prefix reserved before every DatagramLink wire payload in
+// MasterKcpStreamPrivate recv buffers. Must stay in sync with handleDatagram,
+// which may write a zero conv at (buf - kIkcpConvHeadroom).
+static constexpr size_t kIkcpConvHeadroom = 4;
+
+static bool isIkcpCommand(uint8_t cmd)
+{
+    return cmd == PACKET_TYPE_KCP_PUSH || cmd == PACKET_TYPE_KCP_ACK || cmd == PACKET_TYPE_KCP_WASK
+            || cmd == PACKET_TYPE_KCP_WINS;
+}
+
 
 DatagramPath::DatagramPath()
 {
@@ -71,7 +101,7 @@ class SlaveKcpStreamPrivate;
 class KcpStreamPrivate
 {
 public:
-    KcpStreamPrivate(KcpStream *q);
+    KcpStreamPrivate(KcpStream *q, uint32_t sessionId = 0);
     virtual ~KcpStreamPrivate();
 public:
     virtual Socket::SocketError getError() const = 0;
@@ -88,7 +118,14 @@ public:
     int32_t send(const char *data, int32_t size, bool all);
     int32_t recv(char *data, int32_t size, bool all);
     int32_t peek(char *data, int32_t size);
-    bool handleDatagram(const char *buf, uint32_t len);
+    // Feed one DatagramLink packet into this KcpStream.
+    //
+    // Contract: `buf` points at the on-wire payload ([cmd][...]), and the caller
+    // MUST leave kIkcpConvHeadroom writable bytes immediately before `buf`
+    // (see doReceive / doAccept). handleDatagram may write into that headroom
+    // (v2: zero conv prefix) or mutate `buf` in place (v1: clear sessionId overlay)
+    // so ikcp_input can run without an extra heap copy.
+    bool handleDatagram(char *buf, uint32_t len);
     void updateKcp();
     void updateStatus();
     void doUpdate();
@@ -98,6 +135,7 @@ public:
     string makeShutdownPacket(uint32_t sessionId);
     string makeKeepalivePacket();
     string makeMultiPathPacket(uint32_t sessionId);
+    void negotiateVersion(uint8_t peerVersion);
 public:
     KcpStream * const q_ptr;
     NG_DECLARE_PUBLIC(KcpStream)
@@ -121,18 +159,18 @@ public:
     ikcpcb *kcp;
     uint32_t waterLine;
     uint32_t sessionId;
+    uint8_t protocolVersion;
 
     DatagramPath remotePath;
 
     KcpStream::Mode mode;
-    KcpStream::HeaderMode headerMode;
 };
 
 
 class MasterKcpStreamPrivate : public KcpStreamPrivate
 {
 public:
-    explicit MasterKcpStreamPrivate(shared_ptr<DatagramLink> link, KcpStream *q);
+    MasterKcpStreamPrivate(shared_ptr<DatagramLink> link, KcpStream *q, uint32_t sessionId);
     virtual ~MasterKcpStreamPrivate() override;
 public:
     virtual Socket::SocketError getError() const override;
@@ -218,7 +256,7 @@ int kcp_callback(const char *buf, int len, ikcpcb *, void *user)
     return sentBytes;
 }
 
-KcpStreamPrivate::KcpStreamPrivate(KcpStream *q)
+KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId)
     : q_ptr(q)
     , operations(new CoroutineGroup)
     , state(Socket::UnconnectedState)
@@ -228,9 +266,9 @@ KcpStreamPrivate::KcpStreamPrivate(KcpStream *q)
     , lastKeepaliveTimestamp(zeroTimestamp)
     , tearDownTime(1000 * 30)
     , waterLine(1024)
-    , sessionId(0)
+    , sessionId(sessionId)
+    , protocolVersion(KcpStream::Version1)
     , mode(KcpStream::Internet)
-    , headerMode(KcpStream::Builtin)
 {
     kcp = ikcp_create(0, this);
     ikcp_setoutput(kcp, kcp_callback);
@@ -393,46 +431,70 @@ int32_t KcpStreamPrivate::peek(char *data, int32_t size)
     return 0;
 }
 
-bool KcpStreamPrivate::handleDatagram(const char *buf, uint32_t len)
+bool KcpStreamPrivate::handleDatagram(char *buf, uint32_t len)
 {
-    if (headerMode == KcpStream::External) {
-        if (len < 1) {
-            return true;
-        }
-    } else if (len < 5) {
-        return true;
-    }
-    switch (buf[0]) {
-    case PACKET_TYPE_UNCOMPRESSED_DATA: {
+    auto feedIkcp = [this](const char *segment, uint32_t segmentLen) -> bool {
         int result;
         {
             ScopedLock<RLock> l(kcpLock);
-            result = ikcp_input(kcp, buf + 1, len - 1);
+            result = ikcp_input(kcp, segment, static_cast<long>(segmentLen));
         }
         if (result < 0) {
-            // invalid datagram
 #ifdef DEBUG_PROTOCOL
             ngDebug() << "invalid datagram. kcp returns" << result;
 #endif
-        } else {
-            lastActiveTimestamp = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
-            receivingQueueNotEmpty.set();
-            updateKcp();
+            return true;
         }
-        break;
+        lastActiveTimestamp = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
+        receivingQueueNotEmpty.set();
+        updateKcp();
+        return true;
+    };
+
+    // Wire: [cmd][payload...] (no leading conv). Requires headroom before buf —
+    // see kIkcpConvHeadroom and the layout comment at the top of this file.
+    if (len < 1) {
+        return true;
     }
+    const uint8_t cmd = static_cast<uint8_t>(buf[0]);
+    if (isIkcpCommand(cmd)) {
+        negotiateVersion(KcpStream::Version2);
+    } else if (cmd == PACKET_TYPE_UNCOMPRESSED_DATA) {
+        negotiateVersion(KcpStream::Version1);
+    }
+    if (isIkcpCommand(cmd)) {
+        // v2: write zero conv into the caller's headroom, then feed
+        // [0][0][0][0][cmd][payload...] without allocating a temporary string.
+        ngToBigEndian<uint32_t>(0, reinterpret_cast<uint8_t *>(buf - kIkcpConvHeadroom));
+        return feedIkcp(buf - kIkcpConvHeadroom, len + static_cast<uint32_t>(kIkcpConvHeadroom));
+    }
+    switch (cmd) {
+    case PACKET_TYPE_UNCOMPRESSED_DATA:
+        // Legacy v1: [0x01][ikcp segment; conv carries sessionId overlay].
+        // Clear conv in place (caller already read sessionId) and feed from buf+1.
+        if (len < 6) {
+            return true;
+        }
+        ngToBigEndian<uint32_t>(0, reinterpret_cast<uint8_t *>(buf + 1));
+        return feedIkcp(buf + 1, len - 1);
     case PACKET_TYPE_CREATE_MULTIPATH:
-        break;
+        if (len >= 5) {
+            const uint32_t sid = ngFromBigEndian<uint32_t>(buf + 1);
+            if (sid != 0) {
+                sessionId = sid;
+            }
+        }
+        return true;
     case PACKET_TYPE_CLOSE:
         close(true);
         return false;
     case PACKET_TYPE_KEEPALIVE:
         lastActiveTimestamp = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
-        break;
+        return true;
     default:
-        break;
+        // Unknown / upper-layer cmd: ignore at KcpStream.
+        return true;
     }
-    return true;
 }
 
 void KcpStreamPrivate::doUpdate()
@@ -527,12 +589,17 @@ void KcpStreamPrivate::updateStatus()
 
 string KcpStreamPrivate::makeDataPacket(const char *data, int32_t size)
 {
-    string packet(size + 1, '\0');
+    if (protocolVersion == KcpStream::Version2) {
+        // ikcp outputs [conv][cmd|frg|wnd|...]; strip the unused conv on the wire.
+        if (size < 5) {
+            return string();
+        }
+        return string(data + 4, static_cast<size_t>(size - 4));
+    }
+    string packet(static_cast<size_t>(size) + 1, '\0');
     packet[0] = PACKET_TYPE_UNCOMPRESSED_DATA;
     memcpy(&packet[1], data, static_cast<size_t>(size));
-    if (headerMode == KcpStream::Builtin) {
-        ngToBigEndian<uint32_t>(this->sessionId, &packet[1]);
-    }
+    ngToBigEndian<uint32_t>(this->sessionId, &packet[1]);
     return packet;
 }
 
@@ -542,9 +609,7 @@ string KcpStreamPrivate::makeShutdownPacket(uint32_t sessionId)
     const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_CLOSE;
-    if (headerMode == KcpStream::Builtin) {
-        ngToBigEndian<uint32_t>(sessionId, &packet[1]);
-    }
+    ngToBigEndian<uint32_t>(sessionId, &packet[1]);
     return packet;
 }
 
@@ -553,9 +618,7 @@ string KcpStreamPrivate::makeKeepalivePacket()
     const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_KEEPALIVE;
-    if (headerMode == KcpStream::Builtin) {
-        ngToBigEndian<uint32_t>(this->sessionId, &packet[1]);
-    }
+    ngToBigEndian<uint32_t>(this->sessionId, &packet[1]);
     return packet;
 }
 
@@ -564,14 +627,20 @@ string KcpStreamPrivate::makeMultiPathPacket(uint32_t sessionId)
     const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_CREATE_MULTIPATH;
-    if (headerMode == KcpStream::Builtin) {
-        ngToBigEndian<uint32_t>(sessionId, &packet[1]);
-    }
+    ngToBigEndian<uint32_t>(sessionId, &packet[1]);
     return packet;
 }
 
-MasterKcpStreamPrivate::MasterKcpStreamPrivate(shared_ptr<DatagramLink> link, KcpStream *q)
-    : KcpStreamPrivate(q)
+void KcpStreamPrivate::negotiateVersion(uint8_t peerVersion)
+{
+    if (peerVersion != KcpStream::Version1 && peerVersion != KcpStream::Version2) {
+        return;
+    }
+    protocolVersion = static_cast<uint8_t>(min(static_cast<uint8_t>(protocolVersion), peerVersion));
+}
+
+MasterKcpStreamPrivate::MasterKcpStreamPrivate(shared_ptr<DatagramLink> link, KcpStream *q, uint32_t sessionId)
+    : KcpStreamPrivate(q, sessionId)
     , link(link)
 {
 }
@@ -686,10 +755,14 @@ uint32_t MasterKcpStreamPrivate::nextSessionId()
 
 void MasterKcpStreamPrivate::doReceive()
 {
-    string buf(1024 * 64, '\0');
+    // Recv buffer: [kIkcpConvHeadroom unused][up to 64KiB wire payload].
+    // recvfrom writes at offset kIkcpConvHeadroom so handleDatagram can use the
+    // prefix as a zero-conv scratch area (see file-top layout comment).
+    string buf(kIkcpConvHeadroom + 1024 * 64, '\0');
     while (true) {
         DatagramPath who;
-        int32_t len = link->recvfrom(&buf[0], buf.size(), &who);
+        // Receive into &buf[kIkcpConvHeadroom]; leave buf[0..3] free for handleDatagram.
+        int32_t len = link->recvfrom(&buf[kIkcpConvHeadroom], buf.size() - kIkcpConvHeadroom, &who);
         if (len == 0) {
             continue;
         }
@@ -700,44 +773,53 @@ void MasterKcpStreamPrivate::doReceive()
             MasterKcpStreamPrivate::close(true);
             return;
         }
-        if (headerMode == KcpStream::External) {
-            if (len < 1) {
-                continue;
-            }
-            if (!handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
-                return;
-            }
-            continue;
-        }
-        if (len < 5) {
+        if (len < 1) {
 #ifdef DEBUG_PROTOCOL
-            ngDebug() << "got invalid kcp packet smaller than 5 bytes." << string(buf.data(), len);
+            ngDebug() << "got invalid kcp packet smaller than 1 byte."
+                      << string(buf.data() + kIkcpConvHeadroom, static_cast<size_t>(len));
 #endif
             continue;
         }
 
-        const uint32_t packetSessionId = ngFromBigEndian<uint32_t>(buf.data() + 1);
-        if (packetSessionId == 0) {
+        // wire == on-wire [cmd][...]; bytes immediately before it are the headroom.
+        char *wire = &buf[kIkcpConvHeadroom];
+        const uint8_t cmd = static_cast<uint8_t>(wire[0]);
+        if (cmd == PACKET_TYPE_CREATE_MULTIPATH && len >= 5) {
+            const uint32_t packetSessionId = ngFromBigEndian<uint32_t>(wire + 1);
+            if (packetSessionId == 0) {
 #ifdef DEBUG_PROTOCOL
-            ngDebug() << "the kcp server side returns an invalid packet with zero session id.";
+                ngDebug() << "the kcp server side returns an invalid packet with zero session id.";
 #endif
-            continue;
-        } else {
+                continue;
+            }
             if (this->sessionId == 0) {
                 this->sessionId = packetSessionId;
-            } else {
-                if (packetSessionId != this->sessionId) {
+            } else if (packetSessionId != this->sessionId) {
 #ifdef DEBUG_PROTOCOL
-                    ngDebug() << "the kcp server side returns an invalid packet with mismatched session id.";
+                ngDebug() << "the kcp server side returns an invalid packet with mismatched session id.";
 #endif
-                    continue;
-                } else {
-                    // do nothing.
-                }
+                continue;
+            }
+        } else if (cmd == PACKET_TYPE_UNCOMPRESSED_DATA && len >= 5) {
+            const uint32_t packetSessionId = ngFromBigEndian<uint32_t>(wire + 1);
+            if (packetSessionId == 0) {
+#ifdef DEBUG_PROTOCOL
+                ngDebug() << "the kcp server side returns an invalid packet with zero session id.";
+#endif
+                continue;
+            }
+            if (this->sessionId == 0) {
+                this->sessionId = packetSessionId;
+            } else if (packetSessionId != this->sessionId) {
+#ifdef DEBUG_PROTOCOL
+                ngDebug() << "the kcp server side returns an invalid packet with mismatched session id.";
+#endif
+                continue;
             }
         }
-        ngToBigEndian<uint32_t>(0, reinterpret_cast<uint8_t *>(&buf[1]));
-        if (!handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
+
+        // Pass wire (not buf.data()): handleDatagram expects headroom at wire - 4.
+        if (!handleDatagram(wire, static_cast<uint32_t>(len))) {
             return;
         }
     }
@@ -745,10 +827,13 @@ void MasterKcpStreamPrivate::doReceive()
 
 void MasterKcpStreamPrivate::doAccept()
 {
-    string buf(1024 * 64, '\0');
+    // Same zero-copy recv layout as doReceive:
+    // [kIkcpConvHeadroom][wire payload...]; handleDatagram may write into the prefix.
+    string buf(kIkcpConvHeadroom + 1024 * 64, '\0');
     while (true) {
         DatagramPath who;
-        int32_t len = link->recvfrom(&buf[0], buf.size(), &who);
+        // Receive at offset kIkcpConvHeadroom; keep buf[0..3] as headroom for handleDatagram.
+        int32_t len = link->recvfrom(&buf[kIkcpConvHeadroom], buf.size() - kIkcpConvHeadroom, &who);
         if (len == 0) {
             continue;
         }
@@ -759,15 +844,22 @@ void MasterKcpStreamPrivate::doAccept()
             MasterKcpStreamPrivate::close(true);
             return;
         }
-        if (len < 5) {
+        if (len < 1) {
 #ifdef DEBUG_PROTOCOL
-            ngDebug() << "got invalid kcp packet smaller than 5 bytes.";
+            ngDebug() << "got invalid kcp packet smaller than 1 byte.";
 #endif
             continue;
         }
 
-        uint32_t sessionId = ngFromBigEndian<uint32_t>(buf.data() + 1);
-        ngToBigEndian<uint32_t>(0, reinterpret_cast<uint8_t *>(&buf[1]));
+        // wire points at on-wire [cmd][...]; headroom is the kIkcpConvHeadroom bytes before it.
+        char *wire = &buf[kIkcpConvHeadroom];
+        const uint8_t cmd = static_cast<uint8_t>(wire[0]);
+        uint32_t sessionId = 0;
+        if (len >= 5) {
+            if (cmd == PACKET_TYPE_CREATE_MULTIPATH || cmd == PACKET_TYPE_UNCOMPRESSED_DATA) {
+                sessionId = ngFromBigEndian<uint32_t>(wire + 1);
+            }
+        }
         const string &key = who.key();
         SlaveKcpStreamPrivate *receiver = nullptr;
         auto hostIt = receiversByHostAndPort.find(key);
@@ -794,7 +886,8 @@ void MasterKcpStreamPrivate::doAccept()
                     continue;
                 }
             }
-            if (!receiver->handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
+            // wire still has kIkcpConvHeadroom bytes before it (owned by `buf` above).
+            if (!receiver->handleDatagram(wire, static_cast<uint32_t>(len))) {
                 receiversByHostAndPort.erase(receiver->originalHostAndPort);
                 receiversBySessionId.erase(receiver->sessionId);
             }
@@ -818,7 +911,8 @@ void MasterKcpStreamPrivate::doAccept()
                 } else {
                     assert(sessionId == receiver->sessionId);
                     receiver->remotePath = who;
-                    if (!receiver->handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
+                    // Same headroom contract as the primary-path handleDatagram call above.
+                    if (!receiver->handleDatagram(wire, static_cast<uint32_t>(len))) {
 #ifdef DEBUG_PROTOCOL
                         ngDebug() << "can not handle multipath packet.";
 #endif
@@ -831,7 +925,8 @@ void MasterKcpStreamPrivate::doAccept()
                 SlaveKcpStreamPrivate *d = SlaveKcpStreamPrivate::getPrivateHelper(slave.get());
                 d->originalHostAndPort = key;
                 d->sessionId = nextSessionId();
-                if (d->handleDatagram(buf.data(), static_cast<uint32_t>(len))) {
+                // First packet of a new slave; wire still sits after the shared recv headroom.
+                if (d->handleDatagram(wire, static_cast<uint32_t>(len))) {
                     receiversByHostAndPort[key] = d;
                     receiversBySessionId[d->sessionId] = d;
                     pendingSlaves.put(slave.release());
@@ -927,11 +1022,14 @@ int32_t MasterKcpStreamPrivate::rawSend(const char *data, int32_t size)
 
 
 SlaveKcpStreamPrivate::SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, const DatagramPath &remote, KcpStream *q)
-    : KcpStreamPrivate(q)
+    : KcpStreamPrivate(q, 0)
     , parent(parent)
 {
     remotePath = remote;
     state = Socket::ConnectedState;
+    if (parent) {
+        protocolVersion = parent->protocolVersion;
+    }
 }
 
 SlaveKcpStreamPrivate::~SlaveKcpStreamPrivate()
@@ -1043,8 +1141,8 @@ int32_t SlaveKcpStreamPrivate::rawSend(const char *data, int32_t size)
 
 
 
-KcpStream::KcpStream(shared_ptr<DatagramLink> link)
-    : d_ptr(new MasterKcpStreamPrivate(link, this))
+KcpStream::KcpStream(shared_ptr<DatagramLink> link, uint32_t sessionId)
+    : d_ptr(new MasterKcpStreamPrivate(link, this, sessionId))
 {
 }
 
@@ -1262,16 +1360,18 @@ shared_ptr<DatagramLink> KcpStream::link() const
     return shared_ptr<DatagramLink>();
 }
 
-void KcpStream::setHeaderMode(HeaderMode mode)
+void KcpStream::setProtocolVersion(uint8_t version)
 {
     NG_D(KcpStream);
-    d->headerMode = mode;
+    if (version == Version1 || version == Version2) {
+        d->protocolVersion = version;
+    }
 }
 
-KcpStream::HeaderMode KcpStream::headerMode() const
+uint8_t KcpStream::protocolVersion() const
 {
     NG_D(const KcpStream);
-    return d->headerMode;
+    return d->protocolVersion;
 }
 
 uint32_t KcpStream::sessionId() const
