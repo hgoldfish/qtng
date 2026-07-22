@@ -548,12 +548,19 @@ bool NoiseHandshakeState::readMessage(const string &message, string *outPayload)
             m_error = "missing remote static";
             return false;
         }
-        m_rs = decryptAndHash(encS);
-        if (m_rs.size() != kDhLen || !m_error.empty()) {
-            if (m_error.empty()) {
-                m_error = "decrypt remote static failed";
+        {
+            const string expectedRs = m_rs;
+            m_rs = decryptAndHash(encS);
+            if (m_rs.size() != kDhLen || !m_error.empty()) {
+                if (m_error.empty()) {
+                    m_error = "decrypt remote static failed";
+                }
+                return false;
             }
-            return false;
+            if (!expectedRs.empty() && expectedRs != m_rs) {
+                m_error = "remote static public key mismatch";
+                return false;
+            }
         }
         const string &es = NoiseKey::dh(m_e.privateKey, m_rs);
         if (es.empty()) {
@@ -577,12 +584,19 @@ bool NoiseHandshakeState::readMessage(const string &message, string *outPayload)
             m_error = "missing remote static";
             return false;
         }
-        m_rs = decryptAndHash(encS);
-        if (m_rs.size() != kDhLen || !m_error.empty()) {
-            if (m_error.empty()) {
-                m_error = "decrypt remote static failed";
+        {
+            const string expectedRs = m_rs;
+            m_rs = decryptAndHash(encS);
+            if (m_rs.size() != kDhLen || !m_error.empty()) {
+                if (m_error.empty()) {
+                    m_error = "decrypt remote static failed";
+                }
+                return false;
             }
-            return false;
+            if (!expectedRs.empty() && expectedRs != m_rs) {
+                m_error = "remote static public key mismatch";
+                return false;
+            }
         }
         const string &se = NoiseKey::dh(m_e.privateKey, m_rs);
         if (se.empty()) {
