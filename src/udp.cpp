@@ -307,7 +307,8 @@ static void installFilter(KcpSocket *socket, UdpDatagramLink *udp)
 
 static KcpSocketPrivate *makePrivateRaw(shared_ptr<UdpDatagramLink> udp)
 {
-    shared_ptr<KcpStream> stream(new KcpStream(udp));
+    shared_ptr<KcpStream> stream(new KcpStream(udp, 0));
+    stream->setProtocolVersion(KcpStream::Version1);
     return new KcpSocketPrivate(udp, udp, stream);
 }
 

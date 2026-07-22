@@ -3545,14 +3545,21 @@ For ordinary UDP use ``KcpSocket`` (``udp.h``). Internally it maps ``HostAddress
 The wire protocol is compatible with the historical ``KcpSocket`` framing
 (DATA / MULTIPATH / CLOSE / KEEPALIVE).
 
-``HeaderMode`` controls how ``sessionId`` appears on the wire:
+Wire framing is unified:
 
-* ``Builtin`` (default): ``[1-byte type]`` plus a 4-byte big-endian ``sessionId``
-  overlaid on the ikcp conversation id (bytes 1–4). Client ``doReceive`` learns
-  the id from the peer.
-* ``External``: ``[1-byte type][payload]`` only — no ``sessionId`` overlay.
-  Use ``sessionId()`` / ``setSessionId()`` when the outer framing (e.g. Noise)
-  carries the id. Listening ``doAccept`` always uses Builtin framing.
+* DatagramLink delivers ``[1-byte cmd][payload...]`` with no leading ikcp ``conv``.
+  The receive path reserves four bytes of headroom before the wire payload so
+  native ikcp commands (0x51–0x54) can be passed to ``ikcp_input`` with a zero
+  ``conv`` without copying; legacy ``DATA`` (0x01) zeroes the overlaid
+  conversation field in place.
+* KcpStream control packets (CREATE_MULTIPATH / CLOSE / KEEPALIVE) always carry a
+  4-byte big-endian ``sessionId`` at bytes 1–4. Pass the id to the constructor or
+  use ``setSessionId()``.
+* ``protocolVersion`` selects the ikcp output format: version 1 (``KcpSocket``
+  default) wraps segments as ``DATA`` with ``sessionId`` on the conv field;
+  version 2 (``SlowSocket`` default) strips the four-byte ``conv`` and sends
+  ``[cmd][payload...]``. Peers negotiate to ``min(local, peer)`` from the wire
+  format of incoming packets.
 
 ``wrapKcpStreamAsSocket`` is public: wrap any ``KcpStream`` (any ``DatagramLink``)
 as a ``KcpSocket``. UDP-only methods fail or no-op when the link is not UDP.
