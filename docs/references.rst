@@ -3561,6 +3561,15 @@ I/O goes through a minimal ``DatagramLink`` (``recvfrom`` / ``sendto`` / ``close
 Peers are identified by ``DatagramPath``, an opaque path key (``key()``) not tied to IP/port, so the
 same session logic can run over UDP, ICMP, or other custom datagram transports.
 
+``Mode`` includes ``LargeDelayInternet``, ``Internet``, ``FastInternet``, ``Ethernet``,
+``Loopback``, and ``AsymmetricInternet`` (``ikcp_nodelay(..., resend=1, nc=0)``, suited to
+asymmetric links). ``KcpSocket::createConnection()`` defaults to ``AsymmetricInternet``;
+servers typically keep ``Internet``.
+
+Graceful ``close()`` waits up to 3 seconds for the send queue to drain. A ``CLOSE`` control
+packet is accepted only when its source ``DatagramPath`` matches the recorded peer path;
+spoofed closes from other paths are ignored.
+
 For ordinary UDP use ``KcpSocket`` (``udp.h``). Internally it maps ``HostAddress``+port to
 ``DatagramPath`` via private ``UdpDatagramLink`` / ``UdpDatagramPath``.
 ``asSocketLike`` applies to ``KcpSocket`` only, not ``KcpStream``.

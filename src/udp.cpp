@@ -671,15 +671,24 @@ int32_t KcpSocket::udpSend(const char *data, int32_t size, const HostAddress &ad
 }
 
 KcpSocket *KcpSocket::createConnection(const HostAddress &host, uint16_t port, Socket::SocketError *error,
-                                       int allowProtocol)
+                                       int allowProtocol, Mode mode)
 {
-    return qtng::createConnection<KcpSocket>(host, port, error, allowProtocol, MakeSocketType<KcpSocket>);
+    KcpSocket *socket = qtng::createConnection<KcpSocket>(host, port, error, allowProtocol, MakeSocketType<KcpSocket>);
+    if (socket) {
+        socket->setMode(mode);
+    }
+    return socket;
 }
 
 KcpSocket *KcpSocket::createConnection(const string &hostName, uint16_t port, Socket::SocketError *error,
-                                       shared_ptr<SocketDnsCache> dnsCache, int allowProtocol)
+                                       shared_ptr<SocketDnsCache> dnsCache, int allowProtocol, Mode mode)
 {
-    return qtng::createConnection<KcpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<KcpSocket>);
+    KcpSocket *socket =
+            qtng::createConnection<KcpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<KcpSocket>);
+    if (socket) {
+        socket->setMode(mode);
+    }
+    return socket;
 }
 
 KcpSocket *KcpSocket::createServer(const HostAddress &host, uint16_t port, int backlog)

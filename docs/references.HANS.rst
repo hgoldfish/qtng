@@ -3262,6 +3262,13 @@ listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠
 对端身份用 ``DatagramPath`` 表示——它只是不透明路径键（``key()``），与 IP/端口无关，因此同一套
 会话逻辑可以跑在 UDP、ICMP 或其它自定义报文通道上。
 
+``Mode`` 包括 ``LargeDelayInternet``, ``Internet``, ``FastInternet``, ``Ethernet``,
+``Loopback`` 与 ``AsymmetricInternet``（``ikcp_nodelay(..., resend=1, nc=0)``，适合非对称链路）。
+``KcpSocket::createConnection()`` 默认使用 ``AsymmetricInternet``；服务端通常仍用 ``Internet``。
+
+优雅 ``close()`` 最多等待 3 秒排空发送队列。``CLOSE`` 控制包仅在源 ``DatagramPath`` 与已记录
+对端路径一致时生效；其它路径发来的伪造关闭会被忽略。
+
 日常 UDP 场景请使用公开的 ``KcpSocket``（``udp.h``）。``KcpSocket`` 内部用私有
 ``UdpDatagramLink`` / ``UdpDatagramPath`` 把 ``HostAddress``+端口映射为 ``DatagramPath``。
 ``asSocketLike`` 仅针对 ``KcpSocket``，不适用于 ``KcpStream``。

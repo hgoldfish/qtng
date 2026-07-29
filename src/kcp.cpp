@@ -125,7 +125,9 @@ public:
     // (see doReceive / doAccept). handleDatagram may write into that headroom
     // (v2: zero conv prefix) or mutate `buf` in place (v1: clear sessionId overlay)
     // so ikcp_input can run without an extra heap copy.
-    bool handleDatagram(char *buf, uint32_t len);
+    // `remote` is the peer path for this datagram; CLOSE is ignored unless it matches
+    // the recorded remotePath (spoofed closes from other paths are dropped).
+    bool handleDatagram(char *buf, uint32_t len, const DatagramPath &remote);
     void updateKcp();
     void updateStatus();
     void doUpdate();
@@ -307,6 +309,14 @@ void KcpStreamPrivate::setMode(KcpStream::Mode mode)
         kcp->rx_minrto = 30;
         // kcp->interval = 5;
         break;
+    case KcpStream::AsymmetricInternet:
+        waterLine = 256;
+        ikcp_nodelay(kcp, 1, 10, 1, 0);
+        ikcp_setmtu(kcp, 1400);
+        ikcp_wndsize(kcp, 1024, 1024);
+        kcp->rx_minrto = 30;
+        // kcp->interval = 5;
+        break;
     case KcpStream::FastInternet:
         waterLine = 192;
         ikcp_nodelay(kcp, 1, 10, 8, 1);
@@ -431,9 +441,9 @@ int32_t KcpStreamPrivate::peek(char *data, int32_t size)
     return 0;
 }
 
-bool KcpStreamPrivate::handleDatagram(char *buf, uint32_t len)
+bool KcpStreamPrivate::handleDatagram(char *buf, uint32_t len, const DatagramPath &remote)
 {
-    auto feedIkcp = [this](const char *segment, uint32_t segmentLen) -> bool {
+    auto feedIkcp = [this, &remote](const char *segment, uint32_t segmentLen) -> bool {
         int result;
         {
             ScopedLock<RLock> l(kcpLock);
@@ -448,6 +458,7 @@ bool KcpStreamPrivate::handleDatagram(char *buf, uint32_t len)
         lastActiveTimestamp = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
         receivingQueueNotEmpty.set();
         updateKcp();
+        remotePath = remote;
         return true;
     };
 
@@ -478,6 +489,7 @@ bool KcpStreamPrivate::handleDatagram(char *buf, uint32_t len)
         ngToBigEndian<uint32_t>(0, reinterpret_cast<uint8_t *>(buf + 1));
         return feedIkcp(buf + 1, len - 1);
     case PACKET_TYPE_CREATE_MULTIPATH:
+        remotePath = remote;
         if (len >= 5) {
             const uint32_t sid = ngFromBigEndian<uint32_t>(buf + 1);
             if (sid != 0) {
@@ -486,10 +498,15 @@ bool KcpStreamPrivate::handleDatagram(char *buf, uint32_t len)
         }
         return true;
     case PACKET_TYPE_CLOSE:
-        close(true);
-        return false;
+        if (remote == remotePath) {
+            close(true);
+            return false;
+        }
+        // Ignore CLOSE from a path that is not the recorded peer.
+        return true;
     case PACKET_TYPE_KEEPALIVE:
         lastActiveTimestamp = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
+        remotePath = remote;
         return true;
     default:
         // Unknown / upper-layer cmd: ignore at KcpStream.
@@ -685,7 +702,7 @@ bool MasterKcpStreamPrivate::close(bool force)
         if (!force && error == Socket::NoError) {
             if (!sendingQueueEmpty.isSet()) {
                 updateKcp();
-                if (!sendingQueueEmpty.tryWait()) {
+                if (!sendingQueueEmpty.tryWait(3000)) {
                     return false;
                 }
             }
@@ -694,14 +711,19 @@ bool MasterKcpStreamPrivate::close(bool force)
         }
     } else if (state == Socket::ListeningState) {
         state = Socket::UnconnectedState;
-        map<string, SlaveKcpStreamPrivate *> receiversByHostAndPort(this->receiversByHostAndPort);
-        this->receiversByHostAndPort.clear();
+        vector<SlaveKcpStreamPrivate *> receivers;
+        receivers.reserve(receiversByHostAndPort.size());
         for (const auto &item : receiversByHostAndPort) {
-            SlaveKcpStreamPrivate *receiver = item.second;
+            if (item.second) {
+                receivers.push_back(item.second);
+            }
+        }
+        this->receiversByHostAndPort.clear();
+        CoroutineGroup::each<SlaveKcpStreamPrivate *>([force](SlaveKcpStreamPrivate *receiver) {
             if (receiver) {
                 receiver->close(force);
             }
-        }
+        }, receivers, 10);
         receiversBySessionId.clear();
     } else {  // BoundState
         state = Socket::UnconnectedState;
@@ -819,7 +841,7 @@ void MasterKcpStreamPrivate::doReceive()
         }
 
         // Pass wire (not buf.data()): handleDatagram expects headroom at wire - 4.
-        if (!handleDatagram(wire, static_cast<uint32_t>(len))) {
+        if (!handleDatagram(wire, static_cast<uint32_t>(len), who)) {
             return;
         }
     }
@@ -867,7 +889,6 @@ void MasterKcpStreamPrivate::doAccept()
             receiver = hostIt->second;
         }
         if (receiver) {
-            receiver->remotePath = who;
             if (sessionId != 0) {
                 if (receiver->sessionId == 0) {
                     // only if the slave was created by accept(path), we had zero id.
@@ -887,7 +908,8 @@ void MasterKcpStreamPrivate::doAccept()
                 }
             }
             // wire still has kIkcpConvHeadroom bytes before it (owned by `buf` above).
-            if (!receiver->handleDatagram(wire, static_cast<uint32_t>(len))) {
+            // remotePath is updated inside handleDatagram for DATA/KEEPALIVE/CREATE_MULTIPATH.
+            if (!receiver->handleDatagram(wire, static_cast<uint32_t>(len), who)) {
                 receiversByHostAndPort.erase(receiver->originalHostAndPort);
                 receiversBySessionId.erase(receiver->sessionId);
             }
@@ -910,9 +932,8 @@ void MasterKcpStreamPrivate::doAccept()
                     }
                 } else {
                     assert(sessionId == receiver->sessionId);
-                    receiver->remotePath = who;
                     // Same headroom contract as the primary-path handleDatagram call above.
-                    if (!receiver->handleDatagram(wire, static_cast<uint32_t>(len))) {
+                    if (!receiver->handleDatagram(wire, static_cast<uint32_t>(len), who)) {
 #ifdef DEBUG_PROTOCOL
                         ngDebug() << "can not handle multipath packet.";
 #endif
@@ -926,7 +947,7 @@ void MasterKcpStreamPrivate::doAccept()
                 d->originalHostAndPort = key;
                 d->sessionId = nextSessionId();
                 // First packet of a new slave; wire still sits after the shared recv headroom.
-                if (d->handleDatagram(wire, static_cast<uint32_t>(len))) {
+                if (d->handleDatagram(wire, static_cast<uint32_t>(len), who)) {
                     receiversByHostAndPort[key] = d;
                     receiversBySessionId[d->sessionId] = d;
                     pendingSlaves.put(slave.release());
@@ -1079,7 +1100,7 @@ bool SlaveKcpStreamPrivate::close(bool force)
         if (!force && error == Socket::NoError) {
             if (!sendingQueueEmpty.isSet()) {
                 updateKcp();
-                if (!sendingQueueEmpty.tryWait()) {
+                if (!sendingQueueEmpty.tryWait(3000)) {
                     return false;
                 }
             }

@@ -51,6 +51,7 @@ public:
         FastInternet,
         Ethernet,
         Loopback,
+        AsymmetricInternet,
     };
     // Wire framing always carries sessionId on KcpStream control commands
     // (CREATE_MULTIPATH / CLOSE / KEEPALIVE): [1-byte type][4-byte BE sessionId][pad...]

@@ -165,6 +165,10 @@ inline bool parseKcpMode(const std::string &modeStr, qtng::KcpSocket::Mode *mode
         *mode = qtng::KcpSocket::Loopback;
         return true;
     }
+    if (normalized == "asymmetric") {
+        *mode = qtng::KcpSocket::AsymmetricInternet;
+        return true;
+    }
     if (errorMessage) {
         *errorMessage = "kcp mode `" + modeStr + "` is unknown.";
     }
