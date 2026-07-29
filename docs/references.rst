@@ -3378,6 +3378,24 @@ POSIX-compliant path handling for cross-platform file operations.
 
 This chapter covers advanced features that are only needed in specialized scenarios.
 
+8.0 DataChannel
+^^^^^^^^^^^^^^^
+
+``DataChannel`` / ``SocketChannel`` / ``VirtualChannel`` multiplex logical channels over one
+connection. Untaken channels created by the peer sit in a pending queue until ``takeChannel()``.
+
+.. method:: void DataChannel::setMaxPendingChannels(std::uint32_t count)
+.. method:: std::uint32_t DataChannel::maxPendingChannels() const
+
+    Maximum number of untaken pending channels. When exceeded, the oldest pending channel is
+    aborted with ``PendingChannelLimitError``. ``0`` means unlimited. Default is ``8``.
+
+.. method:: void DataChannel::setSendingTimeout(float timeout)
+.. method:: float DataChannel::sendingTimeout() const
+
+    Bound for ``goThrough`` wait and blocking ``sendPacket`` waits (seconds).
+    ``timeout <= 0`` waits forever. Default is ``30`` seconds.
+
 8.1 MultiStream
 ^^^^^^^^^^^^^^^
 

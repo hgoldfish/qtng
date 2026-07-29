@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <climits>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -17,6 +18,7 @@
 
 #include "qtng/coroutine_utils.h"
 #include "qtng/data_channel.h"
+#include "qtng/utils/datetime.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/udp.h"
 #include "qtng/utils/logging.h"
@@ -133,7 +135,8 @@ public:
     // must be implemented by subclasses
     virtual void abort(DataChannel::ChannelError reason);
     virtual bool isBroken() const = 0;
-    virtual bool sendPacketRaw(uint32_t channelNumber, string payload, BlockFlag blocking) = 0;
+    virtual bool sendPacketRaw(uint32_t channelNumber, string payload, BlockFlag blocking,
+                               uint32_t msecs = UINT_MAX) = 0;
     virtual void cleanChannel(uint32_t channelNumber, bool sendDestroyPacket) = 0;
     virtual void cleanSendingPacket(uint32_t subChannelNumber,
                                     function<bool(const string &)> subCheckPacket) = 0;
@@ -146,6 +149,8 @@ public:
     bool handleCommand(const string &packet);
     void notifyChannelClose(uint32_t channelNumber);
     DataChannel::ChannelError handleIncomingPacket(uint32_t channelNumber, string payload);
+    void enqueuePendingChannel(const shared_ptr<VirtualChannel> &channel);
+    uint32_t sendingTimeoutMsecs() const;
 
     string name;
     DataChannelPole pole;
@@ -156,6 +161,8 @@ public:
     SizedQueue<string> receivingQueue;
     bool slowDownRequested = false;
     Gate goThrough;
+    uint32_t maxPendingChannelsCount = 8;
+    int64_t sendingTimeoutMs = 1000 * 30;
     DataChannel::ChannelError error;
 
     shared_ptr<DataChannel> pluggedChannel;
@@ -206,7 +213,8 @@ public:
     virtual ~SocketChannelPrivate() override;
     virtual bool isBroken() const override;
     virtual void abort(DataChannel::ChannelError reason) override;
-    virtual bool sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking) override;
+    virtual bool sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking,
+                               uint32_t msecs = UINT_MAX) override;
     virtual void cleanChannel(uint32_t channelNumber, bool sendDestroyPacket) override;
     virtual void cleanSendingPacket(uint32_t subChannelNumber,
                                     function<bool(const string &)> subCheckPacket) override;
@@ -239,7 +247,8 @@ public:
     virtual ~VirtualChannelPrivate() override;
     virtual bool isBroken() const override;
     virtual void abort(DataChannel::ChannelError reason) override;
-    virtual bool sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking) override;
+    virtual bool sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking,
+                               uint32_t msecs = UINT_MAX) override;
     virtual void cleanChannel(uint32_t channelNumber, bool sendDestroyPacket) override;
     virtual void cleanSendingPacket(uint32_t subChannelNumber,
                                     function<bool(const string &)> subCheckPacket) override;
@@ -376,10 +385,36 @@ DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t chan
     return DataChannel::NoError;
 }
 
+void DataChannelPrivate::enqueuePendingChannel(const shared_ptr<VirtualChannel> &channel)
+{
+    pendingChannels.push_back(channel);
+    pendingChannelsNotEmpty.notify();
+    if (maxPendingChannelsCount == 0) {
+        return;
+    }
+    while (pendingChannels.size() > static_cast<size_t>(maxPendingChannelsCount)) {
+        shared_ptr<VirtualChannel> dropped = pendingChannels.front();
+        pendingChannels.pop_front();
+        if (dropped) {
+            dropped->d_func()->abort(DataChannel::PendingChannelLimitError);
+        }
+    }
+}
+
+uint32_t DataChannelPrivate::sendingTimeoutMsecs() const
+{
+    if (sendingTimeoutMs <= 0) {
+        return UINT_MAX;
+    }
+    return static_cast<uint32_t>(sendingTimeoutMs);
+}
+
 shared_ptr<VirtualChannel> DataChannelPrivate::makeChannelInternal(DataChannelPole pole, uint32_t channelNumber)
 {
     shared_ptr<VirtualChannel> channel(new VirtualChannel(q_ptr, pole, channelNumber));
     channel->d_func()->receivingQueue.setCapacity(receivingQueue.capacity());
+    channel->d_func()->maxPendingChannelsCount = maxPendingChannelsCount;
+    channel->d_func()->sendingTimeoutMs = sendingTimeoutMs;
     subChannels[channelNumber] = channel;
     return channel;
 }
@@ -463,19 +498,40 @@ string DataChannelPrivate::recvPacket()
 
 bool DataChannelPrivate::sendPacket(const string &packet, bool waitSent)
 {
-    if (!goThrough.tryWait()) {
+    const uint32_t msecs = sendingTimeoutMsecs();
+    const int64_t startMs = (msecs == UINT_MAX) ? 0 : utils::DateTime::currentMSecsSinceEpoch();
+    if (!goThrough.tryWait(msecs)) {
         return false;
     }
-    return sendPacketRaw(DataChannelNumber, packet, waitSent ? BlockFlag::Block_Until_Sent : BlockFlag::Block_And_Not_Wait_Sent);
+    uint32_t remaining = msecs;
+    if (msecs != UINT_MAX) {
+        const int64_t elapsed = utils::DateTime::currentMSecsSinceEpoch() - startMs;
+        if (elapsed >= static_cast<int64_t>(msecs)) {
+            return false;
+        }
+        remaining = static_cast<uint32_t>(msecs - elapsed);
+    }
+    return sendPacketRaw(DataChannelNumber, packet,
+                         waitSent ? BlockFlag::Block_Until_Sent : BlockFlag::Block_And_Not_Wait_Sent, remaining);
 }
 
 bool DataChannelPrivate::sendPacket(string &&packet, bool waitSent)
 {
-    if (!goThrough.tryWait()) {
+    const uint32_t msecs = sendingTimeoutMsecs();
+    const int64_t startMs = (msecs == UINT_MAX) ? 0 : utils::DateTime::currentMSecsSinceEpoch();
+    if (!goThrough.tryWait(msecs)) {
         return false;
     }
+    uint32_t remaining = msecs;
+    if (msecs != UINT_MAX) {
+        const int64_t elapsed = utils::DateTime::currentMSecsSinceEpoch() - startMs;
+        if (elapsed >= static_cast<int64_t>(msecs)) {
+            return false;
+        }
+        remaining = static_cast<uint32_t>(msecs - elapsed);
+    }
     return sendPacketRaw(DataChannelNumber, std::move(packet),
-                         waitSent ? BlockFlag::Block_Until_Sent : BlockFlag::Block_And_Not_Wait_Sent);
+                         waitSent ? BlockFlag::Block_Until_Sent : BlockFlag::Block_And_Not_Wait_Sent, remaining);
 }
 
 bool DataChannelPrivate::sendPacketAsync(const string &packet)
@@ -509,8 +565,7 @@ bool DataChannelPrivate::handleCommand(const string &packet)
         }
         shared_ptr<VirtualChannel> channel = makeChannelInternal(DataChannelPole::NegativePole, channelNumber);
         sendPacketRaw(CommandChannelNumber, packChannelMadeRequest(channelNumber), BlockFlag::NonBlock);
-        pendingChannels.push_back(channel);
-        pendingChannelsNotEmpty.notify();
+        enqueuePendingChannel(channel);
         return true;
     } else if (command == CHANNEL_MADE_REQUEST) {
 #ifdef DEBUG_PROTOCOL
@@ -600,7 +655,7 @@ SocketChannelPrivate::~SocketChannelPrivate()
     delete operations;
 }
 
-bool SocketChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking)
+bool SocketChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking, uint32_t msecs)
 {
     if (error != DataChannel::NoError || packet.empty()) {
         return false;
@@ -617,13 +672,23 @@ bool SocketChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, 
                 WritingPacket(channelNumber, std::move(packet), shared_ptr<ValueEvent<bool>>()));
         return true;
     case BlockFlag::Block_And_Not_Wait_Sent:
-        sendingQueue.put(WritingPacket(channelNumber, std::move(packet), shared_ptr<ValueEvent<bool>>()));
-        return true;
+        return sendingQueue.put(WritingPacket(channelNumber, std::move(packet), shared_ptr<ValueEvent<bool>>()),
+                                msecs);
     case BlockFlag::Block_Until_Sent: {
+        const int64_t startMs = (msecs == UINT_MAX) ? 0 : utils::DateTime::currentMSecsSinceEpoch();
         shared_ptr<ValueEvent<bool>> done(new ValueEvent<bool>());
-        sendingQueue.put(WritingPacket(channelNumber, std::move(packet), done));
-        bool success = done->tryWait();
-        return success;
+        if (!sendingQueue.put(WritingPacket(channelNumber, std::move(packet), done), msecs)) {
+            return false;
+        }
+        uint32_t remaining = msecs;
+        if (msecs != UINT_MAX) {
+            const int64_t elapsed = utils::DateTime::currentMSecsSinceEpoch() - startMs;
+            if (elapsed >= static_cast<int64_t>(msecs)) {
+                return false;
+            }
+            remaining = static_cast<uint32_t>(msecs - elapsed);
+        }
+        return done->tryWait(remaining);
     }
     default:
         NG_UNREACHABLE();
@@ -892,7 +957,7 @@ VirtualChannelPrivate::~VirtualChannelPrivate()
     VirtualChannelPrivate::abort(DataChannel::UserShutdown);
 }
 
-bool VirtualChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking)
+bool VirtualChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, BlockFlag blocking, uint32_t msecs)
 {
     if (error != DataChannel::NoError || !parentChannel || packet.empty()) {
 #ifdef DEBUG_PROTOCOL
@@ -907,7 +972,7 @@ bool VirtualChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet,
     data.reserve(packet.size() + static_cast<int>(sizeof(uint32_t)));
     data.append(reinterpret_cast<char *>(header), sizeof(uint32_t));
     data.append(packet);
-    return getPrivateHelper(parentChannel)->sendPacketRaw(this->channelNumber, std::move(data), blocking);
+    return getPrivateHelper(parentChannel)->sendPacketRaw(this->channelNumber, std::move(data), blocking, msecs);
 }
 
 void VirtualChannelPrivate::abort(DataChannel::ChannelError reason)
@@ -1200,6 +1265,8 @@ string DataChannel::errorString() const
         return "The plugged channel has error.";
     case PakcetTooLarge:
         return "The packet is too large.";
+    case PendingChannelLimitError:
+        return "The pending channel was dropped because maxPendingChannels was exceeded.";
     case UnknownError:
         return "Caught unknown error.";
     case ProgrammingError:
@@ -1255,6 +1322,40 @@ uint32_t DataChannel::receivingQueueSize() const
 {
     NG_D(const DataChannel);
     return d->receivingQueue.size();
+}
+
+void DataChannel::setMaxPendingChannels(uint32_t count)
+{
+    NG_D(DataChannel);
+    d->maxPendingChannelsCount = count;
+}
+
+uint32_t DataChannel::maxPendingChannels() const
+{
+    NG_D(const DataChannel);
+    return d->maxPendingChannelsCount;
+}
+
+void DataChannel::setSendingTimeout(float timeout)
+{
+    NG_D(DataChannel);
+    if (timeout > 0) {
+        d->sendingTimeoutMs = static_cast<int64_t>(timeout * 1000);
+        if (d->sendingTimeoutMs < 1) {
+            d->sendingTimeoutMs = 1;
+        }
+    } else {
+        d->sendingTimeoutMs = -1;
+    }
+}
+
+float DataChannel::sendingTimeout() const
+{
+    NG_D(const DataChannel);
+    if (d->sendingTimeoutMs <= 0) {
+        return 0.0f;
+    }
+    return static_cast<float>(d->sendingTimeoutMs) / 1000;
 }
 
 DataChannelPole DataChannel::pole() const

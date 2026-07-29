@@ -3091,6 +3091,24 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 
 本章介绍通常只在特殊场景中使用的高级功能。
 
+8.0 DataChannel
+^^^^^^^^^^^^^^^
+
+``DataChannel`` / ``SocketChannel`` / ``VirtualChannel`` 在一条连接上多路复用逻辑通道。
+对端创建、尚未被 ``takeChannel()`` 取走的通道会进入 pending 队列。
+
+.. method:: void DataChannel::setMaxPendingChannels(std::uint32_t count)
+.. method:: std::uint32_t DataChannel::maxPendingChannels() const
+
+    未取走的 pending 通道数量上限。超出时丢弃最旧的 pending 通道，并以
+    ``PendingChannelLimitError`` 中止。``0`` 表示不限制。默认 ``8``。
+
+.. method:: void DataChannel::setSendingTimeout(float timeout)
+.. method:: float DataChannel::sendingTimeout() const
+
+    ``goThrough`` 等待与阻塞式 ``sendPacket`` 的超时（秒）。
+    ``timeout <= 0`` 表示一直等待。默认 ``30`` 秒。
+
 8.1 MultiStream
 ^^^^^^^^^^^^^^^
 

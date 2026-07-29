@@ -37,6 +37,7 @@ public:
         UserShutdown = 7,
         PluggedChannelError = 8,
         PakcetTooLarge = 9,
+        PendingChannelLimitError = 10,
 
         UnknownError = 100,
         ProgrammingError = 101,
@@ -56,6 +57,13 @@ public:
     std::uint32_t
     capacity() const;  // so, a data channel may consume `maxPacketSize * capacity` bytes of receiving buffer memory.
     std::uint32_t receivingQueueSize() const;
+    // Max untaken pending channels. When exceeded, the oldest pending channel is aborted.
+    // Set to 0 for unlimited. Default is 8.
+    void setMaxPendingChannels(std::uint32_t count);
+    std::uint32_t maxPendingChannels() const;
+    // Timeout for goThrough wait and blocking sendPacket waits. Set <= 0 to wait forever. Default is 30s.
+    void setSendingTimeout(float timeout);
+    float sendingTimeout() const;
     DataChannelPole pole() const;
     void setName(const std::string &name);
     std::string name() const;
