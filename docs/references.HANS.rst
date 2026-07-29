@@ -3264,7 +3264,7 @@ listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠
 对端身份用 ``DatagramPath`` 表示——它只是不透明路径键（``key()``），与 IP/端口无关，因此同一套
 会话逻辑可以跑在 UDP、ICMP 或其它自定义报文通道上。
 
-``Mode`` 包括 ``LargeDelayInternet``, ``Internet``, ``FastInternet``, ``Ethernet``,
+``Mode`` 包括 ``LargeDelayInternet``、``Internet``、``FastInternet``、``Ethernet``、
 ``Loopback`` 与 ``AsymmetricInternet``（``ikcp_nodelay(..., resend=1, nc=0)``，适合非对称链路）。
 ``KcpSocket::createConnection()`` 默认使用 ``AsymmetricInternet``；服务端通常仍用 ``Internet``。
 
