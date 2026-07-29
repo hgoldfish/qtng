@@ -1448,16 +1448,26 @@ PosixPath PosixPath::cwd()
 
 pair<string, string> safeJoinPath(const string &parentDir, const string &subPath)
 {
-    if (subPath.empty()) {
+    // HTTP URL paths start with '/', but joining must stay under parentDir.
+    // Strip leading separators so PosixPath::operator/ does not treat subPath as absolute.
+    string cleaned = subPath;
+    while (!cleaned.empty() && cleaned[0] == PosixPath::seperator) {
+        cleaned.erase(0, 1);
+    }
+    if (cleaned.empty()) {
         return make_pair(parentDir, string());
     }
-    if (subPath.find("..") != string::npos) {
+    if (cleaned.find("..") != string::npos) {
         return make_pair(string(), string());
     }
     PosixPath parent(parentDir);
-    PosixPath child = parent / subPath;
-    if (!child.path().compare(0, parent.path().size(), parent.path())) {
-        return make_pair(child.path(), string());
+    PosixPath child = parent / cleaned;
+    const string &childPath = child.path();
+    const string &parentPath = parent.path();
+    if (childPath == parentPath
+        || (childPath.size() > parentPath.size() && childPath.compare(0, parentPath.size(), parentPath) == 0
+            && childPath[parentPath.size()] == PosixPath::seperator)) {
+        return make_pair(childPath, string());
     }
     return make_pair(string(), string());
 }

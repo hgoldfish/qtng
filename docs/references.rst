@@ -3371,7 +3371,9 @@ POSIX-compliant path handling for cross-platform file operations.
 
 .. method:: std::pair<std::string, std::string> safeJoinPath(const std::string &parentDir, const std::string &subPath)
 
-    Normalize path joining with security checks.
+    Safely join ``subPath`` under ``parentDir``. Leading separators in ``subPath``
+    are treated as relative to the parent (as with HTTP URL paths). Rejects
+    ``..`` segments. On failure both strings in the returned pair are empty.
 
 8. Advanced Programming
 -----------------------

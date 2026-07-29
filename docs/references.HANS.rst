@@ -3084,7 +3084,9 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 +++++++++++++++
 .. method:: std::pair<std::string, std::string> safeJoinPath(const std::string &parentDir, const std::string &subPath)
 
-    规范化子路径（处理 ``.`` 和 ``..`` 等符号），安全地将子路径附加到父目录后
+    安全地将 ``subPath`` 拼到 ``parentDir`` 下。``subPath`` 开头的分隔符会被去掉，
+    按相对父目录处理（与 HTTP URL 路径一致）。含 ``..`` 的路径会被拒绝。
+    失败时返回的 pair 两个字符串都为空。
 
 8. 高级编程
 -----------
