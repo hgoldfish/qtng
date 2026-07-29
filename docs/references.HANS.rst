@@ -677,6 +677,11 @@ qtng 参考文档
 
 插入元素 ``e``。若队列已满，阻塞当前协程直至其他协程取出元素。
 
+.. method:: bool put(const T &e, std::uint32_t msecs)
+
+与 ``put(const T &e)`` 相同，但最多等待 ``msecs`` 毫秒；超时返回 ``false``。
+``SizedQueue`` 提供同样的重载（容量按元素大小计量）。
+
 .. method:: T get()
 
 取出元素。若队列为空，阻塞当前协程直至其他协程插入元素。

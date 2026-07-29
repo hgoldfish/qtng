@@ -302,8 +302,10 @@ public:
     }
     ~SizedQueueType();
     void setCapacity(std::uint32_t capacity);
-    bool put(const T &e);
+    bool put(const T &e);  // insert e to the tail of queue. blocked until not full.
+    bool put(const T &e, std::uint32_t msecs);  // like put(), but wait at most msecs for capacity.
     bool put(T &&e);
+    bool put(T &&e, std::uint32_t msecs);
     bool putForcedly(const T &e);
     bool putForcedly(T &&e);
     bool returns(const T &e);
@@ -522,7 +524,13 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::remove(const T
 template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
 bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(const T &e)
 {
-    if (!notFull.tryWait()) {
+    return put(e, UINT_MAX);
+}
+
+template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
+bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(const T &e, std::uint32_t msecs)
+{
+    if (!notFull.tryWait(msecs)) {
         return false;
     }
     lock.lockForWrite();
@@ -539,7 +547,13 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(const T &e
 template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
 bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(T &&e)
 {
-    if (!notFull.tryWait()) {
+    return put(std::move(e), UINT_MAX);
+}
+
+template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
+bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(T &&e, std::uint32_t msecs)
+{
+    if (!notFull.tryWait(msecs)) {
         return false;
     }
     lock.lockForWrite();

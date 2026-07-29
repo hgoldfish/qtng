@@ -683,6 +683,11 @@ Set the the maximum number of elements this queue can hold.
 
 Put a element ``e`` to this queue. If the size of queue reaches the capacity, blocks current coroutine until any other coroutine take elements from this queue.
 
+.. method:: bool put(const T &e, std::uint32_t msecs)
+
+Like ``put(const T &e)``, but waits at most ``msecs`` milliseconds for capacity. Returns ``false`` on timeout.
+``SizedQueue`` provides the same overloads (capacity is measured in element size units).
+
 .. method:: T get()
 
 Get (take) a element from this queue. If this queue is empty, blocks current coroutine until any other coroutine put elements to this queue.
