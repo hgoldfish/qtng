@@ -3,6 +3,10 @@ CMakeLists.txt.user*
 .hgignore
 .directory
 *.kate-swp
+.cursor/
+.git.bak/
+.vscode/
+
 include/pool.h
 website/
 
@@ -15,3 +19,6 @@ website/
 /examples/*/dist/
 /examples/*/.build-in-docker/
 /examples/coroutines/coroutines.pro.user
+examples/joker/8085.txt
+examples/joker/__pycache__/
+libressl/
