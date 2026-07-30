@@ -107,7 +107,9 @@ void Deferred<ARG>::run(const ARG &arg, bool ok)
     originalResult = std::make_pair(arg, ok);
     ran = true;
     bool _ok = ok;
-    for (const std::tuple<int, Callback, Callback> &item : stack) {
+    // Snapshot so callbacks may safely remove/clear/add while we fire.
+    const std::vector<std::tuple<int, Callback, Callback>> copy = stack;
+    for (const std::tuple<int, Callback, Callback> &item : copy) {
         try {
             if (_ok) {
                 std::get<1>(item)(arg);
@@ -168,7 +170,9 @@ void Deferred<void>::run(bool ok)
     originalResult = ok;
     ran = true;
     bool _ok = ok;
-    for (const std::tuple<int, Callback, Callback> &item : stack) {
+    // Snapshot so callbacks may safely remove/clear/add while we fire.
+    const std::vector<std::tuple<int, Callback, Callback>> copy = stack;
+    for (const std::tuple<int, Callback, Callback> &item : copy) {
         try {
             if (_ok) {
                 std::get<1>(item)();

@@ -67,6 +67,7 @@ add_executable(qtng_tests
     test_hostaddress.cpp
     test_http_cookie.cpp
     test_logging.cpp
+    test_deferred.cpp
 )
 
 target_link_libraries(qtng_tests PRIVATE qtng_test_support Catch2::Catch2WithMain)
