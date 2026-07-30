@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-joker Alpine/musl 静态构建脚本。
+joker Windows XP mingw-w64 交叉编译脚本。
 
-在 Alpine Linux 容器中用 musl 静态链接编译 joker，产出不依赖 glibc、
-可在任意同架构 Linux 上运行的可执行文件。
+在 Debian bookworm 容器中用 mingw-w64（MSVCRT）交叉编译 joker，
+产出可在 Windows XP（32 位）与 Windows XP x64 / Server 2003（64 位）
+上运行的 PE 可执行文件。
 
 用法:
-  ./build.py [--no-cache]
-      构建 Docker 镜像并编译 joker-server / joker-client，复制到 dist/
+  ./winxp.py [--no-cache]
+      构建 Docker 镜像并编译 win32/win64 的 joker-server / joker-client，
+      复制到 dist/win32/ 与 dist/win64/
 """
 
 import argparse
@@ -19,7 +21,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,14 +30,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-IMAGE_NAME = "joker-musl-static"
+IMAGE_NAME = "joker-winxp-mingw"
 DOCKERFILE_HASH_LABEL = "joker.dockerfile_hash"
 JOKER_ROOT = Path(__file__).resolve().parent
 QTNG_ROOT = JOKER_ROOT.parent.parent
-DOCKERFILE_PATH = JOKER_ROOT / "Dockerfile"
-DOCKER_BUILD_DIR = JOKER_ROOT / ".build-in-docker"
+DOCKERFILE_PATH = JOKER_ROOT / "Dockerfile.winxp"
+DOCKER_BUILD_ROOT = JOKER_ROOT / ".build-winxp"
 DIST_DIR = JOKER_ROOT / "dist"
-ARTIFACTS = ("joker-server", "joker-client")
+ARTIFACTS = ("joker-server.exe", "joker-client.exe")
+ARCHES: Tuple[str, ...] = ("win32", "win64")
 
 
 def run(cmd: List[str], check: bool = True, quiet: bool = False) -> subprocess.CompletedProcess:
@@ -135,16 +138,18 @@ def build_image(no_cache: bool = False) -> None:
 
 
 def install_artifacts() -> None:
-    DIST_DIR.mkdir(parents=True, exist_ok=True)
-    for name in ARTIFACTS:
-        src = DOCKER_BUILD_DIR / name
-        if not src.is_file():
-            logger.error("未找到编译产出: %s", src)
-            sys.exit(1)
-        dest = DIST_DIR / name
-        shutil.copy2(str(src), str(dest))
-        os.chmod(str(dest), 0o755)
-        logger.info("copy file: %s -> %s", src, dest)
+    for arch in ARCHES:
+        dest_dir = DIST_DIR / arch
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for name in ARTIFACTS:
+            src = DOCKER_BUILD_ROOT / arch / name
+            if not src.is_file():
+                logger.error("未找到编译产出: %s", src)
+                sys.exit(1)
+            dest = dest_dir / name
+            shutil.copy2(str(src), str(dest))
+            os.chmod(str(dest), 0o755)
+            logger.info("copy file: %s -> %s", src, dest)
 
 
 def build_in_container() -> None:
@@ -161,13 +166,13 @@ def build_in_container() -> None:
         "%s:/qtng" % QTNG_ROOT,
         IMAGE_NAME,
     ]
-    logger.info("在 Alpine/musl 容器内静态编译，挂载 qtng 为 /qtng ...")
+    logger.info("在 mingw-w64 容器内交叉编译 WinXP PE，挂载 qtng 为 /qtng ...")
     run(cmd)
     install_artifacts()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="joker Alpine/musl 静态构建")
+    parser = argparse.ArgumentParser(description="joker Windows XP mingw-w64 交叉编译")
     parser.add_argument(
         "--no-cache",
         action="store_true",
@@ -178,7 +183,7 @@ def main() -> None:
     check_docker()
     build_image(no_cache=args.no_cache)
     build_in_container()
-    logger.info("完成。静态可执行文件在 %s/", DIST_DIR)
+    logger.info("完成。WinXP 可执行文件在 %s/win32/ 与 %s/win64/", DIST_DIR, DIST_DIR)
 
 
 if __name__ == "__main__":

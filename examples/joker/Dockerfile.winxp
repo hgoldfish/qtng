@@ -1,0 +1,104 @@
+# Debian 12 (bookworm) + mingw-w64 (MSVCRT) for Windows XP-compatible PE binaries.
+FROM debian:bookworm
+
+# Optional: use a China HTTP mirror (no ca-certificates needed yet).
+RUN sed -i \
+        -e 's#https\?://deb.debian.org#http://mirrors.ustc.edu.cn#g' \
+        -e 's#https\?://security.debian.org#http://mirrors.ustc.edu.cn/debian-security#g' \
+        /etc/apt/sources.list.d/debian.sources \
+    || sed -i \
+        -e 's#https\?://deb.debian.org#http://mirrors.ustc.edu.cn#g' \
+        -e 's#https\?://security.debian.org#http://mirrors.ustc.edu.cn/debian-security#g' \
+        /etc/apt/sources.list \
+    || true
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        cmake \
+        file \
+        g++-mingw-w64-i686 \
+        g++-mingw-w64-x86-64 \
+        libz-mingw-w64-dev \
+        make \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Prefer POSIX threading model for C++ (avoids win32 threads quirks with libstdc++).
+RUN update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix \
+    && update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix \
+    && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix \
+    && update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'set -eu' \
+        'JOKER_DIR=/qtng/examples/joker' \
+        'BUILD_ROOT="$JOKER_DIR/.build-winxp"' \
+        'JOBS="$(nproc)"' \
+        'cd "$JOKER_DIR"' \
+        '' \
+        'build_arch() {' \
+        '  arch="$1"' \
+        '  toolchain="$2"' \
+        '  prefix="$3"' \
+        '  objdump="$4"' \
+        '  pe_token="$5"' \
+        '  expect_os_minor="$6"' \
+        '  build_dir="$BUILD_ROOT/$arch"' \
+        '  echo "=== building $arch ==="' \
+        '  mkdir -p "$build_dir"' \
+        '  zlib_a=""' \
+        '  for candidate in "$prefix/lib/libz.a" "$prefix/lib/libzlibstatic.a"; do' \
+        '    if [ -f "$candidate" ]; then zlib_a="$candidate"; break; fi' \
+        '  done' \
+        '  if [ -z "$zlib_a" ]; then' \
+        '    echo "static zlib not found under $prefix/lib" >&2' \
+        '    exit 1' \
+        '  fi' \
+        '  cmake -S . -B "$build_dir" -DCMAKE_TOOLCHAIN_FILE="$JOKER_DIR/cmake/$toolchain" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DZLIB_USE_STATIC_LIBS=ON -DZLIB_LIBRARY="$zlib_a" -DZLIB_INCLUDE_DIR="$prefix/include"' \
+        '  cmake --build "$build_dir" -j "$JOBS" --target joker-server joker-client' \
+        '  for bin in joker-server joker-client; do' \
+        '    path="$build_dir/${bin}.exe"' \
+        '    if [ ! -f "$path" ]; then' \
+        '      echo "missing binary: $path" >&2' \
+        '      exit 1' \
+        '    fi' \
+        '    file_out="$(file "$path")"' \
+        '    echo "$file_out"' \
+        '    case "$file_out" in' \
+        '      *"$pe_token"*) ;;' \
+        '      *)' \
+        '        echo "ERROR: $path is not $pe_token" >&2' \
+        '        exit 1' \
+        '        ;;' \
+        '    esac' \
+        '    dump="$("$objdump" -p "$path")"' \
+        '    echo "$dump" | grep -E "MajorOSystemVersion|MinorOSystemVersion|MajorSubsystemVersion|MinorSubsystemVersion" || true' \
+        '    echo "$dump" | grep -q "MajorOSystemVersion[[:space:]]*5" || {' \
+        '      echo "ERROR: $path MajorOSystemVersion is not 5" >&2' \
+        '      exit 1' \
+        '    }' \
+        '    echo "$dump" | grep -q "MinorOSystemVersion[[:space:]]*$expect_os_minor" || {' \
+        '      echo "ERROR: $path MinorOSystemVersion is not $expect_os_minor" >&2' \
+        '      exit 1' \
+        '    }' \
+        '    if echo "$dump" | grep -E "DLL Name:" | grep -qiE "winpthread|libgcc|libstdc|libssp"; then' \
+        '      echo "ERROR: $path still depends on MinGW runtime DLLs:" >&2' \
+        '      echo "$dump" | grep -E "DLL Name:" >&2' \
+        '      exit 1' \
+        '    fi' \
+        '    echo "DLL deps:"' \
+        '    echo "$dump" | grep -E "DLL Name:" || true' \
+        '    echo "xp pe ok: $path"' \
+        '  done' \
+        '}' \
+        '' \
+        'build_arch win32 toolchain-mingw-win32.cmake /usr/i686-w64-mingw32 i686-w64-mingw32-objdump "PE32 executable" 1' \
+        'build_arch win64 toolchain-mingw-win64.cmake /usr/x86_64-w64-mingw32 x86_64-w64-mingw32-objdump "PE32+ executable" 2' \
+        'echo "artifacts under $BUILD_ROOT/{win32,win64}/"' \
+        > /usr/local/bin/joker-winxp-build \
+    && chmod +x /usr/local/bin/joker-winxp-build
+
+WORKDIR /qtng/examples/joker
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/joker-winxp-build"]

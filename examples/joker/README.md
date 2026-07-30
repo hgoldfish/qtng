@@ -63,7 +63,23 @@ any same-arch Linux). Requires Docker.
 
 From the `examples/joker` directory:
 
-    $ ./build.py
-    # optional: ./build.py --no-cache
+    $ ./linux.py
+    # optional: ./linux.py --no-cache
 
-Artifacts are copied to `dist/joker-server` and `dist/joker-client`.
+Artifacts are copied to `dist/linux/joker-server` and `dist/linux/joker-client`.
+
+### Windows XP PE binaries (Docker / mingw-w64)
+
+Cross-compile 32-bit (Windows XP) and 64-bit (Windows XP x64 / Server 2003)
+binaries with mingw-w64 (MSVCRT) inside a Debian bookworm container. Requires
+Docker.
+
+From the `examples/joker` directory:
+
+    $ ./winxp.py
+    # optional: ./winxp.py --no-cache
+
+Artifacts are copied to:
+
+- `dist/win32/joker-server.exe`, `dist/win32/joker-client.exe`
+- `dist/win64/joker-server.exe`, `dist/win64/joker-client.exe`

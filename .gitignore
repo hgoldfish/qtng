@@ -18,6 +18,7 @@ website/
 /examples/*/build/
 /examples/*/dist/
 /examples/*/.build-in-docker/
+/examples/*/.build-winxp/
 /examples/coroutines/coroutines.pro.user
 examples/joker/8085.txt
 examples/joker/__pycache__/

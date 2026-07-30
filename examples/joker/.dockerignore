@@ -1,6 +1,10 @@
 .build-in-docker/
+.build-winxp/
 /build/
 /dist/
 *
-!Dockerfile
+!Dockerfile.linux
+!Dockerfile.winxp
 !.dockerignore
+!cmake/
+!cmake/*.cmake
