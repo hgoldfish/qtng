@@ -83,3 +83,8 @@ Artifacts are copied to:
 
 - `dist/win32/joker-server.exe`, `dist/win32/joker-client.exe`
 - `dist/win64/joker-server.exe`, `dist/win64/joker-client.exe`
+
+The build uses `cmake/xp-compat/` (include override + link shims) so the PE does
+not import Vista+ APIs (`BCryptGenRandom`, `InitOnceExecuteOnce`, `GetTickCount64`,
+`inet_pton`) that would prevent loading on Windows XP. LibreSSL sources are left
+untouched.

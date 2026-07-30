@@ -24,7 +24,9 @@ RUN apt-get update \
         pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Prefer POSIX threading model for C++ (avoids win32 threads quirks with libstdc++).
+# Prefer POSIX threading model for C++11 std::mutex / libstdc++ threading.
+# libwinpthread references GetTickCount64; cmake/xp-compat/xp_api_shims.c supplies
+# a local __imp_GetTickCount64 thunk so the PE does not import it from kernel32.
 RUN update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix \
     && update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix \
     && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix \
@@ -47,6 +49,7 @@ RUN printf '%s\n' \
         '  expect_os_minor="$6"' \
         '  build_dir="$BUILD_ROOT/$arch"' \
         '  echo "=== building $arch ==="' \
+        '  rm -rf "$build_dir"' \
         '  mkdir -p "$build_dir"' \
         '  zlib_a=""' \
         '  for candidate in "$prefix/lib/libz.a" "$prefix/lib/libzlibstatic.a"; do' \
@@ -83,17 +86,28 @@ RUN printf '%s\n' \
         '      echo "ERROR: $path MinorOSystemVersion is not $expect_os_minor" >&2' \
         '      exit 1' \
         '    }' \
-        '    if echo "$dump" | grep -E "DLL Name:" | grep -qiE "winpthread|libgcc|libstdc|libssp"; then' \
-        '      echo "ERROR: $path still depends on MinGW runtime DLLs:" >&2' \
+        '    if echo "$dump" | grep -E "DLL Name:" | grep -qiE "winpthread|libgcc|libstdc|libssp|bcrypt"; then' \
+        '      echo "ERROR: $path still depends on MinGW runtime or Vista+ DLLs:" >&2' \
         '      echo "$dump" | grep -E "DLL Name:" >&2' \
         '      exit 1' \
         '    fi' \
+        '    for bad in GetTickCount64 InitOnceExecuteOnce BCryptGenRandom inet_pton inet_ntop _mkgmtime32 _mkgmtime64 _mkgmtime; do' \
+        '      if echo "$dump" | grep -E "^[[:space:]]+[0-9a-fA-F]+[[:space:]]+[0-9]+[[:space:]]+$bad\$" >/dev/null; then' \
+        '        echo "ERROR: $path still imports Vista+ API: $bad" >&2' \
+        '        echo "$dump" | grep -E "DLL Name:|$bad" >&2' \
+        '        exit 1' \
+        '      fi' \
+        '    done' \
         '    echo "DLL deps:"' \
         '    echo "$dump" | grep -E "DLL Name:" || true' \
         '    echo "xp pe ok: $path"' \
         '  done' \
         '}' \
         '' \
+        'if [ ! -d /qtng/libressl ]; then' \
+        '  echo "libressl/ missing under /qtng; bundled LibreSSL is required for WinXP builds" >&2' \
+        '  exit 1' \
+        'fi' \
         'build_arch win32 toolchain-mingw-win32.cmake /usr/i686-w64-mingw32 i686-w64-mingw32-objdump "PE32 executable" 1' \
         'build_arch win64 toolchain-mingw-win64.cmake /usr/x86_64-w64-mingw32 x86_64-w64-mingw32-objdump "PE32+ executable" 2' \
         'echo "artifacts under $BUILD_ROOT/{win32,win64}/"' \

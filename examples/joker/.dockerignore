@@ -8,3 +8,5 @@
 !.dockerignore
 !cmake/
 !cmake/*.cmake
+!cmake/xp-compat/
+!cmake/xp-compat/**

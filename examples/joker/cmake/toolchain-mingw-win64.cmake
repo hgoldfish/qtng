@@ -19,9 +19,15 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 
-add_compile_definitions(WINVER=0x0502 _WIN32_WINNT=0x0502)
+# Do NOT add_compile_definitions(_WIN32_WINNT=...) globally: LibreSSL also defines
+# _WIN32_WINNT=0x0600 and a second -D triggers "redefined" warnings. Apply XP
+# WINNT only to qtng/joker targets (see examples/joker/CMakeLists.txt).
+set(JOKER_MINGW_XP_COMPAT ON CACHE BOOL "Link XP API shims for mingw" FORCE)
+set(JOKER_XP_WINVER "0x0502" CACHE STRING "WINVER for qtng/joker XP builds" FORCE)
+set(JOKER_XP_WINNT "0x0502" CACHE STRING "_WIN32_WINNT for qtng/joker XP builds" FORCE)
 
 # -static pulls in libwinpthread.a (posix model) so no libwinpthread-1.dll at runtime.
+# xp_api_shims.c supplies GetTickCount64/inet_pton import thunks missing on XP.
 set(_XP_LINK_FLAGS
     "-static -Wl,--major-os-version,5 -Wl,--minor-os-version,2 -Wl,--major-subsystem-version,5 -Wl,--minor-subsystem-version,2"
 )
