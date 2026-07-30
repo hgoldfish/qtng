@@ -12,6 +12,46 @@ using namespace std;
 namespace qtng {
 namespace utils {
 
+namespace {
+
+#if defined(NG_OS_WIN)
+// XP's msvcrt.dll does not export _mkgmtime / _mkgmtime32 / _mkgmtime64.
+// Use a portable UTC mktime instead of the MSVCRT helpers.
+bool isLeapYear(int year)
+{
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+time_t timegmUtc(tm *utc)
+{
+    static const int kDaysBeforeMonth[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    if (!utc || utc->tm_mon < 0 || utc->tm_mon > 11) {
+        return static_cast<time_t>(-1);
+    }
+    const int year = utc->tm_year + 1900;
+    int64_t days = 0;
+    if (year >= 1970) {
+        for (int y = 1970; y < year; ++y) {
+            days += isLeapYear(y) ? 366 : 365;
+        }
+    } else {
+        for (int y = year; y < 1970; ++y) {
+            days -= isLeapYear(y) ? 366 : 365;
+        }
+    }
+    days += kDaysBeforeMonth[utc->tm_mon];
+    if (utc->tm_mon > 1 && isLeapYear(year)) {
+        days += 1;
+    }
+    days += utc->tm_mday - 1;
+    const int64_t secs = days * 86400LL + static_cast<int64_t>(utc->tm_hour) * 3600LL
+        + static_cast<int64_t>(utc->tm_min) * 60LL + static_cast<int64_t>(utc->tm_sec);
+    return static_cast<time_t>(secs);
+}
+#endif
+
+}  // namespace
+
 DateTime::DateTime()
     : tp()
     , valid(false)
@@ -50,7 +90,7 @@ DateTime DateTime::fromUtc(int year, int month, int day, int hour, int minute, i
     utc.tm_sec = second;
     utc.tm_isdst = 0;
 #if defined(NG_OS_WIN)
-    time_t secs = _mkgmtime(&utc);
+    time_t secs = timegmUtc(&utc);
 #else
     time_t secs = timegm(&utc);
 #endif

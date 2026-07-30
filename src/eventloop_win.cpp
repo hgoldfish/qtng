@@ -510,6 +510,9 @@ LRESULT QT_WIN_CALLBACK evl_win_internal_proc(HWND hwnd, UINT message, WPARAM wp
 #else
     WinEventLoopCoroutinePrivate *d = reinterpret_cast<WinEventLoopCoroutinePrivate *>(GetWindowLong(hwnd, GWL_USERDATA));
 #endif
+    if (!d) {
+        return DefWindowProc(hwnd, message, wp, lp);
+    }
     switch (message) {
     case WM_QTNG_SOCKETNOTIFIER: {
         int event = WSAGETSELECTEVENT(lp);
@@ -628,6 +631,7 @@ void WinEventLoopCoroutinePrivate::sendIoEvent(intptr_t fd, EventLoopCoroutine::
         WSAAsyncSelect(static_cast<SOCKET>(fd), internalHwnd, 0, 0);
         map<intptr_t, unordered_set<IoWatcher *> >::iterator socketIt = activeSockets.find(fd);
         if (socketIt != activeSockets.end()) {
+            // Copy before callbacks: erase/callback may mutate activeSockets.
             const unordered_set<IoWatcher *> watcherSet = socketIt->second;
             for (unordered_set<IoWatcher *>::const_iterator it = watcherSet.begin(); it != watcherSet.end(); ++it) {
                 IoWatcher *watcher = *it;
@@ -637,7 +641,7 @@ void WinEventLoopCoroutinePrivate::sendIoEvent(intptr_t fd, EventLoopCoroutine::
                     delete watcher;
                 }
             }
-            activeSockets.erase(socketIt);
+            activeSockets.erase(fd);
         }
         for (map<int, WinWatcher *>::iterator it = watchers.begin(); it != watchers.end(); ) {
             IoWatcher *watcher = dynamic_cast<IoWatcher *>(it->second);
@@ -653,14 +657,23 @@ void WinEventLoopCoroutinePrivate::sendIoEvent(intptr_t fd, EventLoopCoroutine::
         if (socketIt == activeSockets.end()) {
             return;
         }
-        for (IoWatcher *watcher: socketIt->second) {
+        // Snapshot first: range-for + erase on the live set is undefined behavior,
+        // and callbacks may further mutate activeSockets / watchers.
+        const unordered_set<IoWatcher *> watcherSet = socketIt->second;
+        for (IoWatcher *watcher: watcherSet) {
             if (((event & EventLoopCoroutine::Read) && (watcher->event & EventLoopCoroutine::Read)) ||
                 ((event & EventLoopCoroutine::Write) && (watcher->event & EventLoopCoroutine::Write))) {
-                if (socketIt->second.count(watcher)) {
-                    socketIt->second.erase(watcher);
-                    (*watcher->callback)();
+                map<intptr_t, unordered_set<IoWatcher *> >::iterator stillActive = activeSockets.find(fd);
+                if (stillActive == activeSockets.end() || !stillActive->second.count(watcher)) {
+                    continue;
                 }
+                stillActive->second.erase(watcher);
+                (*watcher->callback)();
             }
+        }
+        socketIt = activeSockets.find(fd);
+        if (socketIt == activeSockets.end()) {
+            return;
         }
         if (socketIt->second.empty()) {
             activeSockets.erase(socketIt);
