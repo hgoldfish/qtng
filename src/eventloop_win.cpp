@@ -1,3 +1,7 @@
+#include "qtng/utils/platform.h"
+
+#ifdef NG_OS_WIN
+
 #include <cassert>
 #include <condition_variable>
 #include <map>
@@ -6,17 +10,27 @@
 #include <queue>
 #include <unordered_set>
 
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <windows.h>
+
 #include "qtng/eventloop.h"
 #include "qtng/utils/logging.h"
-#include "qtng/utils/platform.h"
 #include "qtng/private/eventloop_p.h"
-#include "qtng/utils/logging.h"
 
 using namespace std;
 
 NG_LOGGER("qtng.eventloop_win");
 
+#ifndef QT_WIN_CALLBACK
+#  define QT_WIN_CALLBACK CALLBACK
+#endif
+
 namespace qtng {
+
+struct WinWatcher;
 
 namespace {
 
@@ -562,7 +576,7 @@ void WinEventLoopCoroutinePrivate::createInternalWindow()
         return;
     }
 
-    QWindowsMessageWindowClassContext *ctx = qWindowsMessageWindowClassContext();
+    QWindowsMessageWindowClassContext *ctx = &qWindowsMessageWindowClassContext();
     if (!ctx->atom) {
         return;
     }
@@ -714,4 +728,6 @@ void WinEventLoopCoroutinePrivate::updateTimeStamp()
 
 
 }  // namespace qtng
+
+#endif  // NG_OS_WIN
 

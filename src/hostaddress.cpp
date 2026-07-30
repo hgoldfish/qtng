@@ -1,3 +1,5 @@
+#include "qtng/utils/platform.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -8,8 +10,10 @@
 #include <string>
 #include <vector>
 
-
 #ifdef NG_OS_WIN
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
 #  include <winsock2.h>
 #  include <ws2tcpip.h>
 #else

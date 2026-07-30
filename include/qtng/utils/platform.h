@@ -51,6 +51,15 @@ inline unique_ptr<T> make_unique(Args &&... args)
 #ifdef NG_OS_WIN
 #  define NG_SOCKLEN_T int
 #  define NG_SOCKOPTLEN_T int
+#  ifndef uint
+typedef unsigned int uint;
+#  endif
+#  ifndef ushort
+typedef unsigned short ushort;
+#  endif
+#  ifndef ulong
+typedef unsigned long ulong;
+#  endif
 #else
 #  include <sys/types.h>
 #  define NG_SOCKLEN_T socklen_t

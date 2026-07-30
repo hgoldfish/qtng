@@ -1,3 +1,5 @@
+#include "qtng/utils/platform.h"
+
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
@@ -8,8 +10,10 @@
 #include <thread>
 #include <unordered_set>
 
-
 #ifdef NG_OS_WIN
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #else
 #include <sys/wait.h>

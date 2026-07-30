@@ -1,6 +1,19 @@
+#include "qtng/utils/platform.h"
+
+#ifdef NG_OS_WIN
+
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
 #include "qtng/coroutine.h"
+#include "qtng/private/coroutine_p.h"
+#include "qtng/utils/logging.h"
 
 using namespace std;
+
+NG_LOGGER("qtng.coroutine.win");
 
 namespace qtng {
 
@@ -40,7 +53,7 @@ void CALLBACK run_stub(BaseCoroutinePrivate *coroutine)
         coroutine->state = BaseCoroutine::Stopped;
         coroutine->q_ptr->finished.callback(coroutine->q_ptr);
     } catch(...) {
-        ngWarning() << "coroutine throw a unhandled exception.");
+        ngWarning() << "coroutine throw a unhandled exception.";
         coroutine->state = BaseCoroutine::Stopped;
         coroutine->q_ptr->finished.callback(coroutine->q_ptr);
         //throw; // cause undefined behaviors
@@ -60,7 +73,7 @@ BaseCoroutinePrivate::~BaseCoroutinePrivate()
 {
     NG_Q(BaseCoroutine);
     if (currentCoroutine().get(false) == q) {
-        ngWarning() << "do not delete one self.");
+        ngWarning() << "do not delete one self.";
     }
     if (context) {
         if((stackSize == 0)) {
@@ -70,7 +83,7 @@ BaseCoroutinePrivate::~BaseCoroutinePrivate()
         }
     }
     if (exception) {
-        ngWarning() << "BaseCoroutine::exception should always be kept null.");
+        ngWarning() << "BaseCoroutine::exception should always be kept null.";
         // XXX we do not own the exception!
         // delete exception;
     }
@@ -86,7 +99,7 @@ bool BaseCoroutinePrivate::initContext()
     context = CreateFiberEx(1024 * 4, stackSize, 0, (PFIBER_START_ROUTINE)run_stub, this);
     if (!context) {
         DWORD error = GetLastError();
-        ngWarning() << ) << "can not create fiber: error is %1";
+        ngWarning() << "can not create fiber: error is" << error;
         bad = true;
         return false;
     } else {
@@ -100,23 +113,23 @@ bool BaseCoroutinePrivate::raise(CoroutineException *exception)
 {
     NG_Q(BaseCoroutine);
     if (!exception) {
-        ngWarning() << "can not kill coroutine with null exception.");
+        ngWarning() << "can not kill coroutine with null exception.";
         return false;
     }
     if (currentCoroutine().get() == q) {
-        ngWarning() << "can not kill oneself.");
+        ngWarning() << "can not kill oneself.";
         delete exception;
         return false;
     }
 
     if (this->exception) {
-        ngWarning() << "coroutine had been killed.");
+        ngWarning() << "coroutine had been killed.";
         delete exception;
         return false;
     }
 
     if (state == BaseCoroutine::Stopped || state == BaseCoroutine::Joined) {
-        ngWarning() << "coroutine is stopped.");
+        ngWarning() << "coroutine is stopped.";
         delete exception;
         return false;
     }
@@ -138,7 +151,7 @@ bool BaseCoroutinePrivate::yield()
     NG_Q(BaseCoroutine);
 
     if (bad || (state != BaseCoroutine::Initialized && state != BaseCoroutine::Started)) {
-        ngWarning() << "invalid coroutine state.");
+        ngWarning() << "invalid coroutine state.";
         return false;
     }
 
@@ -148,11 +161,11 @@ bool BaseCoroutinePrivate::yield()
 
     BaseCoroutine *old = currentCoroutine().get();
     if (!old) {
-        ngWarning() << "can not get old coroutine.");
+        ngWarning() << "can not get old coroutine.";
         return false;
     }
     if (old == q) {
-        ngWarning() << "yield to myself. did you call blocking functions in eventloop?");
+        ngWarning() << "yield to myself. did you call blocking functions in eventloop?";
         return false;
     }
 
@@ -198,7 +211,7 @@ BaseCoroutine* createMainCoroutine()
 #endif
     if (!mainPrivate->context) {
         DWORD error = GetLastError();
-        ngWarning() << "Coroutine can not malloc new memroy: error is %d", error);
+        ngWarning() << "Coroutine can not malloc new memroy: error is" << error;
         delete main;
         return nullptr;
     }
@@ -271,3 +284,5 @@ void BaseCoroutine::setPrevious(BaseCoroutine *previous)
 }
 
 }  // namespace qtng
+
+#endif  // NG_OS_WIN

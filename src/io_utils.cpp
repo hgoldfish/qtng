@@ -674,12 +674,16 @@ class RawFile : public FileLike
 {
 public:
     explicit RawFile(int fdIn)
-        : fd(fdIn)
 #ifdef NG_OS_UNIX
+        : fd(fdIn)
         , useFd(true)
-#endif
     {
     }
+#else
+    {
+        (void)fdIn;
+    }
+#endif
     explicit RawFile(unique_ptr<fstream> streamIn)
         : stream(std::move(streamIn))
 #ifdef NG_OS_UNIX

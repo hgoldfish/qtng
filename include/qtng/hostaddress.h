@@ -2,6 +2,7 @@
 #define QTNG_HOSTADDRESS_H
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -27,6 +28,9 @@ typedef std::uint32_t IPv4Address;
 void initWinSock();
 void freeWinSock();
 #endif
+
+class HostAddress;
+uint qHash(const HostAddress &key, uint seed = 0) noexcept;
 
 class HostAddressPrivate;
 class HostAddress
@@ -113,6 +117,17 @@ private:
 };
 
 }  // namespace qtng
+
+namespace std {
+template <>
+struct hash<qtng::HostAddress>
+{
+    size_t operator()(const qtng::HostAddress &key) const noexcept
+    {
+        return static_cast<size_t>(qtng::qHash(key, 0));
+    }
+};
+}  // namespace std
 
 #ifndef NG_NO_DEBUG_STREAM
 #include "qtng/utils/platform.h"

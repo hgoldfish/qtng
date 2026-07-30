@@ -31,10 +31,12 @@ using SharedMutex = std::shared_timed_mutex;
 
 #  ifdef NG_OS_WIN
 
-#    ifndef WIN32_LEAN_AND_MEAN
-#      define WIN32_LEAN_AND_MEAN
-#    endif
-#    include <windows.h>
+#    if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
+
+#      ifndef WIN32_LEAN_AND_MEAN
+#        define WIN32_LEAN_AND_MEAN
+#      endif
+#      include <windows.h>
 
 namespace qtng {
 namespace utils {
@@ -55,6 +57,34 @@ private:
 
 }  // namespace utils
 }  // namespace qtng
+
+#    else
+
+// SRWLOCK requires Vista+. On XP, fall back to exclusive std::mutex for both
+// shared and exclusive locking (correct, less concurrent).
+#      include <mutex>
+
+namespace qtng {
+namespace utils {
+
+class SharedMutex
+{
+public:
+    SharedMutex() = default;
+    void lock_shared() { mutex_.lock(); }
+    void unlock_shared() { mutex_.unlock(); }
+    void lock() { mutex_.lock(); }
+    void unlock() { mutex_.unlock(); }
+
+private:
+    NG_DISABLE_COPY(SharedMutex);
+    std::mutex mutex_;
+};
+
+}  // namespace utils
+}  // namespace qtng
+
+#    endif
 
 #  else
 

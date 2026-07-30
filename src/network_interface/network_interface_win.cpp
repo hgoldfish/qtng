@@ -1,11 +1,24 @@
+#include "qtng/utils/platform.h"
+
+#ifdef NG_OS_WIN
+
 #include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
 
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <iphlpapi.h>
+
 #include "qtng/network_interface.h"
 #include "qtng/private/hostaddress_p.h"
 #include "qtng/private/network_interface_p.h"
+#include "qtng/utils/string_utils.h"
 
 using namespace std;
 
@@ -13,7 +26,34 @@ using namespace std;
 #define IF_TYPE_IEEE80216_WMAN  237
 #define IF_TYPE_IEEE802154      259
 
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
+#  ifndef NETIO_STATUS
+typedef DWORD NETIO_STATUS;
+#  endif
+#  ifndef NET_IFINDEX
+typedef ULONG NET_IFINDEX, *PNET_IFINDEX;
+#  endif
+#endif
+
 namespace qtng {
+
+namespace {
+
+string fromWCharArray(const wchar_t *ws)
+{
+    if (!ws) {
+        return string();
+    }
+    int needed = WideCharToMultiByte(CP_UTF8, 0, ws, -1, nullptr, 0, nullptr, nullptr);
+    if (needed <= 1) {
+        return string();
+    }
+    string out(static_cast<size_t>(needed - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, ws, -1, &out[0], needed, nullptr, nullptr);
+    return out;
+}
+
+}  // namespace
 
 typedef DWORD (WINAPI *PtrGetAdaptersInfo)(PIP_ADAPTER_INFO, PULONG);
 static PtrGetAdaptersInfo ptrGetAdaptersInfo = 0;
@@ -39,17 +79,17 @@ static void resolveLibs()
     if (!done) {
         done = true;
 
-        void /*lib*/ lib("iphlpapi");
-        if (!lib.load()) {
+        HMODULE lib = LoadLibraryA("iphlpapi.dll");
+        if (!lib) {
             return;
         }
-        ptrGetAdaptersInfo = (PtrGetAdaptersInfo) lib.resolve("GetAdaptersInfo");
-        ptrGetAdaptersAddresses = (PtrGetAdaptersAddresses) lib.resolve("GetAdaptersAddresses");
-        ptrGetNetworkParams = (PtrGetNetworkParams) lib.resolve("GetNetworkParams");
-        ptrConvertInterfaceLuidToName = (PtrConvertInterfaceLuidToName) lib.resolve("ConvertInterfaceLuidToNameW");
-        ptrConvertInterfaceLuidToIndex = (PtrConvertInterfaceLuidToIndex) lib.resolve("ConvertInterfaceLuidToIndex");
-        ptrConvertInterfaceNameToLuid = (PtrConvertInterfaceNameToLuid) lib.resolve("ConvertInterfaceNameToLuidW");
-        ptrConvertInterfaceIndexToLuid = (PtrConvertInterfaceIndexToLuid) lib.resolve("ConvertInterfaceIndexToLuid");
+        ptrGetAdaptersInfo = (PtrGetAdaptersInfo) GetProcAddress(lib, "GetAdaptersInfo");
+        ptrGetAdaptersAddresses = (PtrGetAdaptersAddresses) GetProcAddress(lib, "GetAdaptersAddresses");
+        ptrGetNetworkParams = (PtrGetNetworkParams) GetProcAddress(lib, "GetNetworkParams");
+        ptrConvertInterfaceLuidToName = (PtrConvertInterfaceLuidToName) GetProcAddress(lib, "ConvertInterfaceLuidToNameW");
+        ptrConvertInterfaceLuidToIndex = (PtrConvertInterfaceLuidToIndex) GetProcAddress(lib, "ConvertInterfaceLuidToIndex");
+        ptrConvertInterfaceNameToLuid = (PtrConvertInterfaceNameToLuid) GetProcAddress(lib, "ConvertInterfaceNameToLuidW");
+        ptrConvertInterfaceIndexToLuid = (PtrConvertInterfaceIndexToLuid) GetProcAddress(lib, "ConvertInterfaceIndexToLuid");
     }
 }
 
@@ -134,13 +174,13 @@ static vector<NetworkInterfacePrivate *> interfaceListingWinXP()
         iface->flags = NetworkInterface::CanBroadcast;
         if (ptr->OperStatus == IfOperStatusUp)
             iface->flags |= NetworkInterface::IsUp | NetworkInterface::IsRunning;
-        if ((ptr->int & IP_ADAPTER_NO_MULTICAST) == 0)
+        if ((ptr->Flags & IP_ADAPTER_NO_MULTICAST) == 0)
             iface->flags |= NetworkInterface::CanMulticast;
         if (ptr->IfType == IF_TYPE_PPP)
             iface->flags |= NetworkInterface::IsPointToPoint;
 
-        iface->name = string::fromLocal8Bit(ptr->AdapterName);
-        iface->friendlyName = string::fromWCharArray(ptr->FriendlyName);
+        iface->name = string(ptr->AdapterName);
+        iface->friendlyName = fromWCharArray(ptr->FriendlyName);
         if (ptr->PhysicalAddressLength)
             iface->hardwareAddress = iface->makeHwAddress(ptr->PhysicalAddressLength,
                                                           ptr->PhysicalAddress);
@@ -162,7 +202,9 @@ static vector<NetworkInterfacePrivate *> interfaceListingWinXP()
             entry.setIp(HostAddress(addr->Address.lpSockaddr));
             if (pprefix) {
                 if (entry.ip().protocol() == HostAddress::IPv4Protocol) {
-                    entry.setNetmask(ipv4netmasks[entry.ip()]);
+                    unordered_map<HostAddress, HostAddress>::const_iterator maskIt = ipv4netmasks.find(entry.ip());
+                    if (maskIt != ipv4netmasks.end())
+                        entry.setNetmask(maskIt->second);
 
                     // broadcast address is set on postProcess()
                 } else { //IPV6
@@ -170,7 +212,7 @@ static vector<NetworkInterfacePrivate *> interfaceListingWinXP()
                 }
                 pprefix = pprefix->Next ? pprefix->Next : pprefix;
             }
-            iface->addressEntries << entry;
+            iface->addressEntries.push_back(entry);
         }
     }
 
@@ -215,7 +257,7 @@ static vector<NetworkInterfacePrivate *> interfaceListingWin2k()
             iface->flags |= NetworkInterface::IsPointToPoint;
         else
             iface->flags |= NetworkInterface::CanBroadcast;
-        iface->name = string::fromLocal8Bit(ptr->AdapterName);
+        iface->name = string(ptr->AdapterName);
         iface->hardwareAddress = NetworkInterfacePrivate::makeHwAddress(ptr->AddressLength,
                                                                          ptr->Address);
 
@@ -225,7 +267,7 @@ static vector<NetworkInterfacePrivate *> interfaceListingWin2k()
             entry.setNetmask(HostAddress(addr->IpMask.String));
             // broadcast address is set on postProcess()
 
-            iface->addressEntries << entry;
+            iface->addressEntries.push_back(entry);
         }
     }
 
@@ -237,6 +279,11 @@ static vector<NetworkInterfacePrivate *> interfaceListingWin2k()
 
 static vector<NetworkInterfacePrivate *> interfaceListingVista()
 {
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
+    // Vista+ IP_ADAPTER_ADDRESSES fields are unavailable when targeting XP headers.
+    return interfaceListingWinXP();
+#else
+
     vector<NetworkInterfacePrivate *> interfaces;
     IP_ADAPTER_ADDRESSES staticBuf[2]; // 2 is arbitrary
     PIP_ADAPTER_ADDRESSES pAdapter = staticBuf;
@@ -282,7 +329,7 @@ static vector<NetworkInterfacePrivate *> interfaceListingVista()
         iface->flags = NetworkInterface::CanBroadcast;
         if (ptr->OperStatus == IfOperStatusUp)
             iface->flags |= NetworkInterface::IsUp | NetworkInterface::IsRunning;
-        if ((ptr->int & IP_ADAPTER_NO_MULTICAST) == 0)
+        if ((ptr->Flags & IP_ADAPTER_NO_MULTICAST) == 0)
             iface->flags |= NetworkInterface::CanMulticast;
         if (ptr->IfType == IF_TYPE_PPP)
             iface->flags |= NetworkInterface::IsPointToPoint;
@@ -330,11 +377,11 @@ static vector<NetworkInterfacePrivate *> interfaceListingVista()
         // as "friendly" as FriendlyName below
         WCHAR buf[IF_MAX_STRING_SIZE + 1];
         if (ptrConvertInterfaceLuidToName(&ptr->Luid, buf, sizeof(buf)/sizeof(buf[0])) == NO_ERROR)
-            iface->name = string::fromWCharArray(buf);
+            iface->name = fromWCharArray(buf);
         if (iface->name.empty())
-            iface->name = string::fromLocal8Bit(ptr->AdapterName);
+            iface->name = string(ptr->AdapterName);
 
-        iface->friendlyName = string::fromWCharArray(ptr->FriendlyName);
+        iface->friendlyName = fromWCharArray(ptr->FriendlyName);
         if (ptr->PhysicalAddressLength)
             iface->hardwareAddress = iface->makeHwAddress(ptr->PhysicalAddressLength,
                                                           ptr->PhysicalAddress);
@@ -350,7 +397,7 @@ static vector<NetworkInterfacePrivate *> interfaceListingVista()
             NetworkAddressEntry entry;
             entry.setIp(HostAddress(addr->Address.lpSockaddr));
             entry.setPrefixLength(addr->OnLinkPrefixLength);
-            iface->addressEntries << entry;
+            iface->addressEntries.push_back(entry);
         }
     }
 
@@ -358,6 +405,7 @@ static vector<NetworkInterfacePrivate *> interfaceListingVista()
         free(pAdapter);
 
     return interfaces;
+#endif
 }
 
 
@@ -398,10 +446,10 @@ string NetworkInterfaceManager::interfaceNameFromIndex(uint index)
         if (ptrConvertInterfaceIndexToLuid(index, &luid) == NO_ERROR) {
             WCHAR buf[IF_MAX_STRING_SIZE + 1];
             if (ptrConvertInterfaceLuidToName(&luid, buf, sizeof(buf)/sizeof(buf[0])) == NO_ERROR)
-                return string::fromWCharArray(buf);
+                return fromWCharArray(buf);
         }
     }
-    return string::number(index);
+    return to_string(index);
 }
 
 
@@ -412,3 +460,5 @@ vector<NetworkInterfacePrivate *> NetworkInterfaceManager::scan()
 
 
 }  // namespace qtng
+
+#endif  // NG_OS_WIN

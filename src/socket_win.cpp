@@ -2,8 +2,19 @@
 #include <cstring>
 #include <vector>
 
-#include "qtng/socket.h"
 #include "qtng/utils/platform.h"
+
+#ifdef NG_OS_WIN
+
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <mswsock.h>
+#include <windows.h>
+
+#include "qtng/socket.h"
 #include "qtng/private/socket_p.h"
 #include "qtng/private/network_interface_p.h"
 #include "qtng/utils/logging.h"
@@ -11,8 +22,6 @@
 using namespace std;
 
 NG_LOGGER("qtng.socket.win");
-
-#ifdef NG_OS_WIN
 
 // The following definitions are copied from the MinGW header mswsock.h which
 // was placed in the public domain. The WSASendMsg and WSARecvMsg functions
@@ -58,52 +67,52 @@ typedef INT (WSAAPI *LPFN_WSASENDMSG)(SOCKET s, LPWSAMSG lpMsg, DWORD dwint,
 static void verboseWSErrorDebug(int r)
 {
     switch (r) {
-        case WSANOTINITIALISED : ngDebug() << "WSA error : WSANOTINITIALISED"); break;
-        case WSAEINTR: ngDebug() << "WSA error : WSAEINTR"); break;
-        case WSAEBADF: ngDebug() << "WSA error : WSAEBADF"); break;
-        case WSAEACCES: ngDebug() << "WSA error : WSAEACCES"); break;
-        case WSAEFAULT: ngDebug() << "WSA error : WSAEFAULT"); break;
-        case WSAEINVAL: ngDebug() << "WSA error : WSAEINVAL"); break;
-        case WSAEMFILE: ngDebug() << "WSA error : WSAEMFILE"); break;
-        case WSAEWOULDBLOCK: ngDebug() << "WSA error : WSAEWOULDBLOCK"); break;
-        case WSAEINPROGRESS: ngDebug() << "WSA error : WSAEINPROGRESS"); break;
-        case WSAEALREADY: ngDebug() << "WSA error : WSAEALREADY"); break;
-        case WSAENOTSOCK: ngDebug() << "WSA error : WSAENOTSOCK"); break;
-        case WSAEDESTADDRREQ: ngDebug() << "WSA error : WSAEDESTADDRREQ"); break;
-        case WSAEMSGSIZE: ngDebug() << "WSA error : WSAEMSGSIZE"); break;
-        case WSAEPROTOTYPE: ngDebug() << "WSA error : WSAEPROTOTYPE"); break;
-        case WSAENOPROTOOPT: ngDebug() << "WSA error : WSAENOPROTOOPT"); break;
-        case WSAEPROTONOSUPPORT: ngDebug() << "WSA error : WSAEPROTONOSUPPORT"); break;
-        case WSAESOCKTNOSUPPORT: ngDebug() << "WSA error : WSAESOCKTNOSUPPORT"); break;
-        case WSAEOPNOTSUPP: ngDebug() << "WSA error : WSAEOPNOTSUPP"); break;
-        case WSAEPFNOSUPPORT: ngDebug() << "WSA error : WSAEPFNOSUPPORT"); break;
-        case WSAEAFNOSUPPORT: ngDebug() << "WSA error : WSAEAFNOSUPPORT"); break;
-        case WSAEADDRINUSE: ngDebug() << "WSA error : WSAEADDRINUSE"); break;
-        case WSAEADDRNOTAVAIL: ngDebug() << "WSA error : WSAEADDRNOTAVAIL"); break;
-        case WSAENETDOWN: ngDebug() << "WSA error : WSAENETDOWN"); break;
-        case WSAENETUNREACH: ngDebug() << "WSA error : WSAENETUNREACH"); break;
-        case WSAENETRESET: ngDebug() << "WSA error : WSAENETRESET"); break;
-        case WSAECONNABORTED: ngDebug() << "WSA error : WSAECONNABORTED"); break;
-        case WSAECONNRESET: ngDebug() << "WSA error : WSAECONNRESET"); break;
-        case WSAENOBUFS: ngDebug() << "WSA error : WSAENOBUFS"); break;
-        case WSAEISCONN: ngDebug() << "WSA error : WSAEISCONN"); break;
-        case WSAENOTCONN: ngDebug() << "WSA error : WSAENOTCONN"); break;
-        case WSAESHUTDOWN: ngDebug() << "WSA error : WSAESHUTDOWN"); break;
-        case WSAETOOMANYREFS: ngDebug() << "WSA error : WSAETOOMANYREFS"); break;
-        case WSAETIMEDOUT: ngDebug() << "WSA error : WSAETIMEDOUT"); break;
-        case WSAECONNREFUSED: ngDebug() << "WSA error : WSAECONNREFUSED"); break;
-        case WSAELOOP: ngDebug() << "WSA error : WSAELOOP"); break;
-        case WSAENAMETOOLONG: ngDebug() << "WSA error : WSAENAMETOOLONG"); break;
-        case WSAEHOSTDOWN: ngDebug() << "WSA error : WSAEHOSTDOWN"); break;
-        case WSAEHOSTUNREACH: ngDebug() << "WSA error : WSAEHOSTUNREACH"); break;
-        case WSAENOTEMPTY: ngDebug() << "WSA error : WSAENOTEMPTY"); break;
-        case WSAEPROCLIM: ngDebug() << "WSA error : WSAEPROCLIM"); break;
-        case WSAEUSERS: ngDebug() << "WSA error : WSAEUSERS"); break;
-        case WSAEDQUOT: ngDebug() << "WSA error : WSAEDQUOT"); break;
-        case WSAESTALE: ngDebug() << "WSA error : WSAESTALE"); break;
-        case WSAEREMOTE: ngDebug() << "WSA error : WSAEREMOTE"); break;
-        case WSAEDISCON: ngDebug() << "WSA error : WSAEDISCON"); break;
-        default: ngDebug() << "WSA error : Unknown"); break;
+        case WSANOTINITIALISED : ngDebug() << "WSA error : WSANOTINITIALISED"; break;
+        case WSAEINTR: ngDebug() << "WSA error : WSAEINTR"; break;
+        case WSAEBADF: ngDebug() << "WSA error : WSAEBADF"; break;
+        case WSAEACCES: ngDebug() << "WSA error : WSAEACCES"; break;
+        case WSAEFAULT: ngDebug() << "WSA error : WSAEFAULT"; break;
+        case WSAEINVAL: ngDebug() << "WSA error : WSAEINVAL"; break;
+        case WSAEMFILE: ngDebug() << "WSA error : WSAEMFILE"; break;
+        case WSAEWOULDBLOCK: ngDebug() << "WSA error : WSAEWOULDBLOCK"; break;
+        case WSAEINPROGRESS: ngDebug() << "WSA error : WSAEINPROGRESS"; break;
+        case WSAEALREADY: ngDebug() << "WSA error : WSAEALREADY"; break;
+        case WSAENOTSOCK: ngDebug() << "WSA error : WSAENOTSOCK"; break;
+        case WSAEDESTADDRREQ: ngDebug() << "WSA error : WSAEDESTADDRREQ"; break;
+        case WSAEMSGSIZE: ngDebug() << "WSA error : WSAEMSGSIZE"; break;
+        case WSAEPROTOTYPE: ngDebug() << "WSA error : WSAEPROTOTYPE"; break;
+        case WSAENOPROTOOPT: ngDebug() << "WSA error : WSAENOPROTOOPT"; break;
+        case WSAEPROTONOSUPPORT: ngDebug() << "WSA error : WSAEPROTONOSUPPORT"; break;
+        case WSAESOCKTNOSUPPORT: ngDebug() << "WSA error : WSAESOCKTNOSUPPORT"; break;
+        case WSAEOPNOTSUPP: ngDebug() << "WSA error : WSAEOPNOTSUPP"; break;
+        case WSAEPFNOSUPPORT: ngDebug() << "WSA error : WSAEPFNOSUPPORT"; break;
+        case WSAEAFNOSUPPORT: ngDebug() << "WSA error : WSAEAFNOSUPPORT"; break;
+        case WSAEADDRINUSE: ngDebug() << "WSA error : WSAEADDRINUSE"; break;
+        case WSAEADDRNOTAVAIL: ngDebug() << "WSA error : WSAEADDRNOTAVAIL"; break;
+        case WSAENETDOWN: ngDebug() << "WSA error : WSAENETDOWN"; break;
+        case WSAENETUNREACH: ngDebug() << "WSA error : WSAENETUNREACH"; break;
+        case WSAENETRESET: ngDebug() << "WSA error : WSAENETRESET"; break;
+        case WSAECONNABORTED: ngDebug() << "WSA error : WSAECONNABORTED"; break;
+        case WSAECONNRESET: ngDebug() << "WSA error : WSAECONNRESET"; break;
+        case WSAENOBUFS: ngDebug() << "WSA error : WSAENOBUFS"; break;
+        case WSAEISCONN: ngDebug() << "WSA error : WSAEISCONN"; break;
+        case WSAENOTCONN: ngDebug() << "WSA error : WSAENOTCONN"; break;
+        case WSAESHUTDOWN: ngDebug() << "WSA error : WSAESHUTDOWN"; break;
+        case WSAETOOMANYREFS: ngDebug() << "WSA error : WSAETOOMANYREFS"; break;
+        case WSAETIMEDOUT: ngDebug() << "WSA error : WSAETIMEDOUT"; break;
+        case WSAECONNREFUSED: ngDebug() << "WSA error : WSAECONNREFUSED"; break;
+        case WSAELOOP: ngDebug() << "WSA error : WSAELOOP"; break;
+        case WSAENAMETOOLONG: ngDebug() << "WSA error : WSAENAMETOOLONG"; break;
+        case WSAEHOSTDOWN: ngDebug() << "WSA error : WSAEHOSTDOWN"; break;
+        case WSAEHOSTUNREACH: ngDebug() << "WSA error : WSAEHOSTUNREACH"; break;
+        case WSAENOTEMPTY: ngDebug() << "WSA error : WSAENOTEMPTY"; break;
+        case WSAEPROCLIM: ngDebug() << "WSA error : WSAEPROCLIM"; break;
+        case WSAEUSERS: ngDebug() << "WSA error : WSAEUSERS"; break;
+        case WSAEDQUOT: ngDebug() << "WSA error : WSAEDQUOT"; break;
+        case WSAESTALE: ngDebug() << "WSA error : WSAESTALE"; break;
+        case WSAEREMOTE: ngDebug() << "WSA error : WSAEREMOTE"; break;
+        case WSAEDISCON: ngDebug() << "WSA error : WSAEDISCON"; break;
+        default: ngDebug() << "WSA error : Unknown"; break;
     }
     (void)(r);
 }
@@ -178,7 +187,7 @@ static inline void qt_socket_getPortAndAddress(SOCKET socketDescriptor, const qt
             HostAddress a;
             a.setAddress(tmp);
             if (sa6->sin6_scope_id)
-                a.setScopeId(string::number(sa6->sin6_scope_id));
+                a.setScopeId(to_string(sa6->sin6_scope_id));
             *address = a;
         }
         if (port)
@@ -705,7 +714,7 @@ bool SocketPrivate::listen(int backlog)
     }
 
     #if defined (QNATIVESOCKETENGINE_DEBUG)
-        ngDebug() << "SocketPrivate::listen(%i) == true", backlog);
+        ngDebug() << "SocketPrivate::listen(%i) == true", backlog;
     #endif
 
     state = Socket::ListeningState;
@@ -783,7 +792,7 @@ bool SocketPrivate::fetchConnectionParameters()
     if (type == Socket::TcpSocket) socketTypeStr = "TcpSocket";
     else if (type == Socket::UdpSocket) socketTypeStr = "UdpSocket";
 
-    ngDebug() << "SocketPrivate::fetchConnectionParameters() localAddress == %s, localPort = %i, peerAddress == %s, peerPort = %i, socketProtocol == %s, socketType == %s", localAddress.toString().c_str(), localPort, peerAddress.toString().c_str(), peerPort, socketProtocolStr.data(), socketTypeStr.data());
+    ngDebug() << "SocketPrivate::fetchConnectionParameters() localAddress == %s, localPort = %i, peerAddress == %s, peerPort = %i, socketProtocol == %s, socketType == %s", localAddress.toString().c_str(), localPort, peerAddress.toString().c_str(), peerPort, socketProtocolStr.data(), socketTypeStr.data();
 #endif
 
     return true;
@@ -906,7 +915,7 @@ int32_t SocketPrivate::send(const char *data, int32_t size, bool all)
             if (ret == size || !all) {
                 return ret;
             } else if (ret > size) {
-                ngWarning() << "sent too much data. there must be something went wrong.");
+                ngWarning() << "sent too much data. there must be something went wrong.";
                 return size;
             } else {
                 continue;
@@ -1018,7 +1027,7 @@ int32_t SocketPrivate::recvfrom(char *data, int32_t size, HostAddress *addr, uin
         ret = ::WSARecvFrom(static_cast<SOCKET>(fd), &buf, 1, &bytesRead, &flags,
                             msg.name, &msg.namelen, nullptr, nullptr);
 //        if (static_cast<int32_t>(bytesRead) < 0) {
-//            ngWarning() << "recv too much data.");
+//            ngWarning() << "recv too much data.";
 //            return -1;
 //        }
         if (ret == SOCKET_ERROR) {
@@ -1348,19 +1357,19 @@ bool SocketPrivate::joinMulticastGroup(const HostAddress &groupAddress, const Ne
         return false;
     }
     if (state != Socket::BoundState) {
-        ngWarning() << "Socket::joinMulticastGroup() should be called only at bound state.");
+        ngWarning() << "Socket::joinMulticastGroup() should be called only at bound state.";
         return false;
     }
     if (type != Socket::UdpSocket) {
-        ngWarning() << "Socket::joinMulticastGroup() only apply to UDP socket type.");
+        ngWarning() << "Socket::joinMulticastGroup() only apply to UDP socket type.";
         return false;
     }
     if (protocol == HostAddress::IPv6Protocol && groupAddress.isIPv4()) {
-        ngWarning() << "Socket is IPv6 but join to an IPv4 group.");
+        ngWarning() << "Socket is IPv6 but join to an IPv4 group.";
         return false;
     }
     if (protocol == HostAddress::IPv4Protocol && !groupAddress.isIPv4()) {
-        ngWarning() << "Socket is IPv4 but join to an IPv6 group.");
+        ngWarning() << "Socket is IPv4 but join to an IPv6 group.";
         return false;
     }
 
@@ -1374,19 +1383,19 @@ bool SocketPrivate::leaveMulticastGroup(const HostAddress &groupAddress, const N
         return false;
     }
     if (state != Socket::BoundState) {
-        ngWarning() << "Socket::leaveMulticastGroup() should be called only at bound state.");
+        ngWarning() << "Socket::leaveMulticastGroup() should be called only at bound state.";
         return false;
     }
     if (type != Socket::UdpSocket) {
-        ngWarning() << "Socket::leaveMulticastGroup() only apply to UDP socket type.");
+        ngWarning() << "Socket::leaveMulticastGroup() only apply to UDP socket type.";
         return false;
     }
     if (protocol == HostAddress::IPv6Protocol && groupAddress.isIPv4()) {
-        ngWarning() << "Socket is IPv6 but leave from an IPv4 group.");
+        ngWarning() << "Socket is IPv6 but leave from an IPv4 group.";
         return false;
     }
     if (protocol == HostAddress::IPv4Protocol && !groupAddress.isIPv4()) {
-        ngWarning() << "Socket is IPv4 but leave from an IPv6 group.");
+        ngWarning() << "Socket is IPv4 but leave from an IPv6 group.";
         return false;
     }
     return multicastMembershipHelper(this, IPV6_LEAVE_GROUP, IP_DROP_MEMBERSHIP, groupAddress, iface);
@@ -1399,7 +1408,7 @@ NetworkInterface SocketPrivate::multicastInterface() const
         return NetworkInterface();
     }
     if (type != Socket::UdpSocket) {
-        ngWarning() << "Socket::multicastInterface() only apply to UDP socket type.");
+        ngWarning() << "Socket::multicastInterface() only apply to UDP socket type.";
         return NetworkInterface();
     }
 
@@ -1445,7 +1454,7 @@ bool SocketPrivate::setMulticastInterface(const NetworkInterface &iface)
     }
 
     if (type != Socket::UdpSocket) {
-        ngWarning() << "Socket::multicastInterface() only apply to UDP socket type.");
+        ngWarning() << "Socket::multicastInterface() only apply to UDP socket type.";
         return false;
     }
 
@@ -1534,3 +1543,5 @@ Socket *SocketPrivate::accept()
 
 
 }  // namespace qtng
+
+#endif  // NG_OS_WIN
