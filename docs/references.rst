@@ -3597,3 +3597,6 @@ Wire framing is unified:
 
 ``wrapKcpStreamAsSocket`` is public: wrap any ``KcpStream`` (any ``DatagramLink``)
 as a ``KcpSocket``. UDP-only methods fail or no-op when the link is not UDP.
+Wrapping does not install a UDP recv ``filter`` on the shared link (accepted slave
+streams share the master's ``UdpDatagramLink``); override ``filter`` on the
+listening ``KcpSocket`` that owns the socket instead.

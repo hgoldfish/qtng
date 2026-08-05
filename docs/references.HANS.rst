@@ -3292,3 +3292,6 @@ listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠
 
 ``wrapKcpStreamAsSocket`` 为公开 API：可将任意 ``DatagramLink`` 上的 ``KcpStream``
 包装为 ``KcpSocket``；底层非 UDP 时，仅 UDP 相关方法会失败或空操作。
+包装不会在共享链路上安装 UDP 接收 ``filter``（``accept`` 得到的 slave 与 master
+共用 ``UdpDatagramLink``）；若需过滤报文，请在持有套接字的监听端 ``KcpSocket``
+上重写 ``filter``。

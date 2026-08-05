@@ -293,16 +293,29 @@ public:
     shared_ptr<DatagramLink> link;
     shared_ptr<UdpDatagramLink> udp;  // may be null for non-UDP DatagramLink
     shared_ptr<KcpStream> stream;
+    // True when this KcpSocket installed the UDP recv filter (owns the link lifetime).
+    bool ownsFilter = false;
 };
 
-static void installFilter(KcpSocket *socket, UdpDatagramLink *udp)
+static void installFilter(KcpSocket *socket, KcpSocketPrivate *d)
 {
+    UdpDatagramLink *udp = d->udp.get();
     if (!udp) {
         return;
     }
     udp->setFilter([socket](char *data, int32_t *len, HostAddress *addr, uint16_t *port) {
         return socket->filter(data, len, addr, port);
     });
+    d->ownsFilter = true;
+}
+
+static void uninstallFilter(KcpSocketPrivate *d)
+{
+    if (!d->ownsFilter || !d->udp) {
+        return;
+    }
+    d->udp->setFilter({});
+    d->ownsFilter = false;
 }
 
 static KcpSocketPrivate *makePrivateRaw(shared_ptr<UdpDatagramLink> udp)
@@ -325,27 +338,27 @@ static KcpSocket::Mode toSocketMode(KcpStream::Mode mode)
 KcpSocket::KcpSocket(HostAddress::NetworkLayerProtocol protocol)
     : d_ptr(makePrivateRaw(make_shared<UdpDatagramLink>(protocol)))
 {
-    installFilter(this, d_ptr->udp.get());
+    installFilter(this, d_ptr);
 }
 
 KcpSocket::KcpSocket(intptr_t socketDescriptor)
     : d_ptr(makePrivateRaw(make_shared<UdpDatagramLink>(socketDescriptor)))
 {
-    installFilter(this, d_ptr->udp.get());
+    installFilter(this, d_ptr);
 }
 
 KcpSocket::KcpSocket(shared_ptr<Socket> rawSocket)
     : d_ptr(makePrivateRaw(make_shared<UdpDatagramLink>(rawSocket)))
 {
-    installFilter(this, d_ptr->udp.get());
+    installFilter(this, d_ptr);
 }
 
 KcpSocket::KcpSocket(shared_ptr<KcpStream> stream)
     : d_ptr(new KcpSocketPrivate(stream->link(), dynamic_pointer_cast<UdpDatagramLink>(stream->link()), stream))
 {
-    if (d_ptr->udp) {
-        installFilter(this, d_ptr->udp.get());
-    }
+    // Do not install a recv filter here. Accepted slave streams share the master's
+    // UdpDatagramLink; installing would replace the listener's filter and leave a
+    // dangling KcpSocket* after the accepted socket is destroyed (Master doAccept crash).
 }
 
 KcpSocket *wrapKcpStreamAsSocket(shared_ptr<KcpStream> stream)
@@ -358,6 +371,7 @@ KcpSocket *wrapKcpStreamAsSocket(shared_ptr<KcpStream> stream)
 
 KcpSocket::~KcpSocket()
 {
+    uninstallFilter(d_ptr);
     delete d_ptr;
 }
 
