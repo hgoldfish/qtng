@@ -26,7 +26,7 @@ qtng是基于协程的网络编程工具包，类似 boost::asio，并借鉴 Pyt
 
 qtng已在Linux、Android、Windows、MacOS和OpenBSD平台测试通过，支持gcc、clang、mingw32、msvc编译器。
 
-构建qtng需要 C++11 编译器、zlib，以及 TLS/加密支持（可通过 ``libressl/`` 子目录使用内置 LibreSSL，或使用系统 OpenSSL 1.1.0 或更高版本）。内置单元测试需要 C++17 以及本机安装的 Catch2 v3（或更高版本），且默认不编译。Catch2 不会被自动下载，安装方式见下文"构建并运行测试"。
+构建qtng需要 C++11 编译器、zlib，以及 TLS/加密支持（可通过 ``libressl/`` 子目录使用内置 LibreSSL，或使用系统 OpenSSL 1.1.1 或更高版本）。内置单元测试需要 C++17 以及本机安装的 Catch2 v3（或更高版本），且默认不编译。Catch2 不会被自动下载，安装方式见下文"构建并运行测试"。
 
 协程实现采用boost::context汇编代码，同时支持原生posix ``ucontext``和windows ``fiber`` API，已在ARM、ARM64、x86、amd64架构成功运行测试。
 

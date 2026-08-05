@@ -2781,7 +2781,7 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 CMake 按以下顺序选择 TLS/加密库：
 
 * 若存在带 ``CMakeLists.txt`` 的 ``libressl/`` 子目录，自动构建并链接内置 LibreSSL。
-* 否则需要 OpenSSL 1.1.0 或更高版本（``find_package(OpenSSL 1.1.0 REQUIRED)``）。
+* 否则需要 OpenSSL 1.1.1 或更高版本（``find_package(OpenSSL 1.1.1 REQUIRED)``；Noise 需要 X25519 raw key API）。
 
 未使用内置 LibreSSL 时，Debian/Ubuntu 可安装 ``libssl-dev`` 开发包。
 

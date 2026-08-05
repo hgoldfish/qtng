@@ -3059,7 +3059,7 @@ On Unix systems, qtng uses libev as its event loop backend. CMake selects the be
 CMake chooses the TLS/crypto library as follows:
 
 * If a ``libressl/`` subdirectory with its own ``CMakeLists.txt`` is present, bundled LibreSSL is built and linked automatically.
-* Otherwise, system OpenSSL 1.1.0 or newer is required (``find_package(OpenSSL 1.1.0 REQUIRED)``).
+* Otherwise, system OpenSSL 1.1.1 or newer is required (``find_package(OpenSSL 1.1.1 REQUIRED)``; Noise needs the X25519 raw-key API).
 
 Install development packages on Debian/Ubuntu with ``libssl-dev`` when not using bundled LibreSSL.
 

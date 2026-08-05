@@ -6,9 +6,7 @@
 #include "qtng/utils/logging.h"
 
 extern "C" {
-#include <openssl/curve25519.h>
 #include <openssl/evp.h>
-#include <openssl/hkdf.h>
 #include <openssl/hmac.h>
 }
 
@@ -41,15 +39,196 @@ string sha256(const string &data)
     return MessageDigest::digest(data, MessageDigest::Sha256);
 }
 
+bool aeadSeal(const string &key, const uint8_t nonce[kNonceLen], const string &ad, const string &plaintext,
+              string *out)
+{
+    if (!out) {
+        return false;
+    }
+    out->clear();
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        return false;
+    }
+    bool ok = false;
+    do {
+        if (EVP_EncryptInit_ex(ctx, EVP_chacha20_poly1305(), nullptr, nullptr, nullptr) != 1) {
+            break;
+        }
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, static_cast<int>(kNonceLen), nullptr) != 1) {
+            break;
+        }
+        if (EVP_EncryptInit_ex(ctx, nullptr, nullptr, reinterpret_cast<const uint8_t *>(key.data()), nonce) != 1) {
+            break;
+        }
+        int len = 0;
+        if (!ad.empty()) {
+            if (EVP_EncryptUpdate(ctx, nullptr, &len, reinterpret_cast<const uint8_t *>(ad.data()),
+                                  static_cast<int>(ad.size()))
+                != 1) {
+                break;
+            }
+        }
+        out->resize(plaintext.size() + kTagLen);
+        uint8_t *outPtr = reinterpret_cast<uint8_t *>(&(*out)[0]);
+        int outLen = 0;
+        if (!plaintext.empty()) {
+            if (EVP_EncryptUpdate(ctx, outPtr, &outLen, reinterpret_cast<const uint8_t *>(plaintext.data()),
+                                  static_cast<int>(plaintext.size()))
+                != 1) {
+                break;
+            }
+        }
+        int finalLen = 0;
+        if (EVP_EncryptFinal_ex(ctx, outPtr + outLen, &finalLen) != 1) {
+            break;
+        }
+        outLen += finalLen;
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, static_cast<int>(kTagLen), outPtr + outLen) != 1) {
+            break;
+        }
+        out->resize(static_cast<size_t>(outLen) + kTagLen);
+        ok = true;
+    } while (false);
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok) {
+        out->clear();
+    }
+    return ok;
+}
+
+bool aeadOpen(const string &key, const uint8_t nonce[kNonceLen], const string &ad, const string &ciphertextAndTag,
+              string *out)
+{
+    if (!out || ciphertextAndTag.size() < kTagLen) {
+        return false;
+    }
+    out->clear();
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        return false;
+    }
+    bool ok = false;
+    do {
+        if (EVP_DecryptInit_ex(ctx, EVP_chacha20_poly1305(), nullptr, nullptr, nullptr) != 1) {
+            break;
+        }
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, static_cast<int>(kNonceLen), nullptr) != 1) {
+            break;
+        }
+        const size_t ctLen = ciphertextAndTag.size() - kTagLen;
+        uint8_t tag[kTagLen];
+        memcpy(tag, ciphertextAndTag.data() + ctLen, kTagLen);
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, static_cast<int>(kTagLen), tag) != 1) {
+            break;
+        }
+        if (EVP_DecryptInit_ex(ctx, nullptr, nullptr, reinterpret_cast<const uint8_t *>(key.data()), nonce) != 1) {
+            break;
+        }
+        int len = 0;
+        if (!ad.empty()) {
+            if (EVP_DecryptUpdate(ctx, nullptr, &len, reinterpret_cast<const uint8_t *>(ad.data()),
+                                  static_cast<int>(ad.size()))
+                != 1) {
+                break;
+            }
+        }
+        out->resize(ctLen);
+        uint8_t *outPtr = out->empty() ? nullptr : reinterpret_cast<uint8_t *>(&(*out)[0]);
+        int outLen = 0;
+        if (ctLen > 0) {
+            if (EVP_DecryptUpdate(ctx, outPtr, &outLen, reinterpret_cast<const uint8_t *>(ciphertextAndTag.data()),
+                                  static_cast<int>(ctLen))
+                != 1) {
+                break;
+            }
+        }
+        int finalLen = 0;
+        // DecryptFinal verifies the Poly1305 tag; failure means authentication error.
+        if (EVP_DecryptFinal_ex(ctx, outPtr ? outPtr + outLen : nullptr, &finalLen) != 1) {
+            break;
+        }
+        out->resize(static_cast<size_t>(outLen + finalLen));
+        ok = true;
+    } while (false);
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok) {
+        out->clear();
+    }
+    return ok;
+}
+
+// RFC 5869 HKDF-Expand (and Extract via HMAC) — works with empty IKM/info on all backends.
+string hkdfExpand(const string &prk, const string &info, size_t outLen)
+{
+    if (prk.empty() || outLen == 0) {
+        return string();
+    }
+    string out;
+    out.reserve(outLen);
+    string t;
+    uint8_t counter = 1;
+    while (out.size() < outLen) {
+        string blockIn = t;
+        blockIn.append(info);
+        blockIn.push_back(static_cast<char>(counter++));
+        unsigned int mdLen = 0;
+        unsigned char md[EVP_MAX_MD_SIZE];
+        if (!HMAC(EVP_sha256(), prk.data(), static_cast<int>(prk.size()),
+                  reinterpret_cast<const unsigned char *>(blockIn.data()), blockIn.size(), md, &mdLen)) {
+            return string();
+        }
+        t.assign(reinterpret_cast<char *>(md), mdLen);
+        out.append(t);
+    }
+    out.resize(outLen);
+    return out;
+}
+
+string hkdfSha256(const string &ikm, const string &salt, const string &info, size_t outLen)
+{
+    // Extract: PRK = HMAC-Hash(salt, IKM). Empty salt → HashLen zeros (RFC 5869).
+    string realSalt = salt;
+    if (realSalt.empty()) {
+        realSalt.assign(kHashLen, '\0');
+    }
+    unsigned int prkLen = 0;
+    unsigned char prk[EVP_MAX_MD_SIZE];
+    if (!HMAC(EVP_sha256(), realSalt.data(), static_cast<int>(realSalt.size()),
+              reinterpret_cast<const unsigned char *>(ikm.data()), ikm.size(), prk, &prkLen)) {
+        return string();
+    }
+    return hkdfExpand(string(reinterpret_cast<char *>(prk), prkLen), info, outLen);
+}
+
 }  // namespace
 
 NoiseKey NoiseKey::generate()
 {
     NoiseKey key;
+    EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
+    if (!pctx) {
+        return key;
+    }
+    EVP_PKEY *pkey = nullptr;
+    if (EVP_PKEY_keygen_init(pctx) <= 0 || EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        return key;
+    }
+    EVP_PKEY_CTX_free(pctx);
+
     key.privateKey.resize(kDhLen);
     key.publicKey.resize(kDhLen);
-    X25519_keypair(reinterpret_cast<uint8_t *>(&key.publicKey[0]),
-                   reinterpret_cast<uint8_t *>(&key.privateKey[0]));
+    size_t privLen = kDhLen;
+    size_t pubLen = kDhLen;
+    if (EVP_PKEY_get_raw_private_key(pkey, reinterpret_cast<uint8_t *>(&key.privateKey[0]), &privLen) != 1
+        || privLen != kDhLen
+        || EVP_PKEY_get_raw_public_key(pkey, reinterpret_cast<uint8_t *>(&key.publicKey[0]), &pubLen) != 1
+        || pubLen != kDhLen) {
+        key.privateKey.clear();
+        key.publicKey.clear();
+    }
+    EVP_PKEY_free(pkey);
     return key;
 }
 
@@ -59,15 +238,20 @@ NoiseKey NoiseKey::fromPrivateKey(const string &privateKey32)
     if (privateKey32.size() != kDhLen) {
         return key;
     }
+    EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
+                                                  reinterpret_cast<const uint8_t *>(privateKey32.data()), kDhLen);
+    if (!pkey) {
+        return key;
+    }
     key.privateKey = privateKey32;
     key.publicKey.resize(kDhLen);
-    static const uint8_t kBasePoint[X25519_KEY_LENGTH] = {9};
-    if (!X25519(reinterpret_cast<uint8_t *>(&key.publicKey[0]),
-                reinterpret_cast<const uint8_t *>(privateKey32.data()),
-                kBasePoint)) {
+    size_t pubLen = kDhLen;
+    if (EVP_PKEY_get_raw_public_key(pkey, reinterpret_cast<uint8_t *>(&key.publicKey[0]), &pubLen) != 1
+        || pubLen != kDhLen) {
         key.privateKey.clear();
         key.publicKey.clear();
     }
+    EVP_PKEY_free(pkey);
     return key;
 }
 
@@ -76,12 +260,27 @@ string NoiseKey::dh(const string &privateKey32, const string &peerPublicKey32)
     if (privateKey32.size() != kDhLen || peerPublicKey32.size() != kDhLen) {
         return string();
     }
-    string shared(kDhLen, '\0');
-    if (!X25519(reinterpret_cast<uint8_t *>(&shared[0]),
-                reinterpret_cast<const uint8_t *>(privateKey32.data()),
-                reinterpret_cast<const uint8_t *>(peerPublicKey32.data()))) {
+    EVP_PKEY *priv = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
+                                                  reinterpret_cast<const uint8_t *>(privateKey32.data()), kDhLen);
+    EVP_PKEY *peer = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr,
+                                                 reinterpret_cast<const uint8_t *>(peerPublicKey32.data()), kDhLen);
+    if (!priv || !peer) {
+        EVP_PKEY_free(priv);
+        EVP_PKEY_free(peer);
         return string();
     }
+    string shared;
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(priv, nullptr);
+    if (ctx && EVP_PKEY_derive_init(ctx) > 0 && EVP_PKEY_derive_set_peer(ctx, peer) > 0) {
+        size_t len = kDhLen;
+        shared.resize(kDhLen);
+        if (EVP_PKEY_derive(ctx, reinterpret_cast<uint8_t *>(&shared[0]), &len) <= 0 || len != kDhLen) {
+            shared.clear();
+        }
+    }
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(priv);
+    EVP_PKEY_free(peer);
     return shared;
 }
 
@@ -119,35 +318,17 @@ string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext
     if (!m_hasKey) {
         return string();
     }
-    EVP_AEAD_CTX *ctx = EVP_AEAD_CTX_new();
-    if (!ctx) {
+    const uint64_t n = m_nonce;
+    uint8_t nonce[kNonceLen];
+    writeNonce(nonce, n);
+    string out;
+    if (!aeadSeal(m_key, nonce, ad, plaintext, &out)) {
         return string();
     }
-    string out;
-    do {
-        if (!EVP_AEAD_CTX_init(ctx, EVP_aead_chacha20_poly1305(),
-                               reinterpret_cast<const uint8_t *>(m_key.data()), m_key.size(),
-                               EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr)) {
-            break;
-        }
-        const uint64_t n = m_nonce;
-        uint8_t nonce[kNonceLen];
-        writeNonce(nonce, n);
-        out.resize(plaintext.size() + kTagLen);
-        size_t outLen = 0;
-        if (!EVP_AEAD_CTX_seal(ctx, reinterpret_cast<uint8_t *>(&out[0]), &outLen, out.size(), nonce, kNonceLen,
-                               reinterpret_cast<const uint8_t *>(plaintext.data()), plaintext.size(),
-                               reinterpret_cast<const uint8_t *>(ad.data()), ad.size())) {
-            out.clear();
-            break;
-        }
-        out.resize(outLen);
-        ++m_nonce;
-        if (outNonce) {
-            *outNonce = n;
-        }
-    } while (false);
-    EVP_AEAD_CTX_free(ctx);
+    ++m_nonce;
+    if (outNonce) {
+        *outNonce = n;
+    }
     return out;
 }
 
@@ -159,36 +340,15 @@ string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertex
     if (!m_hasKey || ciphertextAndTag.size() < kTagLen) {
         return string();
     }
-    EVP_AEAD_CTX *ctx = EVP_AEAD_CTX_new();
-    if (!ctx) {
+    uint8_t nonceBuf[kNonceLen];
+    writeNonce(nonceBuf, m_nonce);
+    string out;
+    if (!aeadOpen(m_key, nonceBuf, ad, ciphertextAndTag, &out)) {
         return string();
     }
-    string out;
-    bool ok = false;
-    do {
-        if (!EVP_AEAD_CTX_init(ctx, EVP_aead_chacha20_poly1305(),
-                               reinterpret_cast<const uint8_t *>(m_key.data()), m_key.size(),
-                               EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr)) {
-            break;
-        }
-        uint8_t nonceBuf[kNonceLen];
-        writeNonce(nonceBuf, m_nonce);
-        out.resize(ciphertextAndTag.size() - kTagLen);
-        size_t outLen = 0;
-        uint8_t *outPtr = out.empty() ? nullptr : reinterpret_cast<uint8_t *>(&out[0]);
-        if (!EVP_AEAD_CTX_open(ctx, outPtr, &outLen, out.size(), nonceBuf, kNonceLen,
-                               reinterpret_cast<const uint8_t *>(ciphertextAndTag.data()), ciphertextAndTag.size(),
-                               reinterpret_cast<const uint8_t *>(ad.data()), ad.size())) {
-            out.clear();
-            break;
-        }
-        out.resize(outLen);
-        ++m_nonce;
-        m_lastDecryptOk = true;
-        ok = true;
-    } while (false);
-    EVP_AEAD_CTX_free(ctx);
-    return ok ? out : string();
+    ++m_nonce;
+    m_lastDecryptOk = true;
+    return out;
 }
 
 string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertextAndTag, uint64_t nonce)
@@ -205,41 +365,16 @@ string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertex
     if (!acceptIncomingNonce(nonce)) {
         return string();
     }
-    EVP_AEAD_CTX *ctx = EVP_AEAD_CTX_new();
-    if (!ctx) {
+    uint8_t nonceBuf[kNonceLen];
+    writeNonce(nonceBuf, nonce);
+    string out;
+    if (!aeadOpen(m_key, nonceBuf, ad, ciphertextAndTag, &out)) {
         m_highestRemoteNonce = savedHighest;
         m_replayWindow = savedWindow;
         return string();
     }
-    string out;
-    bool ok = false;
-    do {
-        if (!EVP_AEAD_CTX_init(ctx, EVP_aead_chacha20_poly1305(),
-                               reinterpret_cast<const uint8_t *>(m_key.data()), m_key.size(),
-                               EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr)) {
-            break;
-        }
-        uint8_t nonceBuf[kNonceLen];
-        writeNonce(nonceBuf, nonce);
-        out.resize(ciphertextAndTag.size() - kTagLen);
-        size_t outLen = 0;
-        uint8_t *outPtr = out.empty() ? nullptr : reinterpret_cast<uint8_t *>(&out[0]);
-        if (!EVP_AEAD_CTX_open(ctx, outPtr, &outLen, out.size(), nonceBuf, kNonceLen,
-                               reinterpret_cast<const uint8_t *>(ciphertextAndTag.data()), ciphertextAndTag.size(),
-                               reinterpret_cast<const uint8_t *>(ad.data()), ad.size())) {
-            out.clear();
-            break;
-        }
-        out.resize(outLen);
-        m_lastDecryptOk = true;
-        ok = true;
-    } while (false);
-    EVP_AEAD_CTX_free(ctx);
-    if (!ok) {
-        m_highestRemoteNonce = savedHighest;
-        m_replayWindow = savedWindow;
-    }
-    return ok ? out : string();
+    m_lastDecryptOk = true;
+    return out;
 }
 
 bool NoiseCipherState::acceptIncomingNonce(uint64_t remoteNonce)
@@ -382,18 +517,8 @@ string NoiseHandshakeState::hkdf(const string &chainingKey, const string &inputK
     if (numOutputs < 2 || numOutputs > 3) {
         return string();
     }
-    uint8_t prk[EVP_MAX_MD_SIZE];
-    size_t prkLen = 0;
-    if (!HKDF_extract(prk, &prkLen, EVP_sha256(),
-                      reinterpret_cast<const uint8_t *>(inputKeyMaterial.data()), inputKeyMaterial.size(),
-                      reinterpret_cast<const uint8_t *>(chainingKey.data()), chainingKey.size())) {
-        return string();
-    }
-    string out(static_cast<size_t>(numOutputs) * kHashLen, '\0');
-    if (!HKDF_expand(reinterpret_cast<uint8_t *>(&out[0]), out.size(), EVP_sha256(), prk, prkLen, nullptr, 0)) {
-        return string();
-    }
-    return out;
+    // Noise HKDF: Extract(salt=ck, IKM) then Expand(info=empty).
+    return hkdfSha256(inputKeyMaterial, chainingKey, string(), static_cast<size_t>(numOutputs) * kHashLen);
 }
 
 bool NoiseHandshakeState::writeMessage(const string &payload, string *outMessage)
@@ -656,14 +781,7 @@ string noiseHmacSha256(const string &key, const string &data)
 
 string noiseHkdf(const string &secret, const string &salt, const string &info, size_t outLen)
 {
-    string out(outLen, '\0');
-    if (!HKDF(reinterpret_cast<uint8_t *>(&out[0]), outLen, EVP_sha256(),
-              reinterpret_cast<const uint8_t *>(secret.data()), secret.size(),
-              reinterpret_cast<const uint8_t *>(salt.data()), salt.size(),
-              reinterpret_cast<const uint8_t *>(info.data()), info.size())) {
-        return string();
-    }
-    return out;
+    return hkdfSha256(secret, salt, info, outLen);
 }
 
 }  // namespace qtng
