@@ -124,6 +124,8 @@ public:
 public:
     bool readBytes(char *data, int64_t len);
     inline bool readBytes(uint8_t *data, int len);
+    bool peekByte(uint8_t *c) const;
+    bool ensurePeekCached();
     bool readArrayHeader(uint32_t &len);
     bool readMapHeader(uint32_t &len);
     bool readExtHeader(uint32_t &len, uint8_t &msgpackType);
@@ -144,6 +146,8 @@ public:
     int version;
     bool owndev;
     bool flushWrites;
+    mutable bool hasPeekByte;
+    mutable char peekByteCache;
 };
 
 MsgPackStreamPrivate::MsgPackStreamPrivate()
@@ -154,6 +158,8 @@ MsgPackStreamPrivate::MsgPackStreamPrivate()
     , version(0)
     , owndev(true)
     , flushWrites(false)
+    , hasPeekByte(false)
+    , peekByteCache(0)
 {
 }
 
@@ -165,6 +171,8 @@ MsgPackStreamPrivate::MsgPackStreamPrivate(FileLike *d)
     , version(0)
     , owndev(false)
     , flushWrites(false)
+    , hasPeekByte(false)
+    , peekByteCache(0)
 {
 }
 
@@ -175,6 +183,8 @@ MsgPackStreamPrivate::MsgPackStreamPrivate(string *a, bool writeMode)
     , version(0)
     , owndev(true)
     , flushWrites(false)
+    , hasPeekByte(false)
+    , peekByteCache(0)
 {
     dev = new BytesIO(a);
     if (!writeMode) {
@@ -189,6 +199,8 @@ MsgPackStreamPrivate::MsgPackStreamPrivate(const string &a)
     , version(0)
     , owndev(true)
     , flushWrites(false)
+    , hasPeekByte(false)
+    , peekByteCache(0)
 {
     dev = new BytesIO(a);
 }
@@ -219,9 +231,14 @@ bool MsgPackStreamPrivate::readBytes(char *data, int64_t len)
         return false;
     }
     int64_t total = 0;
+    if (hasPeekByte && len > 0) {
+        data[0] = peekByteCache;
+        hasPeekByte = false;
+        ++total;
+    }
     bool metZero = false;
     while (total < len) {
-        int64_t bs = dev->read(data, (len - total));
+        int64_t bs = dev->read(data + total, (len - total));
         if (bs < 0) {
             status = MsgPackStream::ReadPastEnd;
             return false;
@@ -235,7 +252,6 @@ bool MsgPackStreamPrivate::readBytes(char *data, int64_t len)
             }
         } else {
             assert(bs > 0);
-            data += bs;
             total += bs;
         }
     }
@@ -246,6 +262,49 @@ bool MsgPackStreamPrivate::readBytes(char *data, int64_t len)
 bool MsgPackStreamPrivate::readBytes(uint8_t *data, int len)
 {
     return readBytes(static_cast<char *>(static_cast<void *>(data)), len);
+}
+
+bool MsgPackStreamPrivate::ensurePeekCached()
+{
+    if (hasPeekByte) {
+        return true;
+    }
+    if (status != MsgPackStream::Ok || !dev) {
+        return false;
+    }
+    if (pos >= limit) {
+        return false;
+    }
+    char byte = 0;
+    bool metZero = false;
+    while (true) {
+        int64_t bs = dev->read(&byte, 1);
+        if (bs < 0) {
+            status = MsgPackStream::ReadPastEnd;
+            return false;
+        } else if (bs == 0) {
+            if (!metZero) {
+                metZero = true;
+            } else {
+                status = MsgPackStream::ReadPastEnd;
+                return false;
+            }
+        } else {
+            peekByteCache = byte;
+            hasPeekByte = true;
+            return true;
+        }
+    }
+}
+
+bool MsgPackStreamPrivate::peekByte(uint8_t *c) const
+{
+    MsgPackStreamPrivate *self = const_cast<MsgPackStreamPrivate *>(this);
+    if (!self->ensurePeekCached()) {
+        return false;
+    }
+    *c = static_cast<uint8_t>(peekByteCache);
+    return true;
 }
 
 bool MsgPackStreamPrivate::readArrayHeader(uint32_t &len)
@@ -682,6 +741,7 @@ void MsgPackStream::setDevice(FileLike *dev)
     }
     d->dev = dev;
     d->owndev = false;
+    d->hasPeekByte = false;
 }
 
 FileLike *MsgPackStream::device() const
@@ -984,6 +1044,12 @@ bool MsgPackStream::readBytes(char *data, int64_t len)
 {
     NG_D(MsgPackStream);
     return d->readBytes(data, len);
+}
+
+bool MsgPackStream::peekByte(uint8_t *b) const
+{
+    NG_D(const MsgPackStream);
+    return d->peekByte(b);
 }
 
 bool MsgPackStream::readArrayHeader(uint32_t &len)

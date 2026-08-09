@@ -3,6 +3,7 @@
 #include <variant>
 #include <vector>
 
+#include "qtng/io_utils.h"
 #include "qtng/msgpack.h"
 
 using namespace std;
@@ -26,6 +27,36 @@ void roundTrip(const V &input, V &output)
     }
 }
 
+class OneByteFileLike : public FileLike
+{
+public:
+    explicit OneByteFileLike(string payload)
+        : payload(std::move(payload))
+    {
+    }
+
+    int32_t read(char *data, int32_t size) override
+    {
+        ++readCalls;
+        if (pos >= payload.size()) {
+            return 0;
+        }
+        (void) size;
+        data[0] = payload[pos++];
+        return 1;
+    }
+
+    int32_t write(const char *, int32_t) override { return -1; }
+    void close() override { }
+    int64_t size() override { return static_cast<int64_t>(payload.size()); }
+
+    int readCalls = 0;
+
+private:
+    string payload;
+    size_t pos = 0;
+};
+
 }  // namespace
 
 TEST_CASE("variant<int, string> round-trips int", "[msgpack][variant]")
@@ -44,6 +75,26 @@ TEST_CASE("variant<int, string> round-trips string", "[msgpack][variant]")
     roundTrip(v, out);
     REQUIRE(out.index() == 1);
     REQUIRE(get<string>(out) == "hello");
+}
+
+TEST_CASE("variant<int, string> int encodes as native msgpack integer", "[msgpack][variant]")
+{
+    variant<int, string> v = 42;
+    string buf;
+    MsgPackStream ds(&buf, true);
+    ds << v;
+    REQUIRE(ds.isOk());
+    REQUIRE(buf == string("\x2a", 1));
+}
+
+TEST_CASE("variant<int, string> string encodes as native msgpack string", "[msgpack][variant]")
+{
+    variant<int, string> v = string("hi");
+    string buf;
+    MsgPackStream ds(&buf, true);
+    ds << v;
+    REQUIRE(ds.isOk());
+    REQUIRE(buf == string("\xa2hi", 3));
 }
 
 TEST_CASE("variant<int, string> default-constructed holds int zero", "[msgpack][variant]")
@@ -93,20 +144,9 @@ TEST_CASE("variant<uint64_t, string> round-trips large integer", "[msgpack][vari
     REQUIRE(get<uint64_t>(out) == 0x123456789abcdefULL);
 }
 
-TEST_CASE("variant rejects array header of wrong length", "[msgpack][variant]")
+TEST_CASE("variant rejects wire type with no matching alternative", "[msgpack][variant]")
 {
-    // fixarray(3) without valid payload; readArrayHeader succeeds, len != 2 fails fast.
-    const string buf = "\x93";
-    MsgPackStream ds(buf);
-    variant<int, string> out;
-    ds >> out;
-    REQUIRE(ds.status() == MsgPackStream::ReadCorruptData);
-}
-
-TEST_CASE("variant rejects out-of-range index", "[msgpack][variant]")
-{
-    // fixarray(2), uint8 5 (index), value placeholder 0.
-    const string buf = "\x92\xcc\x05\x00";
+    const string buf = "\xc0";
     MsgPackStream ds(buf);
     variant<int, string> out;
     ds >> out;
@@ -122,10 +162,9 @@ TEST_CASE("variant rejects truncated stream", "[msgpack][variant]")
     REQUIRE(ds.status() == MsgPackStream::ReadPastEnd);
 }
 
-TEST_CASE("variant rejects non-array leading byte", "[msgpack][variant]")
+TEST_CASE("variant rejects unknown leading byte", "[msgpack][variant]")
 {
-    // nil where an array header is expected.
-    const string buf = "\xc0";
+    const string buf = "\xc1";
     MsgPackStream ds(buf);
     variant<int, string> out;
     ds >> out;
@@ -148,4 +187,24 @@ TEST_CASE("monostate serializes as nil byte", "[msgpack][variant]")
         ds >> m;
         REQUIRE(ds.isOk());
     }
+}
+
+TEST_CASE("peekByte caches one byte from arbitrary FileLike", "[msgpack][variant]")
+{
+    OneByteFileLike file(string("\x2a", 1));
+    MsgPackStream ds(&file);
+    uint8_t b = 0;
+    REQUIRE(ds.peekByte(&b));
+    REQUIRE(b == 0x2a);
+    REQUIRE(file.readCalls == 1);
+    REQUIRE(ds.peekByte(&b));
+    REQUIRE(b == 0x2a);
+    REQUIRE(file.readCalls == 1);
+
+    variant<int, string> out;
+    ds >> out;
+    REQUIRE(ds.isOk());
+    REQUIRE(out.index() == 0);
+    REQUIRE(get<int>(out) == 42);
+    REQUIRE(file.readCalls == 1);
 }

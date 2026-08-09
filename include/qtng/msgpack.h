@@ -77,6 +77,7 @@ public:
     MsgPackStream &operator>>(qtng::utils::DateTime &dt);
     MsgPackStream &operator>>(MsgPackExtData &ext);
     bool readBytes(char *data, std::int64_t len);
+    bool peekByte(std::uint8_t *b) const;
     bool readArrayHeader(std::uint32_t &len);
     bool readMapHeader(std::uint32_t &len);
     bool readExtHeader(std::uint32_t &len, std::uint8_t msgpackType);
@@ -354,28 +355,189 @@ inline MsgPackStream &operator>>(MsgPackStream &s, std::monostate)
 }
 
 namespace detail {
-template<std::size_t I, typename Variant>
-inline bool variant_unpack_one(MsgPackStream &s, Variant &v, std::size_t index)
+
+enum class MsgPackWireKind {
+    Unknown,
+    Nil,
+    Bool,
+    Int,
+    Float,
+    String,
+    Bin,
+    Array,
+    Map,
+    Ext,
+};
+
+inline MsgPackWireKind msgpack_wire_kind(std::uint8_t b)
 {
-    if (index != I) {
+    if (b <= FirstByte::POSITIVE_FIXINT) {
+        return MsgPackWireKind::Int;
+    }
+    if (b >= FirstByte::NEGATIVE_FIXINT) {
+        return MsgPackWireKind::Int;
+    }
+    if (b >= FirstByte::FIXSTR && b <= FirstByte::FIXSTR + 0x1f) {
+        return MsgPackWireKind::String;
+    }
+    if (b >= FirstByte::FIXARRAY && b <= FirstByte::FIXARRAY + 0x0f) {
+        return MsgPackWireKind::Array;
+    }
+    if (b >= FirstByte::FIXMAP && b <= FirstByte::FIXMAP + 0x0f) {
+        return MsgPackWireKind::Map;
+    }
+    if (b >= FirstByte::FIXEXT1 && b <= FirstByte::FIXEX16) {
+        return MsgPackWireKind::Ext;
+    }
+    switch (b) {
+    case FirstByte::NIL:
+        return MsgPackWireKind::Nil;
+    case FirstByte::MFALSE:
+    case FirstByte::MTRUE:
+        return MsgPackWireKind::Bool;
+    case FirstByte::FLOAT32:
+    case FirstByte::FLOAT64:
+        return MsgPackWireKind::Float;
+    case FirstByte::BIN8:
+    case FirstByte::BIN16:
+    case FirstByte::BIN32:
+        return MsgPackWireKind::Bin;
+    case FirstByte::STR8:
+    case FirstByte::STR16:
+    case FirstByte::STR32:
+        return MsgPackWireKind::String;
+    case FirstByte::UINT8:
+    case FirstByte::UINT16:
+    case FirstByte::UINT32:
+    case FirstByte::UINT64:
+    case FirstByte::INT8:
+    case FirstByte::INT16:
+    case FirstByte::INT32:
+    case FirstByte::INT64:
+        return MsgPackWireKind::Int;
+    case FirstByte::ARRAY16:
+    case FirstByte::ARRAY32:
+        return MsgPackWireKind::Array;
+    case FirstByte::MAP16:
+    case FirstByte::MAP32:
+        return MsgPackWireKind::Map;
+    case FirstByte::EXT8:
+    case FirstByte::EXT16:
+    case FirstByte::EXT32:
+        return MsgPackWireKind::Ext;
+    default:
+        break;
+    }
+    return MsgPackWireKind::Unknown;
+}
+
+template<typename T, typename = void>
+struct variant_wire_match
+{
+    static bool accepts(MsgPackWireKind) { return false; }
+};
+
+template<typename T>
+struct variant_wire_match<T, typename std::enable_if<std::is_integral<T>::value && !std::is_same<T, bool>::value>::type>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Int; }
+};
+
+template<>
+struct variant_wire_match<bool>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Bool; }
+};
+
+template<>
+struct variant_wire_match<float>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Float; }
+};
+
+template<>
+struct variant_wire_match<double>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Float; }
+};
+
+template<>
+struct variant_wire_match<std::string>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::String; }
+};
+
+template<>
+struct variant_wire_match<std::monostate>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Nil; }
+};
+
+template<typename T>
+struct variant_wire_match<std::vector<T>>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Array; }
+};
+
+template<typename T>
+struct variant_wire_match<std::unordered_set<T>>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Array; }
+};
+
+template<typename K, typename V>
+struct variant_wire_match<std::map<K, V>>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Map; }
+};
+
+template<typename K, typename V>
+struct variant_wire_match<std::unordered_map<K, V>>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Map; }
+};
+
+template<>
+struct variant_wire_match<MsgPackExtData>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Ext; }
+};
+
+template<>
+struct variant_wire_match<qtng::utils::DateTime>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Ext; }
+};
+
+template<std::size_t I, typename Variant>
+inline bool variant_read_if(MsgPackStream &s, Variant &v, MsgPackWireKind kind, bool &matched)
+{
+    if (matched) {
         return false;
     }
     using T = typename std::variant_alternative<I, Variant>::type;
+    if (!variant_wire_match<T>::accepts(kind)) {
+        return false;
+    }
     T val = s_allocate<T>();
     s >> val;
     if (s.status() == MsgPackStream::Ok) {
         v.template emplace<I>(std::move(val));
+        matched = true;
+        return true;
     }
-    return true;
+    return false;
 }
 
 template<typename Variant, std::size_t... Is>
-inline void variant_unpack_dispatch(MsgPackStream &s, Variant &v, std::size_t index,
-                                    std::index_sequence<Is...>)
+inline bool variant_read_dispatch(MsgPackStream &s, Variant &v, MsgPackWireKind kind,
+                                  std::index_sequence<Is...>)
 {
-    const bool matched = (variant_unpack_one<Is>(s, v, index) || ...);
-    (void) matched;
+    bool matched = false;
+    (variant_read_if<Is>(s, v, kind, matched) || ...);
+    return matched;
 }
+
 }  // namespace detail
 
 template<typename... Ts>
@@ -385,13 +547,6 @@ MsgPackStream &operator<<(MsgPackStream &s, const std::variant<Ts...> &v)
         s.setStatus(MsgPackStream::WriteFailed);
         return s;
     }
-    if (!s.writeArrayHeader(2)) {
-        return s;
-    }
-    s << static_cast<std::uint32_t>(v.index());
-    if (s.status() != MsgPackStream::Ok) {
-        return s;
-    }
     std::visit([&s](const auto &val) { s << val; }, v);
     return s;
 }
@@ -399,25 +554,24 @@ MsgPackStream &operator<<(MsgPackStream &s, const std::variant<Ts...> &v)
 template<typename... Ts>
 MsgPackStream &operator>>(MsgPackStream &s, std::variant<Ts...> &v)
 {
-    std::uint32_t len = 0;
-    if (!s.readArrayHeader(len)) {
+    std::uint8_t b = 0;
+    if (!s.peekByte(&b)) {
+        if (s.isOk()) {
+            s.setStatus(MsgPackStream::ReadPastEnd);
+        }
         return s;
     }
-    if (len != 2) {
+    const detail::MsgPackWireKind kind = detail::msgpack_wire_kind(b);
+    if (kind == detail::MsgPackWireKind::Unknown) {
         s.setStatus(MsgPackStream::ReadCorruptData);
         return s;
     }
-    std::uint32_t index = 0;
-    s >> index;
-    if (s.status() != MsgPackStream::Ok) {
-        return s;
+    if (!detail::variant_read_dispatch<std::variant<Ts...>>(
+            s, v, kind, std::index_sequence_for<Ts...>{})) {
+        if (s.isOk()) {
+            s.setStatus(MsgPackStream::ReadCorruptData);
+        }
     }
-    if (index >= sizeof...(Ts)) {
-        s.setStatus(MsgPackStream::ReadCorruptData);
-        return s;
-    }
-    detail::variant_unpack_dispatch<std::variant<Ts...>>(
-        s, v, static_cast<std::size_t>(index), std::index_sequence_for<Ts...>{});
     return s;
 }
 #endif  // C++17 std::variant support
