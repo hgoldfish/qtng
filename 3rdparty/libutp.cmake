@@ -1,5 +1,6 @@
 # Build Transmission libutp as a static library for interoperability tests only.
 # Kept outside the submodule so we do not need a forked libutp tree.
+# Included from tests/CMakeLists.txt when 3rdparty/libutp is initialized.
 
 if(TARGET utp)
     return()
@@ -25,12 +26,21 @@ endif()
 
 add_library(utp STATIC ${_QTNG_LIBUTP_SOURCES})
 target_include_directories(utp PUBLIC "${_QTNG_LIBUTP_DIR}")
-target_compile_definitions(utp PRIVATE POSIX)
 set_target_properties(utp PROPERTIES
     CXX_STANDARD 11
     CXX_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON
 )
+
+# Upstream Makefile uses -DPOSIX on Unix; MSVC projects use WIN32. Headers
+# branch on those macros (SOCKADDR_STORAGE typedef, socket includes).
+if(WIN32)
+    target_compile_definitions(utp PRIVATE WIN32)
+    target_link_libraries(utp PUBLIC ws2_32)
+else()
+    target_compile_definitions(utp PRIVATE POSIX)
+endif()
+
 if(UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     target_link_libraries(utp PUBLIC pthread)
 endif()
