@@ -76,14 +76,39 @@ set_target_properties(qtng_tests PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRE
 
 catch_discover_tests(qtng_tests)
 
-add_executable(qtng_test_http2
-    test_http2.cpp
+# Always exercise the software MessageDigest backend (md_fallback.cpp), even when
+# the main qtng library is linked against OpenSSL/LibreSSL.
+add_executable(qtng_test_md_fallback
+    test_md.cpp
+    ${CMAKE_SOURCE_DIR}/src/md_fallback.cpp
 )
-target_link_libraries(qtng_test_http2 PRIVATE qtng Catch2::Catch2WithMain)
-target_include_directories(qtng_test_http2 PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
-set_target_properties(qtng_test_http2 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_compile_definitions(qtng_test_md_fallback PRIVATE QTNG_NO_CRYPTO)
+target_link_libraries(qtng_test_md_fallback PRIVATE Catch2::Catch2WithMain)
+target_include_directories(qtng_test_md_fallback PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_md_fallback PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+catch_discover_tests(qtng_test_md_fallback)
 
-catch_discover_tests(qtng_test_http2)
+# Same vectors against the OpenSSL/LibreSSL-backed MessageDigest in libqtng.
+# Skip when QTNG_NO_CRYPTO — that would just re-run the software path above.
+if(QTNG_HAVE_CRYPTO)
+    add_executable(qtng_test_md
+        test_md.cpp
+    )
+    target_link_libraries(qtng_test_md PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_md PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    set_target_properties(qtng_test_md PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_md)
+endif()
+
+if(QTNG_WITH_HTTP2)
+    add_executable(qtng_test_http2
+        test_http2.cpp
+    )
+    target_link_libraries(qtng_test_http2 PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_http2 PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
+    set_target_properties(qtng_test_http2 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_http2)
+endif()
 
 add_executable(qtng_test_msgpack
     test_msgpack_variant.cpp
@@ -112,14 +137,15 @@ set_target_properties(qtng_test_bencode PROPERTIES CXX_STANDARD 17 CXX_STANDARD_
 
 catch_discover_tests(qtng_test_bencode)
 
-add_executable(qtng_test_noise
-    test_noise.cpp
-)
-target_link_libraries(qtng_test_noise PRIVATE qtng Catch2::Catch2WithMain)
-target_include_directories(qtng_test_noise PRIVATE "${CMAKE_SOURCE_DIR}/include")
-set_target_properties(qtng_test_noise PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-
-catch_discover_tests(qtng_test_noise)
+if(QTNG_HAVE_CRYPTO)
+    add_executable(qtng_test_noise
+        test_noise.cpp
+    )
+    target_link_libraries(qtng_test_noise PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_noise PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    set_target_properties(qtng_test_noise PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_noise)
+endif()
 
 add_executable(qtng_test_mqtt
     test_mqtt.cpp
@@ -156,23 +182,25 @@ target_include_directories(qtng_test_utp PRIVATE "${CMAKE_SOURCE_DIR}/include")
 set_target_properties(qtng_test_utp PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 catch_discover_tests(qtng_test_utp)
 
-add_executable(qtng_test_quic
-    test_quic.cpp
-)
-target_link_libraries(qtng_test_quic PRIVATE qtng Catch2::Catch2WithMain)
-target_include_directories(qtng_test_quic PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
-set_target_properties(qtng_test_quic PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-catch_discover_tests(qtng_test_quic)
+if(QTNG_WITH_QUIC)
+    add_executable(qtng_test_quic
+        test_quic.cpp
+    )
+    target_link_libraries(qtng_test_quic PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_quic PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
+    set_target_properties(qtng_test_quic PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_quic)
 
-# Optional picoquic interop (process-level). Requires an external picoquicdemo binary.
-# See 3rdparty/README.md / README for how to build picoquic into /tmp/picoquic-build.
-add_executable(qtng_test_quic_picoquic
-    test_quic_picoquic.cpp
-)
-target_link_libraries(qtng_test_quic_picoquic PRIVATE qtng Catch2::Catch2WithMain)
-target_include_directories(qtng_test_quic_picoquic PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
-set_target_properties(qtng_test_quic_picoquic PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-catch_discover_tests(qtng_test_quic_picoquic)
+    # Optional picoquic interop (process-level). Requires an external picoquicdemo binary.
+    # See 3rdparty/README.md / README for how to build picoquic into /tmp/picoquic-build.
+    add_executable(qtng_test_quic_picoquic
+        test_quic_picoquic.cpp
+    )
+    target_link_libraries(qtng_test_quic_picoquic PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_quic_picoquic PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
+    set_target_properties(qtng_test_quic_picoquic PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_quic_picoquic)
+endif()
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/3rdparty/libutp/utp.h")
     include("${CMAKE_SOURCE_DIR}/3rdparty/libutp.cmake")

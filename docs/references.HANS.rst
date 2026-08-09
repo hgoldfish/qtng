@@ -2807,10 +2807,18 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 6.2.1 构建时的 TLS 库选择
 +++++++++++++++++++++++++
 
-CMake 按以下顺序选择 TLS/加密库：
+CMake 按如下顺序选择 TLS/加密库：
 
-* 若已初始化含 ``CMakeLists.txt`` 的 ``3rdparty/libressl`` git 子模块，自动构建并链接内置 LibreSSL。
-* 否则需要 OpenSSL 1.1.1 或更高版本（``find_package(OpenSSL 1.1.1 REQUIRED)``；Noise 需要 X25519 raw key API）。
+* 若 ``QTNG_DISABLE_CRYPTO=ON``，跳过加密并定义 ``QTNG_NO_CRYPTO``。
+* 否则若已初始化含可用源码的 ``3rdparty/libressl`` git 子模块，自动构建并链接内置 LibreSSL。
+* 否则调用 ``find_package(OpenSSL 1.1.1 QUIET)``；找到则链接系统 OpenSSL（Noise 需要 1.1.1+ 的 X25519 raw key API）。
+* 若 LibreSSL 与 OpenSSL 皆不可用，CMake 发出警告并继续构建（``QTNG_NO_CRYPTO``）：不编译 TLS/SSL、Noise、AEAD、QUIC。``MessageDigest`` 仍通过软件实现支持 MD5/SHA-1/SHA-256。
+
+不完善协议模块（默认开启）：
+
+* ``QTNG_WITH_HTTP2`` — HTTP/2 客户端与 HPACK
+* ``QTNG_WITH_QUIC`` — QUICv1 传输层 MVP（无加密时强制关闭）
+* ``QTNG_WITH_HTTP3`` — HTTP/3 占位实现（无 QUIC 时强制关闭）
 
 未使用内置 LibreSSL 时，Debian/Ubuntu 可安装 ``libssl-dev`` 开发包。
 

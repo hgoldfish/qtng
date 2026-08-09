@@ -119,9 +119,16 @@ qtng 以 LGPL 3.0 许可证发布。
 
 * **C++11** 编译器即可构建库本身（GCC、Clang、MSVC）；仅编译内置单元测试时需要 C++17，测试默认关闭（`-DQTNG_BUILD_TESTS=ON` 启用）
 * **zlib**（系统库，用于 gzip）
-* **OpenSSL 1.1.1+ 或 LibreSSL**（TLS/加密）：
+* **OpenSSL 1.1.1+ 或 LibreSSL**（TLS/加密，可选）：
   * 初始化 `3rdparty/libressl/` 子模块可内嵌编译（`git submodule update --init 3rdparty/libressl`），或
   * 安装系统 OpenSSL 开发包（如 Debian/Ubuntu 的 `libssl-dev`）
+  * 若两者皆无（或 `-DQTNG_DISABLE_CRYPTO=ON`），构建仍可继续并定义 `QTNG_NO_CRYPTO`：不编译 TLS/SSL、Noise、AEAD、QUIC；`MessageDigest`（MD5/SHA-1/SHA-256）改用软件实现
+
+可选协议开关（默认 **ON**；不完善协议可按需关闭）：
+
+* `-DQTNG_WITH_HTTP2=OFF` — 不编译 HTTP/2 与 HPACK
+* `-DQTNG_WITH_QUIC=OFF` — 不编译 QUICv1 传输层 MVP（无加密时也会强制关闭）
+* `-DQTNG_WITH_HTTP3=OFF` — 不编译 HTTP/3 占位实现（无 QUIC 时也会强制关闭）
 
 
 
@@ -168,7 +175,7 @@ cmake ..
 cmake --build .
 ```
 
-第三方源码位于 `3rdparty/` 下的 git 子模块（`libressl`、`libutp`）。默认构建不强制初始化子模块：无 LibreSSL 时回退到系统 OpenSSL；无 libutp 时跳过 µTP 互通测试。
+第三方源码位于 `3rdparty/` 下的 git 子模块（`libressl`、`libutp`）。默认构建不强制初始化子模块：无 LibreSSL 时回退到系统 OpenSSL，若 OpenSSL 也没有则进入 `QTNG_NO_CRYPTO`；无 libutp 时跳过 µTP 互通测试。
 
 将应用程序与 `qtng` 静态库（`libqtng.a`，MSVC 上为 `qtng.lib`）链接。头文件位于 `include/qtng/`，公开包含路径为 `include/`，因此使用：
 

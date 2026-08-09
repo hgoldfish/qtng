@@ -3090,8 +3090,16 @@ On Unix systems, qtng uses libev as its event loop backend. CMake selects the be
 
 CMake chooses the TLS/crypto library as follows:
 
-* If the ``3rdparty/libressl`` git submodule is initialized and contains ``CMakeLists.txt``, bundled LibreSSL is built and linked automatically.
-* Otherwise, system OpenSSL 1.1.1 or newer is required (``find_package(OpenSSL 1.1.1 REQUIRED)``; Noise needs the X25519 raw-key API).
+* If ``QTNG_DISABLE_CRYPTO=ON``, crypto is skipped and ``QTNG_NO_CRYPTO`` is defined.
+* Else if the ``3rdparty/libressl`` git submodule is initialized and contains usable sources, bundled LibreSSL is built and linked automatically.
+* Else ``find_package(OpenSSL 1.1.1 QUIET)`` is used; when found, system OpenSSL is linked (Noise needs the X25519 raw-key API from 1.1.1+).
+* If neither LibreSSL nor OpenSSL is available, CMake emits a warning and continues with ``QTNG_NO_CRYPTO`` (TLS/SSL, Noise, AEAD, and QUIC are not built). ``MessageDigest`` still supports MD5/SHA-1/SHA-256 via a software fallback.
+
+Incomplete protocol modules (default ON):
+
+* ``QTNG_WITH_HTTP2`` — HTTP/2 client + HPACK
+* ``QTNG_WITH_QUIC`` — QUICv1 transport MVP (forced off without crypto)
+* ``QTNG_WITH_HTTP3`` — HTTP/3 stub (forced off without QUIC)
 
 Install development packages on Debian/Ubuntu with ``libssl-dev`` when not using bundled LibreSSL.
 

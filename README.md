@@ -119,9 +119,16 @@ Dependencies
 
 * **C++11** compiler for the library (GCC, Clang, MSVC); C++17 is required only to build the bundled unit tests, which are off by default (`-DQTNG_BUILD_TESTS=ON`)
 * **zlib** (system library, for gzip support)
-* **OpenSSL 1.1.1+ or LibreSSL** for TLS/crypto:
+* **OpenSSL 1.1.1+ or LibreSSL** for TLS/crypto (optional):
   * Initialize the LibreSSL submodule under `3rdparty/libressl/` to build a bundled copy (`git submodule update --init 3rdparty/libressl`), or
   * Install system OpenSSL development packages (e.g. `libssl-dev` on Debian/Ubuntu)
+  * If neither is available (or `-DQTNG_DISABLE_CRYPTO=ON`), the build continues with `QTNG_NO_CRYPTO`: TLS/SSL, Noise, AEAD, and QUIC are omitted; `MessageDigest` (MD5/SHA-1/SHA-256) still works via a software fallback
+
+Optional protocol toggles (default **ON**; turn off incomplete stacks when needed):
+
+* `-DQTNG_WITH_HTTP2=OFF` — skip HTTP/2 + HPACK
+* `-DQTNG_WITH_QUIC=OFF` — skip QUICv1 transport MVP (also forced off without crypto)
+* `-DQTNG_WITH_HTTP3=OFF` — skip HTTP/3 stub (also forced off without QUIC)
 
 Optional test-only dependency:
 
@@ -171,7 +178,7 @@ cmake ..
 cmake --build .
 ```
 
-Third-party sources live under `3rdparty/` as git submodules (`libressl`, `libutp`). Submodules are optional for a default build: without LibreSSL the build falls back to system OpenSSL; without libutp the µTP interoperability tests are omitted.
+Third-party sources live under `3rdparty/` as git submodules (`libressl`, `libutp`). Submodules are optional for a default build: without LibreSSL the build falls back to system OpenSSL, then to `QTNG_NO_CRYPTO` if OpenSSL is also missing; without libutp the µTP interoperability tests are omitted.
 
 Link your application against the `qtng` static library (`libqtng.a`, or `qtng.lib` on MSVC). Headers live under `include/qtng/`; the public include path is `include/`, so use:
 

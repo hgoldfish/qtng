@@ -2,7 +2,7 @@
 
 | Path | Upstream | Purpose |
 |------|----------|---------|
-| `libressl/` | [libressl/portable](https://github.com/libressl/portable) | Bundled TLS (optional; falls back to system OpenSSL) |
+| `libressl/` | [libressl/portable](https://github.com/libressl/portable) | Bundled TLS (optional; falls back to system OpenSSL, then `QTNG_NO_CRYPTO`) |
 | `libutp/` | [transmission/libutp](https://github.com/transmission/libutp) | uTP interoperability tests only |
 
 Initialize after clone:
@@ -12,7 +12,7 @@ git submodule update --init 3rdparty/libressl   # optional TLS bundle
 git submodule update --init 3rdparty/libutp     # optional uTP libutp tests
 ```
 
-Build works without initializing submodules: LibreSSL → system OpenSSL; libutp tests are skipped.
+Build works without initializing submodules: LibreSSL → system OpenSSL → `QTNG_NO_CRYPTO`; libutp tests are skipped.
 
 ## QUIC interop (picoquic, optional)
 
