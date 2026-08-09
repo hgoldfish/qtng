@@ -18,6 +18,17 @@ The binding target:
 * **PUBLIC**: ``qt/include`` and Qt5/6::Core
 * **PRIVATE**: ``qtng`` core (headers are **not** propagated to consumers)
 
+When both Qt5 and Qt6 are installed, CMake cache option ``QTNG_QT_VERSION`` selects which one
+to use:
+
+* ``auto`` (default) — prefer Qt5 if found, otherwise Qt6
+* ``5`` — require Qt5
+* ``6`` — require Qt6
+
+Example (force Qt6)::
+
+    cmake -S /path/to/qtng/qt/examples/fetch_web_content -B build-fetch -DQTNG_QT_VERSION=6
+
 Minimal example
 ---------------
 
