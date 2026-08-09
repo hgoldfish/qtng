@@ -1,0 +1,6 @@
+[submodule "3rdparty/libressl"]
+	path = 3rdparty/libressl
+	url = https://github.com/libressl/portable.git
+[submodule "3rdparty/libutp"]
+	path = 3rdparty/libutp
+	url = https://github.com/transmission/libutp.git
