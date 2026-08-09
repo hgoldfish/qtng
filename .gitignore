@@ -10,11 +10,14 @@ CMakeLists.txt.user*
 include/pool.h
 website/
 
+# Build trees (CMake out-of-source, Qt Creator, local variants)
 /build/
 /build-*/
+/cmake-build-*/
+/out/
 /*.o
 
-/docs/_build
+/docs/_build/
 /examples/*/build/
 /examples/*/dist/
 /examples/*/.build-in-docker/

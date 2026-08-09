@@ -104,8 +104,8 @@ RUN printf '%s\n' \
         '  done' \
         '}' \
         '' \
-        'if [ ! -d /qtng/libressl ]; then' \
-        '  echo "libressl/ missing under /qtng; bundled LibreSSL is required for WinXP builds" >&2' \
+        'if [ ! -d /qtng/3rdparty/libressl ]; then' \
+        '  echo "3rdparty/libressl/ missing under /qtng; bundled LibreSSL is required for WinXP builds" >&2' \
         '  exit 1' \
         'fi' \
         'build_arch win32 toolchain-mingw-win32.cmake /usr/i686-w64-mingw32 i686-w64-mingw32-objdump "PE32 executable" 1' \

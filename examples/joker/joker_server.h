@@ -14,6 +14,10 @@ public:
     std::shared_ptr<qtng::Cipher> templateCipher;
     float timeout;
 
+    // Applied to the outbound TCP forward socket (SO_SNDBUF / SO_RCVBUF).
+    int sendBufferSize;
+    int receiveBufferSize;
+
     qtng::HostAddress kcpAddress;
     std::uint16_t kcpPort;
     qtng::KcpSocket::Mode kcpMode;

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <climits>
+#include <ctime>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -60,67 +61,18 @@ static bool containsValue(const vector<string> &values, const string &value)
 
 static utils::DateTime getTimeFromASN1(const ASN1_TIME *aTime)
 {
-    size_t lTimeLength = static_cast<size_t>(aTime->length);
-    char *pString = reinterpret_cast<char *>(aTime->data);
+    if (!aTime) {
+        return utils::DateTime();
+    }
 
-    if (aTime->type == V_ASN1_UTCTIME) {
-
-        char lBuffer[24];
-        char *pBuffer = lBuffer;
-
-        if ((lTimeLength < 11) || (lTimeLength > 17))
-            return utils::DateTime();
-
-        memcpy(pBuffer, pString, 10);
-        pBuffer += 10;
-        pString += 10;
-
-        int lSecondsFromUCT = 0;
-        if (*pString == '-' || *pString == '+') {
-            char sign = *(pString++);
-            int nhh = 0;
-            int nmm = 0;
-
-            if (sscanf(pString, "%2d%2d", &nhh, &nmm) != 2)
-                return utils::DateTime();
-            lSecondsFromUCT = (nhh * 60 + nmm) * 60;
-            if (sign == '-')
-                lSecondsFromUCT = -lSecondsFromUCT;
-        }
-
-        int year = ((lBuffer[0] - '0') * 10) + (lBuffer[1] - '0');
-        if (year < 50)
-            year += 2000;
-        else
-            year += 1900;
-        const int month = (((lBuffer[2] - '0') * 10) + (lBuffer[3] - '0'));
-        const int day = ((lBuffer[4] - '0') * 10) + (lBuffer[5] - '0');
-        const int hour = ((lBuffer[6] - '0') * 10) + (lBuffer[7] - '0');
-        const int minute = ((lBuffer[8] - '0') * 10) + (lBuffer[9] - '0');
-        const int second = ((lBuffer[10] - '0') * 10) + (lBuffer[11] - '0');
-
-        utils::DateTime result = utils::DateTime::fromUtc(year, month, day, hour, minute, second);
-        return result.addSecs(lSecondsFromUCT);
-
-    } else if (aTime->type == V_ASN1_GENERALIZEDTIME) {
-
-        if (lTimeLength < 15)
-            return utils::DateTime();
-
-        const int year = ((pString[0] - '0') * 1000) + ((pString[1] - '0') * 100) + ((pString[2] - '0') * 10)
-                + (pString[3] - '0');
-        const int month = (((pString[4] - '0') * 10) + (pString[5] - '0'));
-        const int day = ((pString[6] - '0') * 10) + (pString[7] - '0');
-        const int hour = ((pString[8] - '0') * 10) + (pString[9] - '0');
-        const int minute = ((pString[10] - '0') * 10) + (pString[11] - '0');
-        const int second = ((pString[12] - '0') * 10) + (pString[13] - '0');
-
-        return utils::DateTime::fromUtc(year, month, day, hour, minute, second);
-
-    } else {
+    struct tm t;
+    memset(&t, 0, sizeof(t));
+    if (ASN1_TIME_to_tm(aTime, &t) != 1) {
         ngWarning() << "unsupported date format detected";
         return utils::DateTime();
     }
+
+    return utils::DateTime::fromUtc(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
 }
 
 struct X509Cleaner
@@ -368,8 +320,9 @@ string CertificatePrivate::serialNumber() const
     }
 
     long value = -1;
-    if (serialNumber->length <= static_cast<int>(sizeof(long))
-        && serialNumber->type == V_ASN1_INTEGER) {
+    const int serialLength = ASN1_STRING_length(serialNumber);
+    if (serialLength <= static_cast<int>(sizeof(long))
+        && ASN1_STRING_type(serialNumber) == V_ASN1_INTEGER) {
         uint64_t u64 = 0;
         if (ASN1_INTEGER_get_uint64(&u64, serialNumber) && u64 <= LONG_MAX)
             value = static_cast<long>(u64);
@@ -380,14 +333,15 @@ string CertificatePrivate::serialNumber() const
     }
 
     string result;
-    if (serialNumber->type == V_ASN1_NEG_INTEGER) {
+    if (ASN1_STRING_type(serialNumber) == V_ASN1_NEG_INTEGER) {
         result.append("(Negative) ");
     }
 
-    for (int i = 0; i < serialNumber->length; ++i) {
+    const unsigned char *serialData = ASN1_STRING_get0_data(serialNumber);
+    for (int i = 0; i < serialLength; ++i) {
         if (i > 0)
             result.push_back(':');
-        const unsigned int byteValue = static_cast<unsigned int>(serialNumber->data[i]);
+        const unsigned int byteValue = static_cast<unsigned int>(serialData[i]);
         char hex[3] = "00";
         hex[0] = "0123456789abcdef"[byteValue >> 4];
         hex[1] = "0123456789abcdef"[byteValue & 0xf];

@@ -599,7 +599,7 @@ PrivateKey PrivateKeyReaderPrivate::read(const string &data)
     BIO *bio = BIO_new_mem_buf(data.data(), data.size());
     EVP_PKEY *pkey = nullptr;
     if (!password.empty()) {
-        shared_ptr<SimplePasswordCallback> cb(new SimplePasswordCallback(password));
+        shared_ptr<SimplePasswordCallback> cb = make_shared<SimplePasswordCallback>(password);
         PEM_read_bio_PrivateKey(bio, &pkey, pem_password_cb, cb.get());
     } else if (callback) {
         PEM_read_bio_PrivateKey(bio, &pkey, pem_password_cb, callback.get());
@@ -639,7 +639,7 @@ PublicKey PrivateKeyReaderPrivate::readPublic(const string &data)
     BIO *bio = BIO_new_mem_buf(data.data(), data.size());
     EVP_PKEY *pkey = nullptr;
     if (!password.empty()) {
-        shared_ptr<SimplePasswordCallback> cb(new SimplePasswordCallback(password));
+        shared_ptr<SimplePasswordCallback> cb = make_shared<SimplePasswordCallback>(password);
         PEM_read_bio_PUBKEY(bio, &pkey, pem_password_cb, cb.get());
     } else if (callback) {
         PEM_read_bio_PUBKEY(bio, &pkey, pem_password_cb, callback.get());

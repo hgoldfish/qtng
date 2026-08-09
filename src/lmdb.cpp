@@ -743,7 +743,7 @@ Database &TransactionPrivate::open(const string &name)
     if (rt < 0) {
         return empty;
     }
-    unique_ptr<DatabasePrivate> d(new DatabasePrivate(txn, dbi, readOnly));
+    unique_ptr<DatabasePrivate> d = make_unique<DatabasePrivate>(txn, dbi, readOnly);
     shared_ptr<Database> db(new Database(d.release()));
     dbs[name] = db;
     return *db;
@@ -980,7 +980,7 @@ LmdbBuilder &LmdbBuilder::writeMap(bool writable)
 shared_ptr<Lmdb> LmdbBuilder::create()
 {
     assert(!m_dirPath.empty());
-    unique_ptr<LmdbPrivate> d(new LmdbPrivate());
+    unique_ptr<LmdbPrivate> d = make_unique<LmdbPrivate>();
     int rt = mdb_env_create(&d->env);
     if (rt) {
 #if QTLMDB_DEBUG

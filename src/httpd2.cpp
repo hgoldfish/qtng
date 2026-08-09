@@ -161,7 +161,7 @@ void BaseHttpProxyRequestHandler::logProxy(const string &remoteHostName, uint16_
 shared_ptr<SocketLike> BaseHttpProxyRequestHandler::makeConnection(const string &remoteHostName,
                                                                        uint16_t remotePort, HostAddress *forwardAddress)
 {
-    shared_ptr<Socket> s(new Socket());
+    shared_ptr<Socket> s = make_shared<Socket>();
     if (s->connect(remoteHostName, remotePort)) {
         if (forwardAddress) {
             *forwardAddress = s->peerAddress();

@@ -38,6 +38,8 @@ protected:
 
 JokerServerConfigure::JokerServerConfigure()
     : timeout(8.0f)
+    , sendBufferSize(1024 * 1024 * 32)
+    , receiveBufferSize(1024 * 1024 * 32)
     , kcpAddress(HostAddress::Any)
     , kcpPort(8000)
     , kcpMode(KcpSocket::Mode::Internet)
@@ -254,8 +256,8 @@ void JokerServerPrivate::handleChannel(shared_ptr<VirtualChannel> channel)
         return;
     }
 
-    forward->setOption(Socket::ReceiveBufferSizeSocketOption, 1024 * 1024 * 32);
-    forward->setOption(Socket::SendBufferSizeSocketOption, 1024 * 1024 * 32);
+    forward->setOption(Socket::ReceiveBufferSizeSocketOption, configure.receiveBufferSize);
+    forward->setOption(Socket::SendBufferSizeSocketOption, configure.sendBufferSize);
     if (!sendReply(channel, forward->peerAddress())) {
         return;
     }

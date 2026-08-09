@@ -51,6 +51,13 @@ inline unique_ptr<T> make_unique(Args &&... args)
 #ifdef NG_OS_WIN
 #  define NG_SOCKLEN_T int
 #  define NG_SOCKOPTLEN_T int
+#else
+#  include <sys/types.h>
+#  define NG_SOCKLEN_T socklen_t
+#  define NG_SOCKOPTLEN_T socklen_t
+#endif
+
+/* Android bionic (and some other libcs) omit these historic typedefs. */
 #  ifndef uint
 typedef unsigned int uint;
 #  endif
@@ -60,11 +67,6 @@ typedef unsigned short ushort;
 #  ifndef ulong
 typedef unsigned long ulong;
 #  endif
-#else
-#  include <sys/types.h>
-#  define NG_SOCKLEN_T socklen_t
-#  define NG_SOCKOPTLEN_T socklen_t
-#endif
 
 #define NG_DECLARE_OPERATORS_FOR_FLAGS(Flags) \
     inline Flags operator|(Flags f1, Flags f2) noexcept { return Flags(int(f1) | int(f2)); } \
@@ -109,6 +111,37 @@ inline T ngToBigEndian(T src)
 {
     T result = 0;
     ngToBigEndian(src, &result);
+    return result;
+}
+
+template<typename T>
+inline T ngFromLittleEndian(const void *src)
+{
+    std::uint64_t result = 0;
+    const unsigned char *s = static_cast<const unsigned char *>(src);
+    for (size_t i = 0; i < sizeof(T); ++i) {
+        result |= static_cast<std::uint64_t>(s[i]) << (i * 8);
+    }
+    return static_cast<T>(result);
+}
+
+template<typename T>
+inline void ngToLittleEndian(T src, void *dest)
+{
+    static_assert(sizeof(T) <= sizeof(std::uint64_t), "ngToLittleEndian supports up to 8-byte types");
+    unsigned char *d = static_cast<unsigned char *>(dest);
+    std::uint64_t value = static_cast<std::uint64_t>(src);
+    for (size_t i = 0; i < sizeof(T); ++i) {
+        d[i] = static_cast<unsigned char>(value & 0xFFu);
+        value >>= 8;
+    }
+}
+
+template<typename T>
+inline T ngToLittleEndian(T src)
+{
+    T result = 0;
+    ngToLittleEndian(src, &result);
     return result;
 }
 

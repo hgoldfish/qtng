@@ -72,6 +72,57 @@ TEST_CASE("NG_DECLARE_OPERATORS_FOR_FLAGS", "[platform]")
     REQUIRE(int(~FlagA) != 0);
 }
 
+TEST_CASE("ngFromLittleEndian and ngToLittleEndian", "[platform]")
+{
+    SECTION("uint16")
+    {
+        const uint8_t bytes[] = {0x34, 0x12};
+        REQUIRE(ngFromLittleEndian<uint16_t>(bytes) == 0x1234);
+
+        uint16_t value = 0xabcd;
+        uint8_t out[2];
+        ngToLittleEndian(value, out);
+        REQUIRE(out[0] == 0xcd);
+        REQUIRE(out[1] == 0xab);
+        REQUIRE(ngFromLittleEndian<uint16_t>(out) == value);
+    }
+
+    SECTION("uint32")
+    {
+        const uint8_t bytes[] = {0x02, 0x01, 0x00, 0x00};
+        REQUIRE(ngFromLittleEndian<uint32_t>(bytes) == 0x102);
+
+        uint32_t value = 0xdeadbeef;
+        uint8_t out[4];
+        ngToLittleEndian(value, out);
+        REQUIRE(out[0] == 0xef);
+        REQUIRE(out[1] == 0xbe);
+        REQUIRE(out[2] == 0xad);
+        REQUIRE(out[3] == 0xde);
+        REQUIRE(ngFromLittleEndian<uint32_t>(out) == value);
+    }
+
+    SECTION("uint64")
+    {
+        uint64_t value = 0x0102030405060708ULL;
+        uint8_t out[8];
+        ngToLittleEndian(value, out);
+        REQUIRE(out[0] == 0x08);
+        REQUIRE(out[7] == 0x01);
+        REQUIRE(ngFromLittleEndian<uint64_t>(out) == value);
+    }
+
+    SECTION("signed int16")
+    {
+        const int16_t src = -2;
+        uint8_t out[2];
+        ngToLittleEndian(src, out);
+        REQUIRE(out[0] == 0xfe);
+        REQUIRE(out[1] == 0xff);
+        REQUIRE(ngFromLittleEndian<int16_t>(out) == src);
+    }
+}
+
 TEST_CASE("endian round-trip all integer widths", "[platform]")
 {
     SECTION("int8 and uint8")
@@ -80,6 +131,8 @@ TEST_CASE("endian round-trip all integer widths", "[platform]")
         uint8_t out = 0;
         ngToBigEndian(src, &out);
         REQUIRE(ngFromBigEndian<int8_t>(&out) == src);
+        ngToLittleEndian(src, &out);
+        REQUIRE(ngFromLittleEndian<int8_t>(&out) == src);
     }
 
     SECTION("zero values")
@@ -92,6 +145,14 @@ TEST_CASE("endian round-trip all integer widths", "[platform]")
         REQUIRE(out[2] == 0);
         REQUIRE(out[3] == 0);
         REQUIRE(ngFromBigEndian<uint32_t>(out) == 0);
+
+        out[0] = out[1] = out[2] = out[3] = 0xff;
+        ngToLittleEndian(zero, out);
+        REQUIRE(out[0] == 0);
+        REQUIRE(out[1] == 0);
+        REQUIRE(out[2] == 0);
+        REQUIRE(out[3] == 0);
+        REQUIRE(ngFromLittleEndian<uint32_t>(out) == 0);
     }
 
     SECTION("ngToBigEndian writes big-endian bytes")
@@ -101,5 +162,14 @@ TEST_CASE("endian round-trip all integer widths", "[platform]")
         ngToBigEndian(value, out);
         REQUIRE(out[0] == 0x00);
         REQUIRE(out[1] == 0xff);
+    }
+
+    SECTION("ngToLittleEndian writes little-endian bytes")
+    {
+        uint16_t value = 0x00ff;
+        uint8_t out[2] = {};
+        ngToLittleEndian(value, out);
+        REQUIRE(out[0] == 0xff);
+        REQUIRE(out[1] == 0x00);
     }
 }

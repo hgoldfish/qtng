@@ -830,7 +830,7 @@ shared_ptr<FileLike> RawFile::open(const string &filepath, const string &mode)
         ::close(fd);
         return shared_ptr<FileLike>();
     }
-    shared_ptr<RawFile> file(new RawFile(fd));
+    shared_ptr<RawFile> file = make_shared<RawFile>(fd);
     if (append) {
         ::lseek(fd, 0, SEEK_END);
     }

@@ -378,7 +378,7 @@ Condition::~Condition()
 bool Condition::wait(uint32_t msecs)
 {
     NG_D(Condition);
-    shared_ptr<Lock> waiter(new Lock());
+    shared_ptr<Lock> waiter = make_shared<Lock>();
     if (!waiter->tryAcquire(0)) {
         return false;
     }
@@ -656,7 +656,7 @@ bool ThreadEventPrivate::wait(uint32_t msecs)
 
     shared_ptr<chrono::steady_clock::time_point> timer;
     if (msecs != UINT_MAX) {
-        timer.reset(new chrono::steady_clock::time_point());
+        timer = make_shared<chrono::steady_clock::time_point>();
         (*timer) = chrono::steady_clock::now();
     }
 
@@ -685,7 +685,7 @@ bool ThreadEventPrivate::wait(uint32_t msecs)
             }
         }
         if (!condition) {
-            condition.reset(new Condition());
+            condition = make_shared<Condition>();
             Behold hold;
             hold.condition = condition;
             hold.eventloop = currentLoop()->get();

@@ -2,6 +2,7 @@
 #define JOKER_CONFIG_H
 
 #include <algorithm>
+#include <climits>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -116,6 +117,48 @@ inline bool parseUInt16(const std::string &text, std::uint16_t *value)
         return false;
     }
     *value = static_cast<std::uint16_t>(parsed);
+    return true;
+}
+
+// Bytes as integer, optionally with K/M/G suffix (1024-based), e.g. 32768, 32K, 32M.
+// Result must fit in int (Socket::setOption contract).
+inline bool parseByteSize(const std::string &text, int *value, std::string *errorMessage = nullptr)
+{
+    if (text.empty()) {
+        if (errorMessage) {
+            *errorMessage = "byte size is empty.";
+        }
+        return false;
+    }
+    char *end = nullptr;
+    const unsigned long long parsed = std::strtoull(text.c_str(), &end, 10);
+    if (end == text.c_str()) {
+        if (errorMessage) {
+            *errorMessage = "byte size `" + text + "` is invalid.";
+        }
+        return false;
+    }
+    unsigned long long multiplier = 1;
+    const std::string suffix = qtng::utils::toUpper(qtng::utils::trimmed(std::string(end)));
+    if (suffix == "K" || suffix == "KB") {
+        multiplier = 1024ULL;
+    } else if (suffix == "M" || suffix == "MB") {
+        multiplier = 1024ULL * 1024ULL;
+    } else if (suffix == "G" || suffix == "GB") {
+        multiplier = 1024ULL * 1024ULL * 1024ULL;
+    } else if (!suffix.empty()) {
+        if (errorMessage) {
+            *errorMessage = "byte size `" + text + "` has unknown suffix.";
+        }
+        return false;
+    }
+    if (parsed > (static_cast<unsigned long long>(INT_MAX) / multiplier)) {
+        if (errorMessage) {
+            *errorMessage = "byte size `" + text + "` is too large.";
+        }
+        return false;
+    }
+    *value = static_cast<int>(parsed * multiplier);
     return true;
 }
 

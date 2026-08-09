@@ -11,14 +11,9 @@
 #include <net/if.h>
 #include <netinet/in.h>
 
-#ifdef NG_OS_ANDROID
-// android lacks if_nameindex
-#  define QTNG_NO_IPV6IFNAME
-#  define QTNG_NO_GETIFADDRS
-#endif
-#ifndef QT_NO_GETIFADDRS
-#  include <ifaddrs.h>
-#endif
+/* Modern Android (API 24+) provides getifaddrs / if_nameindex / if_nametoindex.
+ * Older Bionic lacked them; minSdk for consumers is high enough to use the
+ * standard Unix getifaddrs path instead of the SIOCGIFCONF fallback. */
 
 #include "qtng/network_interface.h"
 #include "qtng/private/network_interface_p.h"

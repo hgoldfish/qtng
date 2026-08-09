@@ -2,6 +2,12 @@
 password = 123456
 timeout = 10
 
+# Outbound TCP forward socket buffers (SO_SNDBUF / SO_RCVBUF).
+# Accepts plain bytes or K/M/G suffixes (1024-based), e.g. 33554432 or 32M.
+[socket]
+send_buffer_size = 32M
+receive_buffer_size = 32M
+
 [kcp]
 address = 0.0.0.0
 port = 8000

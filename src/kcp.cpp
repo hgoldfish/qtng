@@ -695,19 +695,22 @@ bool MasterKcpStreamPrivate::isValid() const
 bool MasterKcpStreamPrivate::close(bool force)
 {
     // if `force` is true, must not block. see doUpdate()
+    // Never leave Connected→Unconnected without the cleanup below: an early
+    // return after the state flip made later close()/destructor skip killall.
     if (state == Socket::UnconnectedState) {
         return true;
     } else if (state == Socket::ConnectedState) {
         state = Socket::UnconnectedState;
         if (!force && error == Socket::NoError) {
-            if (!sendingQueueEmpty.isSet()) {
+            bool drained = sendingQueueEmpty.isSet();
+            if (!drained) {
                 updateKcp();
-                if (!sendingQueueEmpty.tryWait(3000)) {
-                    return false;
-                }
+                drained = sendingQueueEmpty.tryWait(3000);
             }
-            const string &packet = makeShutdownPacket(this->sessionId);
-            rawSend(packet.data(), packet.size());
+            if (drained) {
+                const string &packet = makeShutdownPacket(this->sessionId);
+                rawSend(packet.data(), packet.size());
+            }
         }
     } else if (state == Socket::ListeningState) {
         state = Socket::UnconnectedState;
@@ -740,11 +743,6 @@ bool MasterKcpStreamPrivate::close(bool force)
     operations->killall();
     // always kill operations before release resources.
     link->abort();
-    //    if (force) {
-    //        link->abort();
-    //    } else {
-    //        rawSocket->close();
-    //    }
     // awake all pending recv()/send()
     receivingQueueNotEmpty.set();
     sendingQueueEmpty.set();
@@ -1092,22 +1090,23 @@ bool SlaveKcpStreamPrivate::isValid() const
 
 bool SlaveKcpStreamPrivate::close(bool force)
 {
-        // if `force` is true, must not block. it is called by doUpdate()
-    if (state == Socket::UnconnectedState) {
-        return true;
-    } else if (state == Socket::ConnectedState) {
+    // if `force` is true, must not block. it is called by doUpdate()
+    // Cleanup below is idempotent (guarded by parent). Always run it — do not
+    // return after flipping to Unconnected without removeSlave/killall.
+    if (state == Socket::ConnectedState) {
         state = Socket::UnconnectedState;
         if (!force && error == Socket::NoError) {
-            if (!sendingQueueEmpty.isSet()) {
+            bool drained = sendingQueueEmpty.isSet();
+            if (!drained) {
                 updateKcp();
-                if (!sendingQueueEmpty.tryWait(3000)) {
-                    return false;
-                }
+                drained = sendingQueueEmpty.tryWait(3000);
             }
-            const string &packet = makeShutdownPacket(this->sessionId);
-            rawSend(packet.data(), packet.size());
+            if (drained) {
+                const string &packet = makeShutdownPacket(this->sessionId);
+                rawSend(packet.data(), packet.size());
+            }
         }
-    } else {  // there can be no other states.
+    } else {
         state = Socket::UnconnectedState;
     }
     operations->killall();

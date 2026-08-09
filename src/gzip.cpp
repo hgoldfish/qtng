@@ -229,7 +229,7 @@ bool qGzipCompress(shared_ptr<FileLike> input, shared_ptr<FileLike> output, int 
     if (!input || !output) {
         return false;
     }
-    shared_ptr<GzipFile> gzip(new GzipFile(output, GzipFile::Compress, level));
+    shared_ptr<GzipFile> gzip = make_shared<GzipFile>(output, GzipFile::Compress, level);
     return sendfile(input, gzip, input->size(), blockSize);
 }
 
@@ -238,7 +238,7 @@ bool qGzipDecompress(shared_ptr<FileLike> input, shared_ptr<FileLike> output, in
     if (!input || !output) {
         return false;
     }
-    shared_ptr<GzipFile> gzip(new GzipFile(input, GzipFile::Decompress));
+    shared_ptr<GzipFile> gzip = make_shared<GzipFile>(input, GzipFile::Decompress);
     return sendfile(gzip, output, gzip->size(), blockSize);
 }
 
