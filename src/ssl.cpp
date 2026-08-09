@@ -114,12 +114,12 @@ SslCipher SslCipherPrivate::from_SSL_CIPHER(const SSL_CIPHER *cipher)
 }
 
 SslCipher::SslCipher()
-    : d(new SslCipherPrivate)
+    : d(make_unique<SslCipherPrivate>())
 {
 }
 
 SslCipher::SslCipher(const string &name)
-    : d(new SslCipherPrivate)
+    : d(make_unique<SslCipherPrivate>())
 {
     const vector<SslCipher> &ciphers = SslConfiguration::supportedCiphers();
     for (const SslCipher &cipher : ciphers) {
@@ -131,7 +131,7 @@ SslCipher::SslCipher(const string &name)
 }
 
 SslCipher::SslCipher(const string &name, Ssl::SslProtocol protocol)
-    : d(new SslCipherPrivate)
+    : d(make_unique<SslCipherPrivate>())
 {
     const vector<SslCipher> &ciphers = SslConfiguration::supportedCiphers();
     for (const SslCipher &cipher : ciphers) {
@@ -143,7 +143,7 @@ SslCipher::SslCipher(const string &name, Ssl::SslProtocol protocol)
 }
 
 SslCipher::SslCipher(const SslCipher &other)
-    : d(new SslCipherPrivate)
+    : d(make_unique<SslCipherPrivate>())
 {
     *d.get() = *other.d.get();
 }
@@ -268,13 +268,68 @@ class AlwaysTheSameChooseTlsExtNameCallback : public ChooseTlsExtNameCallback
 
 void SslConfigurationPrivate::setSendTlsExtHostName(bool sendTlsExtHostName)
 {
-    static shared_ptr<ChooseTlsExtNameCallback> defaultCallback(new AlwaysTheSameChooseTlsExtNameCallback());
+    static shared_ptr<ChooseTlsExtNameCallback> defaultCallback = make_shared<AlwaysTheSameChooseTlsExtNameCallback>();
     if (sendTlsExtHostName) {
         chooseTlsExtNameCallback = defaultCallback;
     } else {
         chooseTlsExtNameCallback.reset();
     }
 }
+
+namespace {
+
+string encodeAlpnWire(const vector<string> &protos)
+{
+    string wire;
+    for (const string &p : protos) {
+        if (p.empty() || p.size() > 255) {
+            continue;
+        }
+        wire.push_back(static_cast<char>(p.size()));
+        wire += p;
+    }
+    return wire;
+}
+
+int alpnSelectCallback(SSL *, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
+                       unsigned int inlen, void *arg)
+{
+    const string *preferred = static_cast<const string *>(arg);
+    if (!preferred || preferred->empty()) {
+        return SSL_TLSEXT_ERR_NOACK;
+    }
+    size_t i = 0;
+    while (i < preferred->size()) {
+        unsigned char plen = static_cast<unsigned char>((*preferred)[i]);
+        if (i + 1 + plen > preferred->size()) {
+            break;
+        }
+        const char *pname = preferred->data() + i + 1;
+        unsigned int j = 0;
+        while (j < inlen) {
+            unsigned char clen = in[j];
+            if (j + 1 + clen > inlen) {
+                break;
+            }
+            if (clen == plen && memcmp(in + j + 1, pname, plen) == 0) {
+                *out = in + j + 1;
+                *outlen = clen;
+                return SSL_TLSEXT_ERR_OK;
+            }
+            j += 1 + clen;
+        }
+        i += 1 + plen;
+    }
+    return SSL_TLSEXT_ERR_NOACK;
+}
+
+void freeAlpnPreferred(void *parent, void *ptr, CRYPTO_EX_DATA *, int, long, void *)
+{
+    (void) parent;
+    delete static_cast<string *>(ptr);
+}
+
+}  // namespace
 
 shared_ptr<SSL_CTX> SslConfigurationPrivate::makeContext(const SslConfiguration &config, bool asServer)
 {
@@ -315,11 +370,32 @@ shared_ptr<SSL_CTX> SslConfigurationPrivate::makeContext(const SslConfiguration 
             ngDebug() << "can not set ssl certificate.";
         }
     }
+
+    const string wire = encodeAlpnWire(config.allowedNextProtocols());
+    if (!wire.empty()) {
+        if (asServer) {
+            unique_ptr<string> kept = make_unique<string>(wire);
+            // Index 0 is reserved by some OpenSSL builds; use a free-func registered index.
+            static int alpnExIndex = -1;
+            if (alpnExIndex < 0) {
+                alpnExIndex = SSL_CTX_get_ex_new_index(0, nullptr, nullptr, nullptr, freeAlpnPreferred);
+            }
+            if (alpnExIndex >= 0) {
+                // Take ownership into OpenSSL ex_data; freeAlpnPreferred deletes on CTX free.
+                string *raw = kept.release();
+                SSL_CTX_set_ex_data(ctx.get(), alpnExIndex, raw);
+                SSL_CTX_set_alpn_select_cb(ctx.get(), alpnSelectCallback, raw);
+            }
+        } else {
+            SSL_CTX_set_alpn_protos(ctx.get(), reinterpret_cast<const unsigned char *>(wire.data()),
+                                   static_cast<unsigned int>(wire.size()));
+        }
+    }
     return ctx;
 }
 
 SslConfiguration::SslConfiguration()
-    : d(new SslConfigurationPrivate())
+    : d(make_shared<SslConfigurationPrivate>())
 {
 }
 
@@ -531,28 +607,28 @@ public:
 };
 
 SslError::SslError()
-    : d(new SslErrorPrivate)
+    : d(make_unique<SslErrorPrivate>())
 {
     d->error = SslError::NoError;
     d->certificate = Certificate();
 }
 
 SslError::SslError(Error error)
-    : d(new SslErrorPrivate)
+    : d(make_unique<SslErrorPrivate>())
 {
     d->error = error;
     d->certificate = Certificate();
 }
 
 SslError::SslError(Error error, const Certificate &certificate)
-    : d(new SslErrorPrivate)
+    : d(make_unique<SslErrorPrivate>())
 {
     d->error = error;
     d->certificate = certificate;
 }
 
 SslError::SslError(const SslError &other)
-    : d(new SslErrorPrivate)
+    : d(make_unique<SslErrorPrivate>())
 {
     *d.get() = *other.d.get();
 }
@@ -772,17 +848,23 @@ public:
     vector<SslError> errors;
     string peerVerifyName;
     string tlsExtHostName;
+    string nextProtocol;
+    SslSocket::NextProtocolNegotiationStatus nextProtocolStatus;
     bool asServer;
 };
 
 template<typename SocketType>
 SslConnection<SocketType>::SslConnection(const SslConfiguration &config)
     : config(config)
+    , nextProtocolStatus(SslSocket::NextProtocolNegotiationNone)
+    , asServer(false)
 {
 }
 
 template<typename SocketType>
 SslConnection<SocketType>::SslConnection()
+    : nextProtocolStatus(SslSocket::NextProtocolNegotiationNone)
+    , asServer(false)
 {
 }
 
@@ -832,6 +914,19 @@ bool SslConnection<SocketType>::handshake(bool asServer, const string &hostName)
                 }
             }
             if (_handshake()) {
+                const unsigned char *alpnData = nullptr;
+                unsigned int alpnLen = 0;
+                SSL_get0_alpn_selected(ssl.get(), &alpnData, &alpnLen);
+                if (alpnData && alpnLen > 0) {
+                    nextProtocol.assign(reinterpret_cast<const char *>(alpnData), alpnLen);
+                    nextProtocolStatus = SslSocket::NextProtocolNegotiationNegotiated;
+                } else if (!config.allowedNextProtocols().empty()) {
+                    nextProtocol.clear();
+                    nextProtocolStatus = SslSocket::NextProtocolNegotiationUnsupported;
+                } else {
+                    nextProtocol.clear();
+                    nextProtocolStatus = SslSocket::NextProtocolNegotiationNone;
+                }
                 return true;
             }
             ssl.reset();
@@ -1307,7 +1402,7 @@ SslSocket::SslSocket(HostAddress::NetworkLayerProtocol protocol, const SslConfig
     : d_ptr(new SslSocketPrivate(config))
 {
     NG_D(SslSocket);
-    d->rawSocket = asSocketLike(new Socket(protocol));
+    d->rawSocket = asSocketLike(make_shared<Socket>(protocol));
     d->asServer = false;
 }
 
@@ -1315,7 +1410,7 @@ SslSocket::SslSocket(intptr_t socketDescriptor, const SslConfiguration &config)
     : d_ptr(new SslSocketPrivate(config))
 {
     NG_D(SslSocket);
-    d->rawSocket = asSocketLike(new Socket(socketDescriptor));
+    d->rawSocket = asSocketLike(make_shared<Socket>(socketDescriptor));
     d->asServer = false;
 }
 
@@ -1415,6 +1510,18 @@ SslConfiguration SslSocket::sslConfiguration() const
     return d->config;
 }
 
+string SslSocket::nextNegotiatedProtocol() const
+{
+    NG_D(const SslSocket);
+    return d->nextProtocol;
+}
+
+SslSocket::NextProtocolNegotiationStatus SslSocket::nextProtocolNegotiationStatus() const
+{
+    NG_D(const SslSocket);
+    return d->nextProtocolStatus;
+}
+
 vector<SslError> SslSocket::sslErrors() const
 {
     NG_D(const SslSocket);
@@ -1451,7 +1558,7 @@ SslSocket *SslSocket::accept()
     while (true) {
         shared_ptr<SocketLike> rawSocket = d->rawSocket->accept();
         if (rawSocket) {
-            unique_ptr<SslSocket> s(new SslSocket(rawSocket, d->config));
+            unique_ptr<SslSocket> s = make_unique<SslSocket>(rawSocket, d->config);
             if (s->d_func()->handshake(true, string())) {
                 return s.release();
             }
@@ -1961,7 +2068,7 @@ int32_t SslSocketLikeImpl::sendall(const string &data)
 
 shared_ptr<SocketLike> asSocketLike(shared_ptr<SslSocket> s)
 {
-    return shared_ptr<SocketLike>(new SslSocketLikeImpl(s));
+    return make_shared<SslSocketLikeImpl>(s);
 }
 
 shared_ptr<SslSocket> convertSocketLikeToSslSocket(shared_ptr<SocketLike> socket)
@@ -2278,7 +2385,7 @@ shared_ptr<SocketLike> encrypted(shared_ptr<Cipher> cipher, shared_ptr<SocketLik
     if (!cipher || !cipher->isValid() || !cipher->isStream()) {
         return shared_ptr<SocketLike>();
     }
-    return shared_ptr<SocketLike>(new EncryptedSocketLike(cipher, socket));
+    return make_shared<EncryptedSocketLike>(cipher, socket);
 }
 
 }  // namespace qtng

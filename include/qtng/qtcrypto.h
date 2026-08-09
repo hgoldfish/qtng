@@ -7,5 +7,6 @@
 #include "qtng/pkey.h"
 #include "qtng/certificate.h"
 #include "qtng/noise.h"
+#include "qtng/aead.h"
 
 #endif // QTNG_CRYPTNG_H
