@@ -676,7 +676,7 @@ bool SocketChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, 
                                 msecs);
     case BlockFlag::Block_Until_Sent: {
         const int64_t startMs = (msecs == UINT_MAX) ? 0 : utils::DateTime::currentMSecsSinceEpoch();
-        shared_ptr<ValueEvent<bool>> done(new ValueEvent<bool>());
+        shared_ptr<ValueEvent<bool>> done = make_shared<ValueEvent<bool>>();
         if (!sendingQueue.put(WritingPacket(channelNumber, std::move(packet), done), msecs)) {
             return false;
         }
@@ -1076,6 +1076,11 @@ SocketChannel::SocketChannel(shared_ptr<SslSocket> connection, DataChannelPole p
 #endif
 
 SocketChannel::SocketChannel(shared_ptr<KcpSocket> connection, DataChannelPole pole)
+    : DataChannel(new SocketChannelPrivate(asSocketLike(connection), pole, this))
+{
+}
+
+SocketChannel::SocketChannel(shared_ptr<UtpSocket> connection, DataChannelPole pole)
     : DataChannel(new SocketChannelPrivate(asSocketLike(connection), pole, this))
 {
 }

@@ -15,6 +15,7 @@ namespace qtng {
 class SslSocket;
 #endif
 class KcpSocket;
+class UtpSocket;
 class SocketLike : public FileLike
 {
 public:

@@ -131,6 +131,38 @@ void KcpServer<RequestHandler>::processRequest(std::shared_ptr<SocketLike> reque
     handler.run();
 }
 
+template<typename RequestHandler>
+class UtpServer : public BaseStreamServer
+{
+public:
+    UtpServer(const HostAddress &serverAddress, std::uint16_t serverPort)
+        : BaseStreamServer(serverAddress, serverPort)
+    {
+    }
+    UtpServer(std::uint16_t serverPort)
+        : BaseStreamServer(HostAddress::Any, serverPort)
+    {
+    }
+protected:
+    virtual std::shared_ptr<SocketLike> serverCreate() override;
+    virtual void processRequest(std::shared_ptr<SocketLike> request) override;
+};
+
+template<typename RequestHandler>
+std::shared_ptr<SocketLike> UtpServer<RequestHandler>::serverCreate()
+{
+    return asSocketLike(UtpSocket::createServer(serverAddress(), serverPort(), 0));
+}
+
+template<typename RequestHandler>
+void UtpServer<RequestHandler>::processRequest(std::shared_ptr<SocketLike> request)
+{
+    RequestHandler handler;
+    handler.request = request;
+    handler.server = this;
+    handler.run();
+}
+
 #ifndef QTNG_NO_CRYPTO
 
 template<typename ServerType>

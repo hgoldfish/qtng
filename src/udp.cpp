@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "qtng/private/kcp.h"
+#include "qtng/private/utp.h"
 #include "qtng/private/socket_p.h"
 #include "qtng/socket_utils.h"
 #include "qtng/utils/string_utils.h"
@@ -131,12 +132,12 @@ private:
 };
 
 UdpDatagramLink::UdpDatagramLink(HostAddress::NetworkLayerProtocol protocol)
-    : rawSocket(new Socket(protocol, Socket::UdpSocket))
+    : rawSocket(make_shared<Socket>(protocol, Socket::UdpSocket))
 {
 }
 
 UdpDatagramLink::UdpDatagramLink(intptr_t socketDescriptor)
-    : rawSocket(new Socket(socketDescriptor))
+    : rawSocket(make_shared<Socket>(socketDescriptor))
 {
 }
 
@@ -320,7 +321,7 @@ static void uninstallFilter(KcpSocketPrivate *d)
 
 static KcpSocketPrivate *makePrivateRaw(shared_ptr<UdpDatagramLink> udp)
 {
-    shared_ptr<KcpStream> stream(new KcpStream(udp, 0));
+    shared_ptr<KcpStream> stream = make_shared<KcpStream>(udp, 0);
     stream->setProtocolVersion(KcpStream::Version1);
     return new KcpSocketPrivate(udp, udp, stream);
 }
@@ -778,6 +779,492 @@ shared_ptr<KcpSocket> convertSocketLikeToKcpSocket(shared_ptr<SocketLike> socket
         return impl->s;
     }
     return shared_ptr<KcpSocket>();
+}
+
+class UtpSocketPrivate
+{
+public:
+    UtpSocketPrivate(shared_ptr<DatagramLink> link, shared_ptr<UdpDatagramLink> udp, shared_ptr<UtpStream> stream)
+        : link(std::move(link))
+        , udp(std::move(udp))
+        , stream(std::move(stream))
+    {
+    }
+
+    shared_ptr<DatagramLink> link;
+    shared_ptr<UdpDatagramLink> udp;
+    shared_ptr<UtpStream> stream;
+    bool ownsFilter = false;
+};
+
+static void installUtpFilter(UtpSocket *socket, UtpSocketPrivate *d)
+{
+    UdpDatagramLink *udp = d->udp.get();
+    if (!udp) {
+        return;
+    }
+    udp->setFilter([socket](char *data, int32_t *len, HostAddress *addr, uint16_t *port) {
+        return socket->filter(data, len, addr, port);
+    });
+    d->ownsFilter = true;
+}
+
+static void uninstallUtpFilter(UtpSocketPrivate *d)
+{
+    if (!d->ownsFilter || !d->udp) {
+        return;
+    }
+    d->udp->setFilter({});
+    d->ownsFilter = false;
+}
+
+static UtpSocketPrivate *makeUtpPrivateRaw(shared_ptr<UdpDatagramLink> udp)
+{
+    shared_ptr<UtpStream> stream = make_shared<UtpStream>(udp);
+    return new UtpSocketPrivate(udp, udp, stream);
+}
+
+UtpSocket::UtpSocket(HostAddress::NetworkLayerProtocol protocol)
+    : d_ptr(makeUtpPrivateRaw(make_shared<UdpDatagramLink>(protocol)))
+{
+    installUtpFilter(this, d_ptr);
+}
+
+UtpSocket::UtpSocket(intptr_t socketDescriptor)
+    : d_ptr(makeUtpPrivateRaw(make_shared<UdpDatagramLink>(socketDescriptor)))
+{
+    installUtpFilter(this, d_ptr);
+}
+
+UtpSocket::UtpSocket(shared_ptr<Socket> rawSocket)
+    : d_ptr(makeUtpPrivateRaw(make_shared<UdpDatagramLink>(rawSocket)))
+{
+    installUtpFilter(this, d_ptr);
+}
+
+UtpSocket::UtpSocket(shared_ptr<UtpStream> stream)
+    : d_ptr(new UtpSocketPrivate(stream->link(), dynamic_pointer_cast<UdpDatagramLink>(stream->link()), stream))
+{
+}
+
+UtpSocket *wrapUtpStreamAsSocket(shared_ptr<UtpStream> stream)
+{
+    if (!stream) {
+        return nullptr;
+    }
+    return new UtpSocket(std::move(stream));
+}
+
+UtpSocket::~UtpSocket()
+{
+    uninstallUtpFilter(d_ptr);
+    delete d_ptr;
+}
+
+void UtpSocket::setDelayTarget(float milliseconds)
+{
+    d_ptr->stream->setDelayTarget(milliseconds);
+}
+
+float UtpSocket::delayTarget() const
+{
+    return d_ptr->stream->delayTarget();
+}
+
+void UtpSocket::setMaxWindow(uint32_t bytes)
+{
+    d_ptr->stream->setMaxWindow(bytes);
+}
+
+uint32_t UtpSocket::maxWindow() const
+{
+    return d_ptr->stream->maxWindow();
+}
+
+void UtpSocket::setPacketSize(uint32_t bytes)
+{
+    d_ptr->stream->setPacketSize(bytes);
+}
+
+uint32_t UtpSocket::packetSize() const
+{
+    return d_ptr->stream->packetSize();
+}
+
+uint32_t UtpSocket::payloadSizeHint() const
+{
+    return d_ptr->stream->payloadSizeHint();
+}
+
+void UtpSocket::setReceiveBufferSize(uint32_t bytes)
+{
+    d_ptr->stream->setReceiveBufferSize(bytes);
+}
+
+uint32_t UtpSocket::receiveBufferSize() const
+{
+    return d_ptr->stream->receiveBufferSize();
+}
+
+void UtpSocket::setIdleTimeout(float seconds)
+{
+    d_ptr->stream->setIdleTimeout(seconds);
+}
+
+float UtpSocket::idleTimeout() const
+{
+    return d_ptr->stream->idleTimeout();
+}
+
+Socket::SocketError UtpSocket::error() const
+{
+    return d_ptr->stream->error();
+}
+
+string UtpSocket::errorString() const
+{
+    return d_ptr->stream->errorString();
+}
+
+bool UtpSocket::isValid() const
+{
+    return d_ptr->stream->isValid();
+}
+
+HostAddress UtpSocket::localAddress() const
+{
+    return d_ptr->udp ? d_ptr->udp->localAddress() : HostAddress();
+}
+
+uint16_t UtpSocket::localPort() const
+{
+    return d_ptr->udp ? d_ptr->udp->localPort() : 0;
+}
+
+HostAddress UtpSocket::peerAddress() const
+{
+    return UdpDatagramPath(d_ptr->stream->peerPath()).address();
+}
+
+string UtpSocket::peerName() const
+{
+    return UdpDatagramPath(d_ptr->stream->peerPath()).address().toString();
+}
+
+uint16_t UtpSocket::peerPort() const
+{
+    return UdpDatagramPath(d_ptr->stream->peerPath()).port();
+}
+
+Socket::SocketType UtpSocket::type() const
+{
+    return Socket::UtpSocket;
+}
+
+Socket::SocketState UtpSocket::state() const
+{
+    return d_ptr->stream->state();
+}
+
+HostAddress::NetworkLayerProtocol UtpSocket::protocol() const
+{
+    return d_ptr->udp ? d_ptr->udp->protocol() : HostAddress::UnknownNetworkLayerProtocol;
+}
+
+string UtpSocket::localAddressURI() const
+{
+    const HostAddress &addr = localAddress();
+    string host = (addr.protocol() == HostAddress::IPv6Protocol)
+            ? utils::formatMessage("[%1]", {addr.toString()})
+            : addr.toString();
+    return utils::formatMessage("%1:%2", {host, utils::number(localPort())});
+}
+
+string UtpSocket::peerAddressURI() const
+{
+    const HostAddress &addr = peerAddress();
+    string host = (addr.protocol() == HostAddress::IPv6Protocol)
+            ? utils::formatMessage("[%1]", {addr.toString()})
+            : addr.toString();
+    return utils::formatMessage("%1:%2", {host, utils::number(peerPort())});
+}
+
+UtpSocket *UtpSocket::accept()
+{
+    return wrapUtpStreamAsSocket(shared_ptr<UtpStream>(d_ptr->stream->accept()));
+}
+
+UtpSocket *UtpSocket::accept(const HostAddress &addr, uint16_t port)
+{
+    return wrapUtpStreamAsSocket(
+            shared_ptr<UtpStream>(d_ptr->stream->accept(UdpDatagramPath(addr, port).toPath())));
+}
+
+UtpSocket *UtpSocket::accept(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
+{
+    vector<HostAddress> addresses;
+    HostAddress t;
+    if (t.setAddress(hostName)) {
+        addresses.push_back(t);
+    } else if (!dnsCache) {
+        addresses = Socket::resolve(hostName);
+    } else {
+        addresses = dnsCache->resolve(hostName);
+    }
+    const HostAddress::NetworkLayerProtocol prefer = protocol();
+    for (const HostAddress &addr : addresses) {
+        if (prefer == HostAddress::IPv4Protocol && addr.protocol() == HostAddress::IPv6Protocol) {
+            continue;
+        }
+        if (prefer == HostAddress::IPv6Protocol && addr.protocol() == HostAddress::IPv4Protocol) {
+            continue;
+        }
+        return accept(addr, port);
+    }
+    return nullptr;
+}
+
+bool UtpSocket::bind(const HostAddress &address, uint16_t port, Socket::BindMode mode)
+{
+    if (!d_ptr->udp || !d_ptr->udp->bind(address, port, mode)) {
+        return false;
+    }
+    return d_ptr->stream->markBound();
+}
+
+bool UtpSocket::bind(uint16_t port, Socket::BindMode mode)
+{
+    if (!d_ptr->udp || !d_ptr->udp->bind(port, mode)) {
+        return false;
+    }
+    return d_ptr->stream->markBound();
+}
+
+bool UtpSocket::connect(const HostAddress &addr, uint16_t port)
+{
+    return d_ptr->stream->connect(UdpDatagramPath(addr, port).toPath());
+}
+
+bool UtpSocket::connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
+{
+    vector<HostAddress> addresses;
+    HostAddress t;
+    if (t.setAddress(hostName)) {
+        addresses.push_back(t);
+    } else if (!dnsCache) {
+        addresses = Socket::resolve(hostName);
+    } else {
+        addresses = dnsCache->resolve(hostName);
+    }
+    const HostAddress::NetworkLayerProtocol prefer = protocol();
+    for (const HostAddress &addr : addresses) {
+        if (prefer == HostAddress::IPv4Protocol && addr.protocol() == HostAddress::IPv6Protocol) {
+            continue;
+        }
+        if (prefer == HostAddress::IPv6Protocol && addr.protocol() == HostAddress::IPv4Protocol) {
+            continue;
+        }
+        if (connect(addr, port)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void UtpSocket::close()
+{
+    d_ptr->stream->close();
+}
+
+void UtpSocket::abort()
+{
+    d_ptr->stream->abort();
+}
+
+bool UtpSocket::listen(int backlog)
+{
+    return d_ptr->stream->listen(backlog);
+}
+
+bool UtpSocket::setOption(Socket::SocketOption option, int value)
+{
+    return d_ptr->udp ? d_ptr->udp->setOption(option, value) : false;
+}
+
+int UtpSocket::option(Socket::SocketOption option) const
+{
+    return d_ptr->udp ? d_ptr->udp->option(option) : -1;
+}
+
+bool UtpSocket::joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
+{
+    return d_ptr->udp ? d_ptr->udp->joinMulticastGroup(groupAddress, iface) : false;
+}
+
+bool UtpSocket::leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
+{
+    return d_ptr->udp ? d_ptr->udp->leaveMulticastGroup(groupAddress, iface) : false;
+}
+
+NetworkInterface UtpSocket::multicastInterface() const
+{
+    return d_ptr->udp ? d_ptr->udp->multicastInterface() : NetworkInterface();
+}
+
+bool UtpSocket::setMulticastInterface(const NetworkInterface &iface)
+{
+    return d_ptr->udp ? d_ptr->udp->setMulticastInterface(iface) : false;
+}
+
+int32_t UtpSocket::peek(char *data, int32_t size)
+{
+    return d_ptr->stream->peek(data, size);
+}
+
+int32_t UtpSocket::peekRaw(char *data, int32_t size)
+{
+    return d_ptr->udp ? d_ptr->udp->peek(data, size) : -1;
+}
+
+int32_t UtpSocket::recv(char *data, int32_t size)
+{
+    return d_ptr->stream->recv(data, size);
+}
+
+int32_t UtpSocket::recvall(char *data, int32_t size)
+{
+    return d_ptr->stream->recvall(data, size);
+}
+
+int32_t UtpSocket::send(const char *data, int32_t size)
+{
+    return d_ptr->stream->send(data, size);
+}
+
+int32_t UtpSocket::sendall(const char *data, int32_t size)
+{
+    return d_ptr->stream->sendall(data, size);
+}
+
+string UtpSocket::recv(int32_t size)
+{
+    return d_ptr->stream->recv(size);
+}
+
+string UtpSocket::recvall(int32_t size)
+{
+    return d_ptr->stream->recvall(size);
+}
+
+int32_t UtpSocket::send(const string &data)
+{
+    return d_ptr->stream->send(data);
+}
+
+int32_t UtpSocket::sendall(const string &data)
+{
+    return d_ptr->stream->sendall(data);
+}
+
+bool UtpSocket::filter(char *data, int32_t *len, HostAddress *addr, uint16_t *port)
+{
+    (void) data;
+    (void) len;
+    (void) addr;
+    (void) port;
+    return false;
+}
+
+int32_t UtpSocket::udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port)
+{
+    return d_ptr->udp ? d_ptr->udp->sendto(data, size, UdpDatagramPath(addr, port).toPath()) : -1;
+}
+
+UtpSocket *UtpSocket::createConnection(const HostAddress &host, uint16_t port, Socket::SocketError *error,
+                                       int allowProtocol)
+{
+    return qtng::createConnection<UtpSocket>(host, port, error, allowProtocol, MakeSocketType<UtpSocket>);
+}
+
+UtpSocket *UtpSocket::createConnection(const string &hostName, uint16_t port, Socket::SocketError *error,
+                                       shared_ptr<SocketDnsCache> dnsCache, int allowProtocol)
+{
+    return qtng::createConnection<UtpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<UtpSocket>);
+}
+
+UtpSocket *UtpSocket::createServer(const HostAddress &host, uint16_t port, int backlog)
+{
+    return qtng::createServer<UtpSocket>(host, port, backlog, MakeSocketType<UtpSocket>);
+}
+
+class UtpSocketLikeImpl : public SocketLike
+{
+public:
+    UtpSocketLikeImpl(shared_ptr<UtpSocket> s)
+        : s(s)
+    {
+    }
+
+    virtual Socket::SocketError error() const override { return s->error(); }
+    virtual string errorString() const override { return s->errorString(); }
+    virtual bool isValid() const override { return s->isValid(); }
+    virtual HostAddress localAddress() const override { return s->localAddress(); }
+    virtual uint16_t localPort() const override { return s->localPort(); }
+    virtual HostAddress peerAddress() const override { return s->peerAddress(); }
+    virtual string peerName() const override { return s->peerName(); }
+    virtual uint16_t peerPort() const override { return s->peerPort(); }
+    virtual intptr_t fileno() const override { return -1; }
+    virtual Socket::SocketType type() const override { return s->type(); }
+    virtual Socket::SocketState state() const override { return s->state(); }
+    virtual HostAddress::NetworkLayerProtocol protocol() const override { return s->protocol(); }
+    virtual string localAddressURI() const override { return s->localAddressURI(); }
+    virtual string peerAddressURI() const override { return s->peerAddressURI(); }
+    virtual Socket *acceptRaw() override { return nullptr; }
+    virtual shared_ptr<SocketLike> accept() override { return asSocketLike(s->accept()); }
+    virtual bool bind(const HostAddress &address, uint16_t port, Socket::BindMode mode) override
+    {
+        return s->bind(address, port, mode);
+    }
+    virtual bool bind(uint16_t port, Socket::BindMode mode) override { return s->bind(port, mode); }
+    virtual bool connect(const HostAddress &addr, uint16_t port) override { return s->connect(addr, port); }
+    virtual bool connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) override
+    {
+        return s->connect(hostName, port, dnsCache);
+    }
+    virtual void close() override { s->close(); }
+    virtual void abort() override { s->abort(); }
+    virtual bool listen(int backlog) override { return s->listen(backlog); }
+    virtual bool setOption(Socket::SocketOption option, int value) override { return s->setOption(option, value); }
+    virtual int option(Socket::SocketOption option) const override { return s->option(option); }
+    virtual int32_t peek(char *data, int32_t size) override { return s->peek(data, size); }
+    virtual int32_t peekRaw(char *data, int32_t size) override { return s->peekRaw(data, size); }
+    virtual int32_t recv(char *data, int32_t size) override { return s->recv(data, size); }
+    virtual int32_t recvall(char *data, int32_t size) override { return s->recvall(data, size); }
+    virtual int32_t send(const char *data, int32_t size) override { return s->send(data, size); }
+    virtual int32_t sendall(const char *data, int32_t size) override { return s->sendall(data, size); }
+    virtual string recv(int32_t size) override { return s->recv(size); }
+    virtual string recvall(int32_t size) override { return s->recvall(size); }
+    virtual int32_t send(const string &data) override { return s->send(data); }
+    virtual int32_t sendall(const string &data) override { return s->sendall(data); }
+
+    shared_ptr<UtpSocket> s;
+};
+
+shared_ptr<SocketLike> asSocketLike(shared_ptr<UtpSocket> s)
+{
+    if (!s) {
+        return shared_ptr<SocketLike>();
+    }
+    return make_shared<UtpSocketLikeImpl>(s);
+}
+
+shared_ptr<UtpSocket> convertSocketLikeToUtpSocket(shared_ptr<SocketLike> socket)
+{
+    shared_ptr<UtpSocketLikeImpl> impl = dynamic_pointer_cast<UtpSocketLikeImpl>(socket);
+    if (impl) {
+        return impl->s;
+    }
+    return shared_ptr<UtpSocket>();
 }
 
 }  // namespace qtng

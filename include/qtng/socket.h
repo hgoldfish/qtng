@@ -31,6 +31,7 @@ public:
         // define for other XXXSocket types. not used here.
         KcpSocket = 3,
         LocalSocket = 4,
+        UtpSocket = 5,
         UnknownSocketType = -1
     };
     enum SocketError {

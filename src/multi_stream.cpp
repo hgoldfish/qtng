@@ -1076,6 +1076,11 @@ MultiStreamMaster::MultiStreamMaster(shared_ptr<KcpSocket> connection, MultiStre
 {
 }
 
+MultiStreamMaster::MultiStreamMaster(shared_ptr<UtpSocket> connection, MultiStreamPole pole)
+    : d_ptr(new MultiStreamMasterPrivate(asSocketLike(connection), pole, this))
+{
+}
+
 MultiStreamMaster::MultiStreamMaster(shared_ptr<SocketLike> connection, MultiStreamPole pole)
     : d_ptr(new MultiStreamMasterPrivate(connection, pole, this))
 {

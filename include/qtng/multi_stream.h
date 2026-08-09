@@ -52,6 +52,7 @@ public:
     MultiStreamMaster(std::shared_ptr<class SslSocket> socket, MultiStreamPole pole);
 #endif
     MultiStreamMaster(std::shared_ptr<class KcpSocket> socket, MultiStreamPole pole);
+    MultiStreamMaster(std::shared_ptr<class UtpSocket> socket, MultiStreamPole pole);
     MultiStreamMaster(std::shared_ptr<SocketLike> socket, MultiStreamPole pole);
     ~MultiStreamMaster();
 public:

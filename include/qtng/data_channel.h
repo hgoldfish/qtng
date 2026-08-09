@@ -93,6 +93,7 @@ public:
     SocketChannel(std::shared_ptr<class SslSocket> socket, DataChannelPole pole);
 #endif
     SocketChannel(std::shared_ptr<KcpSocket> socket, DataChannelPole pole);
+    SocketChannel(std::shared_ptr<class UtpSocket> socket, DataChannelPole pole);
     SocketChannel(std::shared_ptr<SocketLike> socket, DataChannelPole pole);
 public:
     void setMaxPacketSize(std::uint32_t size);  // set to 0 for the default 64k
