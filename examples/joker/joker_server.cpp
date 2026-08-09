@@ -40,6 +40,7 @@ JokerServerConfigure::JokerServerConfigure()
     : timeout(8.0f)
     , sendBufferSize(1024 * 1024 * 32)
     , receiveBufferSize(1024 * 1024 * 32)
+    , exchangeBufferSize(1024 * 1024 * 8)
     , kcpAddress(HostAddress::Any)
     , kcpPort(8000)
     , kcpMode(KcpSocket::Mode::Internet)
@@ -274,7 +275,8 @@ bool JokerServerPrivate::sendReply(shared_ptr<VirtualChannel> channel, const Hos
 
 void JokerServerPrivate::exchange(shared_ptr<VirtualChannel> request, shared_ptr<Socket> forward)
 {
-    Exchanger exchanger(asSocketLike(request), asSocketLike(forward), 1024 * 1024 * 8);
+    Exchanger exchanger(asSocketLike(request), asSocketLike(forward),
+                        static_cast<uint32_t>(configure.exchangeBufferSize));
     exchanger.exchange();
 }
 

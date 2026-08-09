@@ -17,6 +17,8 @@ public:
     // Applied to the outbound TCP forward socket (SO_SNDBUF / SO_RCVBUF).
     int sendBufferSize;
     int receiveBufferSize;
+    // Max chunk size for Exchanger::exchange() between channel and forward socket.
+    int exchangeBufferSize;
 
     qtng::HostAddress kcpAddress;
     std::uint16_t kcpPort;

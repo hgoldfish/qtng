@@ -71,6 +71,13 @@ static ParserResult parseArguments(const string &configFilePath, JokerServerConf
         }
     }
 
+    const string exchangeBufferStr = settings.value("socket", "exchange_buffer_size");
+    if (!exchangeBufferStr.empty()) {
+        if (!parseByteSize(exchangeBufferStr, &configure->exchangeBufferSize, errorMessage)) {
+            return Failed;
+        }
+    }
+
     const string kcpAddressStr = settings.value("kcp", "address");
     if (!kcpAddressStr.empty()) {
         HostAddress address(kcpAddressStr);
