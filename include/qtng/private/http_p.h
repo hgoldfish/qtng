@@ -15,11 +15,59 @@
 #include "qtng/ssl.h"
 #include "qtng/websocket.h"
 #include "qtng/utils/platform.h"
+#include "qtng/utils/url.h"
 
 namespace qtng {
 
 class HttpProxy;
 class Socks5Proxy;
+class Http2ClientSession;
+
+class HttpRequestPrivate
+{
+public:
+    HttpRequestPrivate();
+    ~HttpRequestPrivate();
+    HttpRequestPrivate(const HttpRequestPrivate &other);
+public:
+    std::shared_ptr<SocketLike> connection;
+    std::string method;
+    utils::Url url;
+    utils::UrlQuery query;
+    std::vector<HttpCookie> cookies;
+    std::shared_ptr<FileLike> body;
+    std::string userAgent;
+    std::int64_t maxBodySize;
+    int maxRedirects;
+    float connectionTimeout;
+    float timeout;
+    HttpRequest::Priority priority;
+    HttpVersion version;
+    bool streamResponse;
+    bool isWebSocket;
+};
+
+class HttpResponsePrivate
+{
+public:
+    HttpResponsePrivate();
+    ~HttpResponsePrivate();
+    HttpResponsePrivate(const HttpResponsePrivate &other);
+public:
+    utils::Url url;
+    std::string statusText;
+    std::vector<HttpCookie> cookies;
+    HttpRequest request;
+    std::string body;
+    std::vector<HttpResponse> history;
+    std::shared_ptr<RequestError> error;
+    std::shared_ptr<SocketLike> stream;
+    std::int64_t elapsed;
+    int statusCode;
+    HttpVersion version;
+    bool consumed;
+};
+
 class ConnectionPoolItem
 {
 public:
@@ -28,6 +76,7 @@ public:
     qtng::utils::DateTime lastUsed;
     std::shared_ptr<Semaphore> semaphore;
     std::vector<std::shared_ptr<SocketLike>> connections;
+    std::vector<std::shared_ptr<Http2ClientSession>> http2Sessions;
 };
 
 class ConnectionPool
@@ -39,6 +88,8 @@ public:
     void recycle(const std::string &url, std::shared_ptr<SocketLike> connection);
     std::shared_ptr<SocketLike> oldConnectionForUrl(const std::string &url);
     std::shared_ptr<SocketLike> newConnectionForUrl(const std::string &url, RequestError **error);
+    std::shared_ptr<Http2ClientSession> http2SessionForUrl(const std::string &url, RequestError **error);
+    void recycleHttp2Session(const std::string &url, std::shared_ptr<Http2ClientSession> session);
     void removeUnusedConnections();
     std::shared_ptr<SocketProxy> socketProxy() const;
     std::shared_ptr<HttpProxy> httpProxy() const;

@@ -16,6 +16,8 @@
 #include "qtng/msgpack.h"
 #include "qtng/utils/logging.h"
 #include "qtng/private/http_p.h"
+#include "qtng/private/http_protocol_p.h"
+#include "qtng/private/http2_p.h"
 
 using namespace std;
 
@@ -170,30 +172,6 @@ string FormData::toByteArray() const
     body.append("--");
     return body;
 }
-
-class HttpRequestPrivate
-{
-public:
-    HttpRequestPrivate();
-    ~HttpRequestPrivate();
-    HttpRequestPrivate(const HttpRequestPrivate &other);
-public:
-    shared_ptr<SocketLike> connection;
-    string method;
-    utils::Url url;
-    utils::UrlQuery query;
-    vector<HttpCookie> cookies;
-    shared_ptr<FileLike> body;
-    string userAgent;
-    int64_t maxBodySize;
-    int maxRedirects;
-    float connectionTimeout;
-    float timeout;
-    HttpRequest::Priority priority;
-    HttpVersion version;
-    bool streamResponse;
-    bool isWebSocket;
-};
 
 HttpRequestPrivate::HttpRequestPrivate()
     : method("GET")
@@ -435,27 +413,6 @@ void HttpRequest::setBody(const utils::UrlQuery &form)
     setHeader("Content-Type", string("application/x-www-form-urlencoded"));
     setBody(form.toString());
 }
-
-class HttpResponsePrivate
-{
-public:
-    HttpResponsePrivate();
-    ~HttpResponsePrivate();
-    HttpResponsePrivate(const HttpResponsePrivate &other);
-public:
-    utils::Url url;
-    string statusText;
-    vector<HttpCookie> cookies;
-    HttpRequest request;
-    string body;
-    vector<HttpResponse> history;
-    shared_ptr<RequestError> error;
-    shared_ptr<SocketLike> stream;
-    int64_t elapsed;
-    int statusCode;
-    HttpVersion version;
-    bool consumed;
-};
 
 HttpResponsePrivate::HttpResponsePrivate()
     : elapsed(0)
@@ -790,14 +747,20 @@ static utils::Url hostOnly(const utils::Url &url)
 }
 
 ConnectionPool::ConnectionPool()
-    : dnsCache(new SocketDnsCache)
-    , proxySwitcher(new SimpleProxySwitcher)
+    : dnsCache(make_shared<SocketDnsCache>())
+    , proxySwitcher(make_shared<SimpleProxySwitcher>())
     , maxConnectionsPerServer(5)
     , timeToLive(60)
     , defaultConnectionTimeout(10.0)
     , defaultTimeout(20.0)
     , operations(new CoroutineGroup)
 {
+#ifndef QTNG_NO_CRYPTO
+    vector<string> alpn;
+    alpn.push_back("h2");
+    alpn.push_back("http/1.1");
+    sslConfig.setAllowedNextProtocols(alpn);
+#endif
     operations->spawnWithName("removeUnusedConnections", [this] { removeUnusedConnections(); });
 }
 
@@ -811,11 +774,11 @@ shared_ptr<ConnectionPoolItem> ConnectionPool::getItem(const string &url)
     const string &h = hostOnly(utils::Url(url)).toString();
     shared_ptr<ConnectionPoolItem> &item = items[h];
     if (!item) {
-        item.reset(new ConnectionPoolItem());
+        item = make_shared<ConnectionPoolItem>();
     }
     item->lastUsed = utils::DateTime::currentDateTimeUtc();
     if (!item->semaphore) {
-        item->semaphore.reset(new Semaphore(maxConnectionsPerServer));
+        item->semaphore = make_shared<Semaphore>(maxConnectionsPerServer);
     }
     return item;
 }
@@ -891,7 +854,7 @@ shared_ptr<SocketLike> ConnectionPool::newConnectionForUrl(const string &urlStr,
 
     if (url.scheme() == "https" || url.scheme() == "wss") {
 #ifndef QTNG_NO_CRYPTO
-        shared_ptr<SslSocket> ssl(new SslSocket(connection, sslConfig));
+        shared_ptr<SslSocket> ssl = make_shared<SslSocket>(connection, sslConfig);
         if (!ssl->handshake(false, url.host())) {
             *error = new ConnectionError();
             return shared_ptr<SocketLike>();
@@ -903,6 +866,70 @@ shared_ptr<SocketLike> ConnectionPool::newConnectionForUrl(const string &urlStr,
 #endif
     }
     return connection;
+}
+
+shared_ptr<Http2ClientSession> ConnectionPool::http2SessionForUrl(const string &urlStr, RequestError **error)
+{
+    *error = nullptr;
+    shared_ptr<ConnectionPoolItem> item = getItem(urlStr);
+    item->lastUsed = utils::DateTime::currentDateTimeUtc();
+
+    for (auto it = item->http2Sessions.begin(); it != item->http2Sessions.end();) {
+        if (*it && (*it)->isValid()) {
+            shared_ptr<Http2ClientSession> session = *it;
+            item->http2Sessions.erase(it);
+            return session;
+        }
+        it = item->http2Sessions.erase(it);
+    }
+
+    utils::Url url(urlStr);
+    shared_ptr<SocketLike> connection = newConnectionForUrl(urlStr, error);
+    if (!connection) {
+        return shared_ptr<Http2ClientSession>();
+    }
+
+    if (url.scheme() == "https" || url.scheme() == "wss") {
+#ifndef QTNG_NO_CRYPTO
+        shared_ptr<SslSocket> ssl = convertSocketLikeToSslSocket(connection);
+        if (!ssl
+            || ssl->nextProtocolNegotiationStatus() != SslSocket::NextProtocolNegotiationNegotiated
+            || ssl->nextNegotiatedProtocol() != "h2") {
+            // Negotiated HTTP/1 (or no ALPN) — park connection for HTTP/1 reuse.
+            recycle(urlStr, connection);
+            return shared_ptr<Http2ClientSession>();
+        }
+#else
+        *error = new ConnectionError();
+        return shared_ptr<Http2ClientSession>();
+#endif
+    } else if (url.scheme() != "http") {
+        *error = new InvalidScheme();
+        return shared_ptr<Http2ClientSession>();
+    }
+
+    int debug = 0;
+    if (HttpSessionPrivate *httpSession = dynamic_cast<HttpSessionPrivate *>(this)) {
+        debug = httpSession->debugLevel;
+    }
+    shared_ptr<Http2ClientSession> session = make_shared<Http2ClientSession>(connection, debug);
+    if (!session->start()) {
+        *error = new ConnectionError();
+        return shared_ptr<Http2ClientSession>();
+    }
+    return session;
+}
+
+void ConnectionPool::recycleHttp2Session(const string &url, shared_ptr<Http2ClientSession> session)
+{
+    if (!session || !session->isValid()) {
+        return;
+    }
+    shared_ptr<ConnectionPoolItem> item = getItem(url);
+    item->lastUsed = utils::DateTime::currentDateTimeUtc();
+    if (static_cast<int>(item->http2Sessions.size()) < maxConnectionsPerServer) {
+        item->http2Sessions.push_back(session);
+    }
 }
 
 void ConnectionPool::removeUnusedConnections()
@@ -972,51 +999,6 @@ void ConnectionPool::setHttpProxy(shared_ptr<HttpProxy> proxy)
     }
 }
 
-RequestError *toRequestError(HeaderSplitter::Error error)
-{
-    switch (error) {
-    case HeaderSplitter::ConnectionError:
-        return new ConnectionError();
-    case HeaderSplitter::EncodingError:
-        return new InvalidHeader();
-    case HeaderSplitter::ExhausedMaxLine:
-        return new InvalidHeader();
-    case HeaderSplitter::LineTooLong:
-        return new InvalidHeader();
-    default:
-        return nullptr;
-    }
-}
-
-class SendRequestBodyCoroutine : public Coroutine
-{
-public:
-    SendRequestBodyCoroutine(Coroutine * parentCoroutine, shared_ptr<SocketLike> connection,
-                             shared_ptr<FileLike> body);
-public:
-    virtual void run() override;
-private:
-    Coroutine * parentCoroutine;
-    shared_ptr<SocketLike> connection;
-    shared_ptr<FileLike> body;
-};
-
-SendRequestBodyCoroutine::SendRequestBodyCoroutine(Coroutine * parentCoroutine,
-                                                   shared_ptr<SocketLike> connection, shared_ptr<FileLike> body)
-    : Coroutine()
-    , parentCoroutine(parentCoroutine)
-    , connection(connection)
-    , body(body)
-{
-}
-
-void SendRequestBodyCoroutine::run()
-{
-    if (!sendfile(body, connection) && parentCoroutine) {
-        parentCoroutine->kill(new CoroutineInterruptedException());
-    }
-}
-
 HttpResponse HttpSessionPrivate::send(HttpRequest &request)
 {
     RequestError *error = nullptr;
@@ -1025,10 +1007,8 @@ HttpResponse HttpSessionPrivate::send(HttpRequest &request)
     HttpResponse response;
     response.d->url = url;
     response.d->request = request;
-    if ((!request.d->isWebSocket && url.scheme() != "http"
-         && url.scheme() != "https")
-        || (request.d->isWebSocket && url.scheme() != "ws"
-            && url.scheme() != "wss")) {
+    if ((!request.d->isWebSocket && url.scheme() != "http" && url.scheme() != "https")
+        || (request.d->isWebSocket && url.scheme() != "ws" && url.scheme() != "wss")) {
         if (debugLevel > 0) {
             ngDebug() << "invalid scheme:" << url.scheme();
         }
@@ -1052,8 +1032,7 @@ HttpResponse HttpSessionPrivate::send(HttpRequest &request)
     }
 
     if (cacheManager
-        && (request.d->method == "GET" || request.d->method == "HEAD"
-            || request.d->method == "OPTIONS")) {
+        && (request.d->method == "GET" || request.d->method == "HEAD" || request.d->method == "OPTIONS")) {
         const string &cacheControlHeader = request.header(KnownHeader::CacheControlHeader);
         if (cacheControlHeader.find("no-cache") == string::npos) {
             if (cacheManager->getResponse(&response)) {
@@ -1066,61 +1045,88 @@ HttpResponse HttpSessionPrivate::send(HttpRequest &request)
         request.d->version = defaultVersion;
     }
 
-    mergeCookies(request, url.toString());
-    vector<HttpHeader> allHeaders = makeHeaders(request, url.toString());
-
-    string versionBytes;
-    if (request.d->version == HttpVersion::Http1_0) {
-        versionBytes = "HTTP/1.0";
-    } else if (request.d->version == HttpVersion::Http1_1) {
-        versionBytes = "HTTP/1.1";
-        //    } else if(request.d->version == HttpVersion::Http2_0) {
-        //        versionBytes = "HTTP/2.0";
-    } else {
-        if (debugLevel > 0) {
-            ngDebug() << "invalid http version:" << request.d->version;
-        }
+    if (request.d->version == HttpVersion::http3_0) {
         response.setError(new UnsupportedVersion());
         return response;
     }
 
-    vector<string> lines;
-    string resourcePath = urlResourcePath(url);
-    if (resourcePath.empty()) {
-        resourcePath = "/";
-    }
-    const string &commandLine = utils::toUpper(request.d->method) + string(" ") + resourcePath
-            + string(" ") + versionBytes + string("\r\n");
-    lines.push_back(commandLine);
-    for (int i = 0; i < allHeaders.size(); ++i) {
-        const HttpHeader &header = allHeaders.at(i);
-        lines.push_back(header.name + string(": ") + header.value + string("\r\n"));
-    }
-    lines.push_back(string("\r\n"));
-    if (debugLevel > 0) {
-        for (const string &line : lines) {
-            ngDebug() << "sending headers:" << line;
+    mergeCookies(request, url.toString());
+
+    // Prefer HTTP/2 on HTTPS via ALPN; cleartext only when version is Http2_0.
+    // WebSocket stays on HTTP/1 Upgrade.
+    const bool wantHttp2 = !request.d->isWebSocket
+            && (request.d->version == HttpVersion::Http2_0 || url.scheme() == "https"
+                || url.scheme() == "wss");
+
+    if (wantHttp2) {
+        unique_ptr<ScopedLock<Semaphore>> ptrLock;
+        shared_ptr<Http2ClientSession> h2;
+        if (request.connection() && request.d->version == HttpVersion::Http2_0) {
+            h2 = make_shared<Http2ClientSession>(request.connection(), debugLevel);
+            if (!h2->start()) {
+                response.setError(new ConnectionError());
+                return response;
+            }
+        } else if (!request.connection()) {
+            shared_ptr<Semaphore> lock = getSemaphore(url.toString());
+            ptrLock = make_unique<ScopedLock<Semaphore>>(*lock);
+            if (!ptrLock->isSuccess()) {
+                response.setError(new ConnectionError());
+                return response;
+            }
+            float timeout = request.d->connectionTimeout < 0 ? defaultConnectionTimeout : request.d->connectionTimeout;
+            try {
+                Timeout t(timeout);
+                h2 = http2SessionForUrl(url.toString(), &error);
+            } catch (TimeoutException &) {
+                response.setError(new ConnectTimeout());
+                return response;
+            }
+            if (error != nullptr) {
+                if (request.d->version == HttpVersion::Http2_0) {
+                    response.setError(error);
+                    return response;
+                }
+                delete error;
+                error = nullptr;
+            }
         }
+
+        if (h2) {
+            ptrLock.reset();
+            h2->exchange(this, request, response);
+            if (keepAlive && h2->isValid()) {
+                recycleHttp2Session(url.toString(), h2);
+            }
+            return response;
+        }
+        if (request.d->version == HttpVersion::Http2_0) {
+            response.setError(new ConnectionError());
+            return response;
+        }
+        // ALPN did not negotiate h2; fall through to HTTP/1.
     }
-    const string headerBytes = joinLines(lines);
+
+    if (request.d->version == HttpVersion::Http2_0) {
+        response.setError(new UnsupportedVersion());
+        return response;
+    }
+    if (request.d->version != HttpVersion::Http1_0 && request.d->version != HttpVersion::Http1_1) {
+        request.d->version = HttpVersion::Http1_1;
+    }
 
     unique_ptr<ScopedLock<Semaphore>> ptrLock;
-    shared_ptr<Semaphore> lock;
-
     shared_ptr<SocketLike> connection = request.connection();
     if (!connection) {
-        lock = getSemaphore(url.toString());
-        ptrLock.reset(new ScopedLock<Semaphore>(*lock));
+        shared_ptr<Semaphore> lock = getSemaphore(url.toString());
+        ptrLock = make_unique<ScopedLock<Semaphore>>(*lock);
         if (!ptrLock->isSuccess()) {
             response.setError(new ConnectionError());
             return response;
         }
-
-        // try keep-alive connections first.
         if (keepAlive) {
             connection = oldConnectionForUrl(url.toString());
         }
-        // make a new connection.
         if (!connection) {
             float timeout = request.d->connectionTimeout < 0 ? defaultConnectionTimeout : request.d->connectionTimeout;
             try {
@@ -1137,215 +1143,14 @@ HttpResponse HttpSessionPrivate::send(HttpRequest &request)
         }
     }
 
-    if (connection->sendall(headerBytes) != headerBytes.size()) {
-        response.setError(new ConnectionError());
-        return response;
-    }
-
-    HeaderSplitter headerSplitter(connection, debugLevel);
-    HeaderSplitter::Error headerSplitterError;
-    unique_ptr<Coroutine> sendingReuqestBodyCoroutine(
-            new SendRequestBodyCoroutine(Coroutine::current(), connection, request.d->body));
-    if (request.d->body) {
-        if (debugLevel > 0) {
-            ngDebug() << "sending body:" << request.d->body->size();
-        }
-        sendingReuqestBodyCoroutine->start();
-        try {
-            headerSplitter.buf = connection->recv(1024 * 8);
-            if (sendingReuqestBodyCoroutine->isRunning()) {
-                sendingReuqestBodyCoroutine->kill();
-            }
-            sendingReuqestBodyCoroutine->join();
-            sendingReuqestBodyCoroutine.reset();
-        } catch (CoroutineInterruptedException &) {
-            if (debugLevel > 0) {
-                ngDebug() << "the server terminated connection while sending body." << headerSplitter.buf.size();
-            }
-            sendingReuqestBodyCoroutine->join();
-            if (headerSplitter.buf.empty()) {
-                response.setError(new ConnectionError());
-                return response;
-            }
-        } catch (...) {
-            if (sendingReuqestBodyCoroutine->isRunning()) {
-                sendingReuqestBodyCoroutine->kill();
-            }
-            sendingReuqestBodyCoroutine->join();
-            throw;
-        }
-    }
-
-    // parse first line.
-    const string &firstLine = headerSplitter.nextLine(&headerSplitterError);
-    error = toRequestError(headerSplitterError);
-    if (error != nullptr) {
-        if (debugLevel > 0) {
-            ngDebug() << "read http response header error:" << error->what();
-        }
-        response.setError(error);
-        return response;
-    }
-    vector<string> commands = splitWhitespace(firstLine);
-    if (commands.size() < 3) {
-        response.setError(new InvalidHeader());
-        return response;
-    }
-    if (commands.at(0) == "HTTP/1.0") {
-        response.d->version = Http1_0;
-    } else if (commands.at(0) == "HTTP/1.1") {
-        response.d->version = Http1_1;
-    } else {
-        response.setError(new InvalidHeader());
-        return response;
-    }
-    bool ok;
-    response.d->statusCode = utils::parseInt(commands.at(1), &ok);
-    if (!ok) {
-        response.setError(new InvalidHeader());
-        return response;
-    }
-    response.d->statusText = joinWithSeparator(' ', commands, 2);
-
-    // parse headers.
-    const int MaxHeaders = 64;
-    vector<HttpHeader> headers = headerSplitter.headers(MaxHeaders, &headerSplitterError);
-    if (headerSplitterError != HeaderSplitter::NoError) {
-        response.setError(toRequestError(headerSplitterError));
-        return response;
-    } else {
-        response.setHeaders(headers);
-        if (debugLevel > 0) {
-            for (const HttpHeader &header : headers) {
-                ngDebug() << "receiving header:" << header.name << header.value;
-            }
-        }
-    }
-
-    // merge cookies.
-    if (managingCookies && response.hasHeader("Set-Cookie")) {
-        for (const string &value : response.multiHeader("Set-Cookie")) {
-            const vector<HttpCookie> &cookies = HttpCookie::parseCookies(value);
-            if (debugLevel > 0 && !cookies.empty()) {
-                ngDebug() << "receiving cookie:" << cookies[0].toRawForm();
-            }
-            response.d->cookies.insert(response.d->cookies.end(), cookies.begin(), cookies.end());
-        }
-        cookieJar.setCookiesFromUrl(response.d->cookies, response.d->url.toString());
-    }
-
-    // read body.
-    response.d->body = headerSplitter.buf;
-    response.d->stream = connection;
-    if (!request.streamResponse() && response.d->statusCode != HttpStatus::NoContent) {
-        if (utils::toUpper(request.method()) == "HEAD") {
-            response.d->consumed = true;
-            response.d->body.clear();
-        } else {
-            const string &body = response.body();
-            if (response.d->error) {
-                return response;
-            }
-            if (debugLevel == 1 && !body.empty()) {
-                ngDebug() << "receiving body:" << body.size();
-            } else if (debugLevel > 1 && !body.empty()) {
-                ngDebug() << "receiving body:" << body;
-            }
-            // HttpStatus::SwitchProtocol connection can not be recycled().
-            if (ptrLock && connection->isValid() && response.statusCode() >= 200
-                && utils::equalsIgnoreCase(response.header(KnownHeader::ConnectionHeader), "keep-alive") && keepAlive) {
-                recycle(response.d->url.toString(), connection);
-            }
-        }
-        response.d->stream.reset();
-    }
-
-    // response.d->statusCode < 200 is not error.
-    if (response.d->statusCode >= 400) {
-        response.setError(new HTTPError(response.d->statusCode));
-    } else {
-        const string rm = utils::toUpper(request.method());
-        if ((rm == "GET" || rm == "HEAD" || rm == "OPTIONS")
-            && cacheManager && !request.streamResponse()) {
-            bool doCache = true;
-            const string &requestHeader = utils::toLower(request.header(KnownHeader::CacheControlHeader));
-            if (requestHeader.find("no-cache") != string::npos || requestHeader.find("no-store") != string::npos) {
-                doCache = false;
-            } else {
-                const string &responseHeader = utils::toLower(response.header(KnownHeader::CacheControlHeader));
-                if (responseHeader.find("public") != string::npos || responseHeader.find("private") != string::npos) {
-                    doCache = true;
-                } else if (responseHeader.find("no-cache") != string::npos || responseHeader.find("no-store") != string::npos) {
-                    doCache = false;
-                } else {
-                    doCache = false;
-                }
-            }
-            if (doCache) {
-                cacheManager->addResponse(response);
-            }
-        }
-    }
+    Http1Protocol protocol;
+    protocol.exchange(this, request, response, connection, ptrLock);
     return response;
 }
 
 vector<HttpHeader> HttpSessionPrivate::makeHeaders(HttpRequest &request, const string &urlStr) const
 {
-    const utils::Url url(urlStr);
-    vector<HttpHeader> allHeaders = request.allHeaders();
-
-    if (!request.hasHeader("Connection") && request.version() == Http1_1) {
-        if (keepAlive) {
-            allHeaders.insert(allHeaders.begin(), HttpHeader("Connection", string("keep-alive")));
-        } else {
-            allHeaders.insert(allHeaders.begin(), HttpHeader("Connection", string("close")));
-        }
-    }
-    if (!request.hasHeader("Content-Length") && request.d->body) {
-        int64_t requestBodySize = request.d->body->size();
-        if (requestBodySize > 0) {
-            allHeaders.insert(allHeaders.begin(), HttpHeader("Content-Length", utils::number(static_cast<long long>(requestBodySize))));
-        }
-    }
-    if (!request.hasHeader("User-Agent")) {
-        if (request.userAgent().empty()) {
-            allHeaders.insert(allHeaders.begin(), HttpHeader("User-Agent", defaultUserAgent));
-        } else {
-            allHeaders.insert(allHeaders.begin(), HttpHeader("User-Agent", request.userAgent()));
-        }
-    }
-    if (!request.hasHeader("Host")) {
-        string httpHost = url.host();
-        if (url.port() != -1) {
-            httpHost += ":" + utils::number(url.port());
-        }
-        allHeaders.insert(allHeaders.begin(), HttpHeader("Host", httpHost));
-    }
-    if (!request.hasHeader("Accept")) {
-        allHeaders.push_back(HttpHeader("Accept", string("*/*")));
-    }
-    if (!request.hasHeader("Accept-Language")) {
-        allHeaders.push_back(HttpHeader("Accept-Language", string("en-US,en;q=0.5")));
-    }
-    if (!request.hasHeader("Accept-Encoding")) {
-#ifdef QTNG_HAVE_ZLIB
-        allHeaders.push_back(HttpHeader("Accept-Encoding", string("gzip, deflate")));
-#else
-        allHeaders.push_back(HttpHeader("Accept-Encoding", string("identity")));
-#endif
-    }
-    if (!request.d->cookies.empty() && !request.hasHeader("Cookie")) {
-        string result;
-        bool first = true;
-        for (const HttpCookie &cookie : request.d->cookies) {
-            if (!first)
-                result += "; ";
-            first = false;
-            result += cookie.toRawForm(HttpCookie::NameAndValueOnly);
-        }
-        allHeaders.push_back(HttpHeader("Cookie", result));
-    }
-    return allHeaders;
+    return Http1Protocol::makeHeaders(const_cast<HttpSessionPrivate *>(this), request, urlStr);
 }
 
 void HttpSessionPrivate::mergeCookies(HttpRequest &request, const string &urlStr)
@@ -1438,7 +1243,7 @@ void setProxySwitcher(HttpSession *session, shared_ptr<BaseProxySwitcher> switch
     if (switcher) {
         HttpSessionPrivate::getPrivateHelper(session)->proxySwitcher = switcher;
     } else {
-        HttpSessionPrivate::getPrivateHelper(session)->proxySwitcher.reset(new SimpleProxySwitcher());
+        HttpSessionPrivate::getPrivateHelper(session)->proxySwitcher = make_shared<SimpleProxySwitcher>();
     }
 }
 

@@ -136,6 +136,9 @@ public:
 private:
     std::shared_ptr<HttpRequestPrivate> d;
     friend class HttpSessionPrivate;
+    friend class Http1Protocol;
+    friend class Http2Protocol;
+    friend class Http2ClientSessionPrivate;
 };
 
 class RequestError
@@ -194,6 +197,9 @@ public:
 private:
     std::shared_ptr<HttpResponsePrivate> d;
     friend class HttpSessionPrivate;
+    friend class Http1Protocol;
+    friend class Http2Protocol;
+    friend class Http2ClientSessionPrivate;
 };
 
 class Socks5Proxy;
