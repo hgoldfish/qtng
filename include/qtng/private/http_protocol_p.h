@@ -38,6 +38,7 @@ public:
                                                const std::string &urlStr);
 };
 
+#ifndef QTNG_NO_HTTP2
 class Http2Protocol : public HttpProtocol
 {
 public:
@@ -46,7 +47,9 @@ public:
                           std::shared_ptr<SocketLike> connection,
                           std::unique_ptr<ScopedLock<Semaphore>> &ptrLock) override;
 };
+#endif
 
+#ifndef QTNG_NO_HTTP3
 class Http3Protocol : public HttpProtocol
 {
 public:
@@ -55,6 +58,7 @@ public:
                           std::shared_ptr<SocketLike> connection,
                           std::unique_ptr<ScopedLock<Semaphore>> &ptrLock) override;
 };
+#endif
 
 }  // namespace qtng
 

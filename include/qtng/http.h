@@ -137,8 +137,10 @@ private:
     std::shared_ptr<HttpRequestPrivate> d;
     friend class HttpSessionPrivate;
     friend class Http1Protocol;
+#ifndef QTNG_NO_HTTP2
     friend class Http2Protocol;
     friend class Http2ClientSessionPrivate;
+#endif
 };
 
 class RequestError
@@ -198,8 +200,10 @@ private:
     std::shared_ptr<HttpResponsePrivate> d;
     friend class HttpSessionPrivate;
     friend class Http1Protocol;
+#ifndef QTNG_NO_HTTP2
     friend class Http2Protocol;
     friend class Http2ClientSessionPrivate;
+#endif
 };
 
 class Socks5Proxy;

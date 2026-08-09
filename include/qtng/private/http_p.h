@@ -12,7 +12,9 @@
 #include "qtng/socket_utils.h"
 #include "qtng/coroutine_utils.h"
 #include "qtng/http_proxy.h"
-#include "qtng/ssl.h"
+#ifndef QTNG_NO_CRYPTO
+#  include "qtng/ssl.h"
+#endif
 #include "qtng/websocket.h"
 #include "qtng/utils/platform.h"
 #include "qtng/utils/url.h"
@@ -21,7 +23,9 @@ namespace qtng {
 
 class HttpProxy;
 class Socks5Proxy;
+#ifndef QTNG_NO_HTTP2
 class Http2ClientSession;
+#endif
 
 class HttpRequestPrivate
 {
@@ -76,7 +80,9 @@ public:
     qtng::utils::DateTime lastUsed;
     std::shared_ptr<Semaphore> semaphore;
     std::vector<std::shared_ptr<SocketLike>> connections;
+#ifndef QTNG_NO_HTTP2
     std::vector<std::shared_ptr<Http2ClientSession>> http2Sessions;
+#endif
 };
 
 class ConnectionPool
@@ -88,8 +94,10 @@ public:
     void recycle(const std::string &url, std::shared_ptr<SocketLike> connection);
     std::shared_ptr<SocketLike> oldConnectionForUrl(const std::string &url);
     std::shared_ptr<SocketLike> newConnectionForUrl(const std::string &url, RequestError **error);
+#ifndef QTNG_NO_HTTP2
     std::shared_ptr<Http2ClientSession> http2SessionForUrl(const std::string &url, RequestError **error);
     void recycleHttp2Session(const std::string &url, std::shared_ptr<Http2ClientSession> session);
+#endif
     void removeUnusedConnections();
     std::shared_ptr<SocketProxy> socketProxy() const;
     std::shared_ptr<HttpProxy> httpProxy() const;

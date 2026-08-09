@@ -5,6 +5,7 @@
 
 #include "qtng/socks5_proxy.h"
 #include "qtng/utils/string_utils.h"
+#include "qtng/utils/datetime.h"
 #include "qtng/socket_server.h"
 #include "qtng/utils/logging.h"
 

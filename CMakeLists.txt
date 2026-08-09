@@ -8,23 +8,80 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(GNUInstallDirs)
 include(CheckFunctionExists)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libressl/CMakeLists.txt")
-    message(STATUS "Found 3rdparty/libressl, building bundled LibreSSL")
-    add_subdirectory(3rdparty/libressl)
-    set(QTNG_SSL_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libressl/include")
-    set(QTNG_SSL_LIBRARIES crypto ssl)
-elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libressl/CMakeLists.txt")
-    message(STATUS "Found libressl/ subdirectory (legacy path), building bundled LibreSSL")
-    add_subdirectory(libressl)
-    set(QTNG_SSL_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/libressl/include")
-    set(QTNG_SSL_LIBRARIES crypto ssl)
+# Incomplete protocol modules: on by default, may be turned off explicitly.
+option(QTNG_WITH_HTTP2 "Build HTTP/2 client support (still incomplete)" ON)
+option(QTNG_WITH_QUIC "Build QUICv1 transport MVP (still incomplete)" ON)
+option(QTNG_WITH_HTTP3 "Build HTTP/3 support (stub / still incomplete)" ON)
+# Force-disable TLS even when LibreSSL/OpenSSL is present (also used for CI/no-crypto builds).
+option(QTNG_DISABLE_CRYPTO "Force-disable the crypto/TLS module" OFF)
+
+# TLS/crypto backend: usable bundled LibreSSL, else system OpenSSL.
+# If neither is available (or QTNG_DISABLE_CRYPTO=ON), disable the crypto module
+# (warning, not a hard error). QUIC/HTTP3 are then forced off.
+set(QTNG_HAVE_CRYPTO FALSE)
+set(QTNG_SSL_INCLUDE "")
+set(QTNG_SSL_LIBRARIES "")
+
+if(QTNG_DISABLE_CRYPTO)
+    message(STATUS "QTNG_DISABLE_CRYPTO=ON: skipping LibreSSL/OpenSSL (QTNG_NO_CRYPTO)")
 else()
-    message(STATUS "3rdparty/libressl not found, using system OpenSSL")
-    # 1.1.1+ for X25519 raw keys / ChaCha20-Poly1305 used by Noise
-    find_package(OpenSSL 1.1.1 REQUIRED)
-    set(QTNG_SSL_INCLUDE ${OPENSSL_INCLUDE_DIR})
-    set(QTNG_SSL_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
+    set(_qtng_libressl_dir "")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libressl/CMakeLists.txt")
+        set(_qtng_libressl_dir "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libressl")
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libressl/CMakeLists.txt")
+        set(_qtng_libressl_dir "${CMAKE_CURRENT_SOURCE_DIR}/libressl")
+    endif()
+
+    set(_qtng_libressl_ok FALSE)
+    if(_qtng_libressl_dir)
+        # Portable LibreSSL needs openbsd sources (ssl/*.c). A bare submodule checkout
+        # with only CMakeLists/Makefile.am is not usable.
+        if(EXISTS "${_qtng_libressl_dir}/ssl/ssl_lib.c"
+           AND EXISTS "${_qtng_libressl_dir}/include/openssl/ssl.h")
+            set(_qtng_libressl_ok TRUE)
+        else()
+            message(WARNING
+                "Bundled LibreSSL at ${_qtng_libressl_dir} is incomplete "
+                "(missing ssl sources or headers); ignoring it. "
+                "Run 3rdparty/libressl/update.sh or install system OpenSSL.")
+        endif()
+    endif()
+
+    if(_qtng_libressl_ok)
+        message(STATUS "Found bundled LibreSSL, building it")
+        add_subdirectory("${_qtng_libressl_dir}")
+        set(QTNG_SSL_INCLUDE "${_qtng_libressl_dir}/include")
+        set(QTNG_SSL_LIBRARIES crypto ssl)
+        set(QTNG_HAVE_CRYPTO TRUE)
+    else()
+        # 1.1.1+ for X25519 raw keys / ChaCha20-Poly1305 used by Noise
+        find_package(OpenSSL 1.1.1 QUIET)
+        if(OpenSSL_FOUND)
+            message(STATUS "Using system OpenSSL ${OPENSSL_VERSION}")
+            set(QTNG_SSL_INCLUDE ${OPENSSL_INCLUDE_DIR})
+            set(QTNG_SSL_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
+            set(QTNG_HAVE_CRYPTO TRUE)
+        else()
+            message(WARNING
+                "Neither bundled LibreSSL nor system OpenSSL found; "
+                "disabling qtng crypto module (QTNG_NO_CRYPTO). "
+                "TLS/SSL, QUIC, and OpenSSL-backed crypto APIs will be unavailable.")
+        endif()
+    endif()
 endif()
+
+# QUIC needs AEAD/TLS from the crypto module; HTTP/3 needs QUIC.
+if(QTNG_WITH_QUIC AND NOT QTNG_HAVE_CRYPTO)
+    message(STATUS "QUIC requires crypto/TLS; disabling QTNG_WITH_QUIC for this build")
+    set(QTNG_WITH_QUIC OFF)
+endif()
+if(QTNG_WITH_HTTP3 AND NOT QTNG_WITH_QUIC)
+    message(STATUS "HTTP/3 requires QUIC; disabling QTNG_WITH_HTTP3 for this build")
+    set(QTNG_WITH_HTTP3 OFF)
+endif()
+
+message(STATUS "qtng features: CRYPTO=${QTNG_HAVE_CRYPTO} HTTP2=${QTNG_WITH_HTTP2} "
+               "QUIC=${QTNG_WITH_QUIC} HTTP3=${QTNG_WITH_HTTP3}")
 
 find_package(ZLIB REQUIRED)
 
@@ -49,8 +106,6 @@ set(QTNG_SRC
     src/io_utils.cpp
     src/http.cpp
     src/http1.cpp
-    src/http2.cpp
-    src/hpack.cpp
     src/http_utils.cpp
     src/http_proxy.cpp
     src/http_cookie.cpp
@@ -75,7 +130,23 @@ set(QTNG_SRC
     src/kcp/ikcp.h
     src/utp.cpp
     src/network_interface/network_interface.cpp
+    # Non-OpenSSL fallback exists; needed by http/kcp/websocket even without crypto.
+    src/random.cpp
 )
+
+if(QTNG_WITH_HTTP2)
+    list(APPEND QTNG_SRC
+        src/http2.cpp
+        src/hpack.cpp
+    )
+endif()
+
+# MessageDigest is required by HTTP/WebSocket/BT/Kademlia even without TLS.
+if(QTNG_HAVE_CRYPTO)
+    list(APPEND QTNG_SRC src/md.cpp)
+else()
+    list(APPEND QTNG_SRC src/md_fallback.cpp)
+endif()
 
 set(QTNG_PUBLIC_INCLUDE
     include/qtng.h
@@ -121,20 +192,19 @@ set(QTNG_PRIVATE_INCLUDE
     include/qtng/private/http_p.h
     include/qtng/private/hostaddress_p.h
     include/qtng/private/network_interface_p.h
-    include/qtng/private/quic_p.h
-    include/qtng/private/quic_tls.h
 )
 
 set(QTNG_CRYPTO_SRC
     src/ssl.cpp
-    src/random.cpp
-    src/md.cpp
     src/pkey.cpp
     src/cipher.cpp
     src/certificate.cpp
     src/qasn1element.cpp
     src/noise.cpp
     src/aead.cpp
+)
+
+set(QTNG_QUIC_SRC
     src/quic_varint.cpp
     src/quic_packet.cpp
     src/quic_frame.cpp
@@ -149,13 +219,15 @@ set(QTNG_CRYPTO_INCLUDE
     include/qtng/qtcrypto.h
     include/qtng/crypto.h
     include/qtng/ssl.h
-    include/qtng/md.h
     include/qtng/random.h
     include/qtng/cipher.h
     include/qtng/pkey.h
     include/qtng/certificate.h
     include/qtng/noise.h
     include/qtng/aead.h
+)
+
+set(QTNG_QUIC_INCLUDE
     include/qtng/quic.h
 )
 
@@ -163,6 +235,14 @@ set(QTNG_CRYPTO_PRIVATE_INCLUDE
     include/qtng/private/crypto_p.h
     include/qtng/private/qasn1element.h
 )
+
+set(QTNG_QUIC_PRIVATE_INCLUDE
+    include/qtng/private/quic_p.h
+    include/qtng/private/quic_tls.h
+)
+
+# md.h is always available (OpenSSL or software fallback).
+list(APPEND QTNG_PUBLIC_INCLUDE include/qtng/md.h)
 
 set(QTNG_LMDB_SRC
     src/lmdb.cpp
@@ -309,18 +389,31 @@ else()
     message(FATAL_ERROR "${CMAKE_SYSTEM_NAME} is not supported.")
 endif()
 
-add_library(qtng STATIC
+set(QTNG_LIB_SOURCES
     ${QTNG_SRC}
     ${QTNG_PUBLIC_INCLUDE}
     ${QTNG_PRIVATE_INCLUDE}
-    ${QTNG_CRYPTO_SRC}
-    ${QTNG_CRYPTO_INCLUDE}
-    ${QTNG_CRYPTO_PRIVATE_INCLUDE}
     ${QTNG_UTILS_INCLUDE}
     ${OS_DEPENDENDED_SRC}
     ${QTNG_LMDB_SRC}
     ${QTNG_LMDB_INCLUDE}
 )
+if(QTNG_HAVE_CRYPTO)
+    list(APPEND QTNG_LIB_SOURCES
+        ${QTNG_CRYPTO_SRC}
+        ${QTNG_CRYPTO_INCLUDE}
+        ${QTNG_CRYPTO_PRIVATE_INCLUDE}
+    )
+endif()
+if(QTNG_WITH_QUIC)
+    list(APPEND QTNG_LIB_SOURCES
+        ${QTNG_QUIC_SRC}
+        ${QTNG_QUIC_INCLUDE}
+        ${QTNG_QUIC_PRIVATE_INCLUDE}
+    )
+endif()
+
+add_library(qtng STATIC ${QTNG_LIB_SOURCES})
 
 # Source layout above; build configuration below
 set_target_properties(qtng PROPERTIES
@@ -340,12 +433,26 @@ target_include_directories(qtng
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
-        "${QTNG_SSL_INCLUDE}"
         ${ZLIB_INCLUDE_DIRS}
 )
+if(QTNG_HAVE_CRYPTO AND QTNG_SSL_INCLUDE)
+    target_include_directories(qtng PRIVATE "${QTNG_SSL_INCLUDE}")
+endif()
 
 # Compile definitions
 target_compile_definitions(qtng PUBLIC QTNG_HAVE_ZLIB)
+if(NOT QTNG_HAVE_CRYPTO)
+    target_compile_definitions(qtng PUBLIC QTNG_NO_CRYPTO)
+endif()
+if(NOT QTNG_WITH_HTTP2)
+    target_compile_definitions(qtng PUBLIC QTNG_NO_HTTP2)
+endif()
+if(NOT QTNG_WITH_QUIC)
+    target_compile_definitions(qtng PUBLIC QTNG_NO_QUIC)
+endif()
+if(NOT QTNG_WITH_HTTP3)
+    target_compile_definitions(qtng PUBLIC QTNG_NO_HTTP3)
+endif()
 
 # Platform-specific compile definitions
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
@@ -378,7 +485,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     list(APPEND OS_EXTRA_LINK ws2_32)
 endif()
 
-target_link_libraries(qtng PUBLIC ${QTNG_SSL_LIBRARIES} ZLIB::ZLIB PRIVATE ${OS_EXTRA_LINK})
+if(QTNG_HAVE_CRYPTO)
+    target_link_libraries(qtng PUBLIC ${QTNG_SSL_LIBRARIES} ZLIB::ZLIB PRIVATE ${OS_EXTRA_LINK})
+else()
+    target_link_libraries(qtng PUBLIC ZLIB::ZLIB PRIVATE ${OS_EXTRA_LINK})
+endif()
 
 # Library configuration above; installation below
 if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -389,8 +500,13 @@ install(TARGETS qtng
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 # Umbrella headers: #include "qtng.h" / #include "qtcrypto.h"
-install(FILES include/qtng.h include/qtcrypto.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+if(QTNG_HAVE_CRYPTO)
+    install(FILES include/qtng.h include/qtcrypto.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+else()
+    install(FILES include/qtng.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+endif()
 # Module headers: #include "qtng/coroutine.h", #include "qtng/utils/...", etc.
 install(DIRECTORY include/qtng
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}

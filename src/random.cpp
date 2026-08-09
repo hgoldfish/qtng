@@ -4,35 +4,24 @@
 
 #include "qtng/random.h"
 #include "qtng/utils/random.h"
-#include "qtng/utils/datetime.h"
 
 using namespace std;
 
 namespace qtng {
 
-#ifndef QTNG_NO_CRYPTO
-
 string randomBytes(int numBytes)
 {
+    if (numBytes <= 0) {
+        return string();
+    }
     string b;
     b.resize(static_cast<size_t>(numBytes));
+#ifndef QTNG_NO_CRYPTO
     RAND_bytes(reinterpret_cast<unsigned char *>(&b[0]), numBytes);
-    return b;
-}
-
 #else
-
-string randomBytes(int numBytes)
-{
-    string b;
-    b.reserve(static_cast<size_t>(numBytes));
-    utils::RandomGenerator &generator = utils::RandomGenerator::global();
-    for (int i = 0; i < numBytes; ++i) {
-        b.push_back(static_cast<char>(generator.bounded(0xff))));
-    }
+    utils::RandomGenerator::global().generate(&b[0], numBytes);
+#endif
     return b;
 }
-
-#endif
 
 }  // namespace qtng

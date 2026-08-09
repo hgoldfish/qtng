@@ -22,18 +22,20 @@
 #include "qtng/lmdb.h"
 #include "qtng/kademlia.h"
 #include "qtng/bt.h"
-#include "qtng/quic.h"
+#include "qtng/random.h"
 
 #ifndef QTNG_NO_CRYPTO
+#  ifndef QTNG_NO_QUIC
+#    include "qtng/quic.h"
+#  endif
 #  include "qtng/ssl.h"
-#  include "qtng/random.h"
-#  include "qtng/md.h"
 #  include "qtng/cipher.h"
 #  include "qtng/pkey.h"
 #  include "qtng/certificate.h"
 #  include "qtng/noise.h"
 #  include "qtng/aead.h"
 #endif
+#include "qtng/md.h"
 
 #ifdef QTNG_HAVE_ZLIB
 #  include "qtng/gzip.h"

@@ -347,10 +347,12 @@ void Http1Protocol::exchange(HttpSessionPrivate *session, HttpRequest &request, 
     }
 }
 
+#ifndef QTNG_NO_HTTP3
 void Http3Protocol::exchange(HttpSessionPrivate *, HttpRequest &, HttpResponse &response, shared_ptr<SocketLike>,
                              unique_ptr<ScopedLock<Semaphore>> &)
 {
     response.setError(new UnsupportedVersion());
 }
+#endif
 
 }  // namespace qtng

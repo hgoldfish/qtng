@@ -17,7 +17,9 @@
 #include "qtng/utils/logging.h"
 #include "qtng/private/http_p.h"
 #include "qtng/private/http_protocol_p.h"
-#include "qtng/private/http2_p.h"
+#ifndef QTNG_NO_HTTP2
+#  include "qtng/private/http2_p.h"
+#endif
 
 using namespace std;
 
@@ -757,7 +759,9 @@ ConnectionPool::ConnectionPool()
 {
 #ifndef QTNG_NO_CRYPTO
     vector<string> alpn;
+#  ifndef QTNG_NO_HTTP2
     alpn.push_back("h2");
+#  endif
     alpn.push_back("http/1.1");
     sslConfig.setAllowedNextProtocols(alpn);
 #endif
@@ -868,6 +872,7 @@ shared_ptr<SocketLike> ConnectionPool::newConnectionForUrl(const string &urlStr,
     return connection;
 }
 
+#ifndef QTNG_NO_HTTP2
 shared_ptr<Http2ClientSession> ConnectionPool::http2SessionForUrl(const string &urlStr, RequestError **error)
 {
     *error = nullptr;
@@ -931,6 +936,7 @@ void ConnectionPool::recycleHttp2Session(const string &url, shared_ptr<Http2Clie
         item->http2Sessions.push_back(session);
     }
 }
+#endif  // QTNG_NO_HTTP2
 
 void ConnectionPool::removeUnusedConnections()
 {
@@ -1052,6 +1058,7 @@ HttpResponse HttpSessionPrivate::send(HttpRequest &request)
 
     mergeCookies(request, url.toString());
 
+#ifndef QTNG_NO_HTTP2
     // Prefer HTTP/2 on HTTPS via ALPN; cleartext only when version is Http2_0.
     // WebSocket stays on HTTP/1 Upgrade.
     const bool wantHttp2 = !request.d->isWebSocket
@@ -1106,6 +1113,7 @@ HttpResponse HttpSessionPrivate::send(HttpRequest &request)
         }
         // ALPN did not negotiate h2; fall through to HTTP/1.
     }
+#endif
 
     if (request.d->version == HttpVersion::Http2_0) {
         response.setError(new UnsupportedVersion());
