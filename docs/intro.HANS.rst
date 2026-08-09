@@ -26,7 +26,7 @@ qtng是基于协程的网络编程工具包，类似 boost::asio，并借鉴 Pyt
 
 qtng已在Linux、Android、Windows、MacOS和OpenBSD平台测试通过，支持gcc、clang、mingw32、msvc编译器。
 
-构建qtng需要 C++11 编译器、zlib，以及 TLS/加密支持（可通过 ``libressl/`` 子目录使用内置 LibreSSL，或使用系统 OpenSSL 1.1.1 或更高版本）。内置单元测试需要 C++17 以及本机安装的 Catch2 v3（或更高版本），且默认不编译。Catch2 不会被自动下载，安装方式见下文"构建并运行测试"。
+构建qtng需要 C++11 编译器、zlib，以及 TLS/加密支持（可通过已初始化的 ``3rdparty/libressl`` git 子模块使用内置 LibreSSL，或使用系统 OpenSSL 1.1.1 或更高版本）。内置单元测试需要 C++17 以及本机安装的 Catch2 v3（或更高版本），且默认不编译。Catch2 不会被自动下载，安装方式见下文"构建并运行测试"。可选的 µTP 互通测试需要 ``3rdparty/libutp``（``git submodule update --init 3rdparty/libutp``）；子模块未初始化时自动跳过。
 
 协程实现采用boost::context汇编代码，同时支持原生posix ``ucontext``和windows ``fiber`` API，已在ARM、ARM64、x86、amd64架构成功运行测试。
 
@@ -172,10 +172,12 @@ qtng基于``Coroutine``实现。确保所有网络操作运行在协程环境中
 ``CoroutineExit`` 异常由qtng静默处理。
 
 
-Qt GUI 集成说明（2.0 已移除）
-------------------------------
+Qt GUI 集成说明（可选 ``qt/`` 兼容层）
+--------------------------------------
 
-qtng 2.0 不再与 Qt Widgets 或 Qt 事件循环集成。请使用标准 ``main()`` 入口，库会在内部管理自己的事件循环。``startQtLoop()`` 和 ``qAwait()`` 等函数已移除。
+**qtng 核心库**不依赖 Qt。Qt5/Qt6 应用可 ``include(qt/CMakeLists.txt)`` 并链接 ``qtnetworkng``，
+获得 ``QString``/``QByteArray`` API 以及 ``startQtLoop()``、``qAwait()`` 等。在
+``QCoreApplication`` 进程中请在协程/网络 API 之前调用 ``startQtLoop()``。详见 :doc:`qt_integration`。
 
 
 Socket与SslSocket
@@ -188,6 +190,11 @@ qtng旨在简化C++网络编程。 ``Socket`` 类是对BSD socket接口的面向
 ``Socket`` 和 ``SslSocket`` 可转换为``SocketLike``接口，便于统一处理。
 
 ``KcpSocket`` 是推荐的 UDP 上 KCP API，接口类似 ``Socket``，并支持 ``SocketLike`` 转换。
+
+``UtpSocket`` 是 µTP（BEP-29）对应门面：UDP 能力对齐 ``KcpSocket``，但拥塞控制与可靠性遵循 LEDBAT，
+而非 KCP 的 ``Mode``。协议参数使用 ``setDelayTarget`` / ``setMaxWindow`` / ``setPacketSize`` 等，
+不用 ``setMode`` / ``setTearDownTime``。会话核心为 ``UtpStream``（``qtng/private/utp.h``），同样基于
+``DatagramLink``。运行时不链接 libutp；libutp 仅用于可选的互通测试。
 
 
 创建Socket客户端

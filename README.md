@@ -6,7 +6,9 @@ qtng
 Introduction
 ------------
 
-qtng is a coroutine-based network toolkit. Compared to boost::asio and traditional async frameworks, qtng offers a simpler API inspired by Python gevent. **Version 2.0** removes the Qt dependency: the library targets **C++11** and uses standard library types in its public API.
+qtng is a coroutine-based network toolkit. Compared to boost::asio and traditional async frameworks, qtng offers a simpler API inspired by Python gevent. **Version 2.0** targets **C++11** and uses standard library types in its public API; the core library has **no Qt dependency**.
+
+For **Qt5/Qt6** applications, an optional binding under [`qt/`](qt/) provides the legacy [qtnetworkng](https://github.com/hgoldfish/qtnetworkng) API (`QString`, `startQtLoop()`, `qAwait()`, etc.) without exposing core headers. See [Qt integration](docs/qt_integration.rst) and `qt/examples/fetch_web_content/`.
 
 For more detail visit:
 
@@ -26,13 +28,19 @@ Features
 * `Socket` supports UDP and TCP.
 * `SSLSocket` with similar API to `Socket`.
 * `KcpSocket` implements KCP over UDP.
+* `UtpSocket` implements µTP (BEP-29) over UDP with a self-contained LEDBAT stack (no runtime libutp dependency).
+* `QuicConnection` / `QuicStream` implement a QUICv1 **transport MVP** .
 * `SocketLike` unifies these classes as the base of other components.
 * `SocketServer` provides a framework for network servers (HTTP proxy, SOCKS5 proxy, etc.).
-* `HttpSession` implements an HTTP/1.1 client with SOCKS5/HTTP proxy support.
+* `HttpSession` implements HTTP/1.1 and HTTP/2 clients, with SOCKS5/HTTP proxy support.
 * `SimpleHttpServer` / `TcpServer<SimpleHttpRequestHandler>` for static HTTP/1.1 file serving.
 * `NetworkInterface` and `HostAddress` for network configuration.
 * `WebSocketConnection` implements WebSocket client/server.
+* `MqttClient` implements an MQTT 3.1.1 client (QoS 0/1/2, Will, TLS) in `qtng/mqtt.h`.
 * `MsgPackStream` is a MessagePack implementation.
+* `BencodeStream` / `Bencode` encode and decode BitTorrent bencode (torrents, trackers, DHT).
+* `DhtNode` implements BitTorrent DHT (BEP-5) with pluggable `DhtStore` (memory / LMDB).
+* `TorrentSession` implements a BitTorrent core download stack (peer wire, HTTP/UDP trackers, DHT + µTP/TCP) in `qtng/bt.h`.
 * `Cipher`, `MessageDigest`, `PublicKey`, `PrivateKey` wrap OpenSSL/LibreSSL APIs.
 
 Examples
@@ -112,8 +120,12 @@ Dependencies
 * **C++11** compiler for the library (GCC, Clang, MSVC); C++17 is required only to build the bundled unit tests, which are off by default (`-DQTNG_BUILD_TESTS=ON`)
 * **zlib** (system library, for gzip support)
 * **OpenSSL 1.1.1+ or LibreSSL** for TLS/crypto:
-  * Place LibreSSL sources in `libressl/` to build a bundled copy, or
+  * Initialize the LibreSSL submodule under `3rdparty/libressl/` to build a bundled copy (`git submodule update --init 3rdparty/libressl`), or
   * Install system OpenSSL development packages (e.g. `libssl-dev` on Debian/Ubuntu)
+
+Optional test-only dependency:
+
+* **libutp** (µTP interoperability tests): `git submodule update --init 3rdparty/libutp`. When the submodule is missing, those tests are skipped and the rest of the build is unchanged.
 
 
 Supported Platforms
@@ -129,13 +141,13 @@ qtng uses boost::context-style asm on arm, arm64, x86, and amd64; other architec
 Towards 2.0
 -------------
 
-- [x] Remove the QtCore dependence.
-- [ ] Support HTTP/2
+- [x] Remove QtCore from the **core** library (optional `qt/` binding for Qt apps)
+- [x] Support HTTP/2
 - [ ] Support HTTP/3
-- [ ] Support QUIC
-- [ ] Support Kademlia
-- [ ] Support BitTorrent protocol
-- [ ] Support MQTT
+- [x] Support QUIC (transport MVP: `QuicConnection` / `QuicStream`; no HTTP/3 yet)
+- [x] Support Kademlia
+- [x] Support BitTorrent protocol (core download stack + magnet/BEP-9 + ``examples/btclient``; MSE/PEX later)
+- [x] Support MQTT
 
 
 Towards 3.0
@@ -150,12 +162,16 @@ Building
 --------
 
 ```bash
-git clone https://github.com/hgoldfish/qtng.git
+git clone --recurse-submodules https://github.com/hgoldfish/qtng.git
 cd qtng
+# or after a plain clone:
+# git submodule update --init --recursive
 mkdir build && cd build
 cmake ..
 cmake --build .
 ```
+
+Third-party sources live under `3rdparty/` as git submodules (`libressl`, `libutp`). Submodules are optional for a default build: without LibreSSL the build falls back to system OpenSSL; without libutp the µTP interoperability tests are omitted.
 
 Link your application against the `qtng` static library (`libqtng.a`, or `qtng.lib` on MSVC). Headers live under `include/qtng/`; the public include path is `include/`, so use:
 

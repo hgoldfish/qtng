@@ -1701,7 +1701,7 @@ KCP protocol server implementation.
 3. Http Client
 --------------
 
-``HttpSession`` is a HTTP 1.0/1.1 client with automatical cookie management and automatical redirection. ``HttpSession::send()`` is the core function, which sends request to web server, then parses the response. Other than these, ``HttpSession`` provides many shortcut function, such as ``get()``, ``post()``, ``head()``, etc. Those functions help you to make http request in one line code.
+``HttpSession`` is an HTTP 1.0/1.1 and HTTP/2 client (HTTPS negotiates ``h2`` via ALPN; Server Push is not supported, and there is no HTTP/2 server). The HTTP/2 path supports multiplexing, connection/stream flow control, ``MAX_CONCURRENT_STREAMS``, HEADERS/CONTINUATION fragmentation, trailer consumption, and streaming reads via ``streamResponse``. It has automatic cookie management and automatic redirection. ``HttpSession::send()`` is the core function, which sends request to web server, then parses the response. Other than these, ``HttpSession`` provides many shortcut function, such as ``get()``, ``post()``, ``head()``, etc. Those functions help you to make http request in one line code.
 
 ``HttpSession`` can use Socks5 proxy which is default to none. However the support for HTTP proxy has not been implemented yet.
 
@@ -2253,7 +2253,7 @@ Before using the ``HttpResponse``, you should check ``HttpResonse::isOk()``. If 
 
     The HTTP version is not supported.
 
-    Note: ``HttpSession`` only supports HTTP 1.0 and 1.1.
+    Note: ``HttpSession`` supports HTTP 1.0, 1.1, and HTTP/2 as a client. HTTP/3 is not implemented. Server Push is not supported.
 
 * InvalidURL
 
@@ -3013,8 +3013,9 @@ Encryption cipher suite used in SSL/TLS connections. Contains detailed informati
 5.6 Noise Protocol
 ^^^^^^^^^^^^^^^^^^
 
-Minimal Noise Protocol Framework support for ``Noise_XX_25519_ChaChaPoly_SHA256`` and
-``NoisePSK_XX_25519_ChaChaPoly_SHA256`` (header ``qtng/noise.h``).
+Minimal Noise Protocol Framework support for ``Noise_XX_25519_ChaChaPoly_SHA256``,
+``NoisePSK_XX_25519_ChaChaPoly_SHA256``, and ``Noise_IK_25519_ChaChaPoly_SHA256``
+(header ``qtng/noise.h``).
 
 * ``NoiseKey`` — X25519 keypair generation, private-key import, and DH.
 * ``NoiseCipherState`` — ChaCha20-Poly1305 AEAD with a Noise-style 12-byte nonce
@@ -3023,10 +3024,41 @@ Minimal Noise Protocol Framework support for ``Noise_XX_25519_ChaChaPoly_SHA256`
   ``decryptWithAd(ad, ciphertext, nonce)`` is intended for multipath / reordered
   delivery: the nonce window is committed only after AEAD authentication succeeds,
   so forged or handshake-retransmit blobs cannot permanently poison the window.
-* ``NoiseHandshakeState`` — XX / PSK_XX handshake state machine; call ``split()``
-  after completion to obtain transport send/recv cipher states.
+  ``rekey()`` replaces the key per the Noise specification without resetting the nonce.
+* ``NoiseHandshakeState`` — XX / PSK_XX / IK handshake state machine;
+  ``initialize()`` accepts a prologue (always ``MixHash``'d, including empty);
+  PSK uses ``MixKeyAndHash`` as psk0; call ``split()`` after completion to obtain
+  transport send/recv cipher states; ``handshakeHash()`` is available for channel
+  binding. IK initiators must supply the remote static public key; if an expected
+  remote static was provided and the decrypted key differs, the handshake fails.
+* ``NoiseStream`` — runs the handshake over a ``SocketLike`` and carries AEAD
+  ciphertext in 2-byte big-endian length-prefixed frames; ``sendMessage`` /
+  ``recvMessage`` are message-oriented, while ``sendall`` / ``recv`` provide
+  stream-style access over the current frame.
 * ``noiseHkdf`` / ``noiseHmacSha256`` — HKDF-SHA256 and HMAC-SHA256 helpers for
   cookie MACs and similar uses.
+
+.. code-block:: c++
+
+    NoiseKey alice = NoiseKey::generate();
+    NoiseKey bob = NoiseKey::generate();
+    auto client = make_shared<NoiseStream>(asSocketLike(tcpClient));
+    auto server = make_shared<NoiseStream>(asSocketLike(tcpServer));
+    client->initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
+    server->initialize(NoisePattern::XX, NoiseRole::Responder, bob);
+    // call handshake() on both sides, then sendMessage / recvMessage
+
+5.7 AEAD and HKDF helpers
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Header ``qtng/aead.h`` provides reusable primitives used by QUIC (and available to
+applications):
+
+* ``Aead`` — AES-128-GCM, AES-256-GCM, and ChaCha20-Poly1305 seal/open with AAD;
+  ciphertext layout is ``ciphertext || tag``.
+* ``hkdfExtract`` / ``hkdfExpand`` / ``hkdf`` — RFC 5869 HKDF.
+* ``hkdfExpandLabel`` — TLS 1.3 / QUIC ``HKDF-Expand-Label`` (``tls13 `` prefix).
+* ``aesEcbEncryptBlock`` — single-block AES-ECB for QUIC header-protection masks.
 
 6. Configuration and Building
 ------------------------------
@@ -3058,7 +3090,7 @@ On Unix systems, qtng uses libev as its event loop backend. CMake selects the be
 
 CMake chooses the TLS/crypto library as follows:
 
-* If a ``libressl/`` subdirectory with its own ``CMakeLists.txt`` is present, bundled LibreSSL is built and linked automatically.
+* If the ``3rdparty/libressl`` git submodule is initialized and contains ``CMakeLists.txt``, bundled LibreSSL is built and linked automatically.
 * Otherwise, system OpenSSL 1.1.1 or newer is required (``find_package(OpenSSL 1.1.1 REQUIRED)``; Noise needs the X25519 raw-key API).
 
 Install development packages on Debian/Ubuntu with ``libssl-dev`` when not using bundled LibreSSL.
@@ -3375,6 +3407,302 @@ POSIX-compliant path handling for cross-platform file operations.
     are treated as relative to the parent (as with HTTP URL paths). Rejects
     ``..`` segments. On failure both strings in the returned pair are empty.
 
+7.2 Bencode
+^^^^^^^^^^^
+
+BitTorrent **bencode** is a compact binary serialization used throughout the BitTorrent
+ecosystem: ``.torrent`` files, HTTP tracker responses, extension-protocol payloads, and
+every DHT (BEP-5) UDP message. qtng exposes it in ``qtng/bencode.h`` as two complementary
+APIs that mirror ``MsgPackStream`` / dynamic values:
+
+* ``BencodeStream`` — streaming encode/decode over a ``FileLike`` or ``std::string``
+* ``Bencode`` — in-memory value tree (integer / string / list / dict)
+
+DHT (`DhtNode`) and the BitTorrent download stack (§8.4 ``TorrentSession``) share this module.
+
+7.2.1 Wire format
++++++++++++++++++
+
+Bencode has exactly four types:
+
+=========== =================================================== =======================
+Type        Encoding                                            Example
+=========== =================================================== =======================
+Integer     ``i`` *decimal* ``e``                               ``i42e``, ``i-3e``, ``i0e``
+Byte string *length* ``:`` *raw bytes*                          ``4:spam``, ``3:\\x00\\x01\\xff``
+List        ``l`` *values…* ``e``                               ``l4:spami42ee``
+Dictionary  ``d`` *key* *value* … ``e``                         ``d3:bar4:spam3:fooi42ee``
+=========== =================================================== =======================
+
+Rules that matter for interoperability:
+
+* Integers have **no leading zeros** (except ``0`` itself). ``-0`` is invalid.
+* Strings are **arbitrary bytes**, not UTF-8. Node ids, infohashes, and ``pieces``
+  bitfields are encoded as strings.
+* Dictionary **keys must be byte strings**, and when *encoding* they are emitted in
+  **raw byte order** (lexicographic). Canonical key order is required for
+  ``info`` dictionaries: ``infohash = SHA1(bencode(info))``.
+* On *decode*, qtng accepts unsorted keys (some peers are lax); ``encode()`` /
+  ``std::map`` always produce sorted output.
+
+7.2.2 Choosing Stream vs Value
+++++++++++++++++++++++++++++++
+
+* Use ``BencodeStream`` when the schema is known at compile time (typed
+  ``operator<<`` / ``>>`` into ``std::map``, ``std::vector``, …), or when reading
+  from a file incrementally.
+* Use ``Bencode`` when the shape is dynamic (DHT messages with optional fields,
+  unknown extension keys). Build a ``std::map<std::string, Bencode>`` /
+  ``std::vector<Bencode>``, wrap with a ``Bencode`` constructor, then ``encode()``.
+
+7.2.3 BencodeStream
++++++++++++++++++++
+
+.. class:: BencodeStream
+
+    .. method:: BencodeStream()
+    .. method:: BencodeStream(FileLike *d)
+    .. method:: BencodeStream(std::string *a, bool writeMode = false)
+    .. method:: BencodeStream(const std::string &a)
+
+        Construct empty, bound to a device, or backed by a string.
+        ``writeMode=true`` appends into ``*a``; a const string is read-only input.
+
+    .. method:: void setDevice(FileLike *d)
+    .. method:: FileLike *device() const
+    .. method:: std::string data() const
+
+        Current buffer when the stream owns a string device.
+
+    .. method:: bool atEnd() const
+    .. method:: Status status() const
+    .. method:: bool isOk() const
+    .. method:: void resetStatus()
+    .. method:: void setStatus(Status status)
+
+        ``Status`` is ``Ok``, ``ReadPastEnd``, ``ReadCorruptData``, or ``WriteFailed``.
+
+    .. method:: void setLengthLimit(std::uint32_t limit)
+    .. method:: std::uint32_t lengthLimit() const
+
+        Cap on decoded string / nesting budget (default ``16 MiB``). Rejects hostile
+        inputs that would otherwise allocate unbounded memory.
+
+    .. method:: BencodeStream &operator>>(std::int64_t &i)
+    .. method:: BencodeStream &operator>>(std::string &str)
+    .. method:: BencodeStream &operator>>(Bencode &v)
+    .. method:: bool readBytes(char *data, std::int64_t len)
+    .. method:: bool peekByte(std::uint8_t *b) const
+
+        ``peekByte`` read-aheads at most one byte from any ``FileLike`` so later
+        reads consume the same octet (needed to decide the next type tag).
+
+    .. method:: bool readArrayHeader(std::uint32_t &len)
+    .. method:: bool readMapHeader(std::uint32_t &len)
+    .. method:: bool readArrayEnd()
+    .. method:: bool readMapEnd()
+    .. method:: bool peekContainerEnd() const
+
+        Header helpers mirror ``MsgPackStream`` (``Array`` / ``Map`` naming and a
+        ``len`` argument). Bencode has **no length prefix**, so ``read*Header`` sets
+        ``len`` to ``UINT32_MAX`` (indefinite). Iterate with ``peekContainerEnd()``
+        then finish with ``readArrayEnd()`` / ``readMapEnd()``.
+
+    .. method:: BencodeStream &operator<<(std::int64_t i)
+    .. method:: BencodeStream &operator<<(const std::string &str)
+    .. method:: BencodeStream &operator<<(const Bencode &v)
+    .. method:: bool writeBytes(const char *data, std::int64_t len)
+    .. method:: bool writeArrayHeader(std::uint32_t len)
+    .. method:: bool writeMapHeader(std::uint32_t len)
+    .. method:: bool writeArrayEnd()
+    .. method:: bool writeMapEnd()
+
+        ``write*Header`` accepts ``len`` for API parity but only writes the ``l`` /
+        ``d`` marker; always pair with ``writeArrayEnd()`` / ``writeMapEnd()``.
+
+    Template ``operator<<`` / ``operator>>`` also support ``std::vector``,
+    ``std::list``, ``std::set``, ``std::unordered_set`` (as bencode lists) and
+    ``std::map``, ``std::unordered_map`` (as bencode dictionaries). Prefer
+    ``std::map`` when encoding must be canonical (e.g. infohash).
+    ``std::unordered_map`` does **not** guarantee key order.
+
+7.2.4 Bencode value tree
+++++++++++++++++++++++++
+
+.. class:: Bencode
+
+    Dynamic bencode value. List/dict contents are accessed via ``toList()`` /
+    ``toMap()`` returning ``std::vector<Bencode>`` / ``std::map<std::string, Bencode>``;
+    build containers with those standard types, then wrap with a ``Bencode`` constructor.
+
+    .. method:: Bencode()
+    .. method:: Bencode(std::int64_t i)
+    .. method:: Bencode(const std::string &s)
+    .. method:: Bencode(const char *s)
+    .. method:: Bencode(const std::vector<Bencode> &list)
+    .. method:: Bencode(std::vector<Bencode> &&list)
+    .. method:: Bencode(const std::map<std::string, Bencode> &dict)
+    .. method:: Bencode(std::map<std::string, Bencode> &&dict)
+
+    .. method:: static Bencode dict()
+    .. method:: static Bencode list()
+
+        Empty containers.
+
+    .. method:: Type type() const
+    .. method:: bool isValid() const
+    .. method:: bool isInteger() const
+    .. method:: bool isString() const
+    .. method:: bool isList() const
+    .. method:: bool isDict() const
+
+    .. method:: std::int64_t toInteger(std::int64_t defaultValue = 0) const
+    .. method:: std::string toString() const
+    .. method:: const std::vector<Bencode> &toList() const
+    .. method:: const std::map<std::string, Bencode> &toMap() const
+
+        Accessors return empty / default when the type does not match.
+
+    .. method:: std::string encode() const
+
+        Serialize with sorted dictionary keys.
+
+    .. method:: static Bencode decode(const std::string &data, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
+    .. method:: static Bencode decode(FileLike *device, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
+
+        Parse a complete value. On failure returns an invalid ``Bencode`` and may
+        fill ``*error``. Trailing bytes after the value are an error.
+
+7.2.5 Examples
+++++++++++++++
+
+Stream round-trip with a typed map::
+
+    qtng::BencodeStream stream;
+    std::map<std::string, std::int64_t> payload{{"spam", 42}};
+    stream << payload;
+    std::string wire = stream.data();  // "d4:spami42ee"
+
+    qtng::Bencode back = qtng::Bencode::decode(wire);
+    std::int64_t n = back.toMap().at("spam").toInteger();
+
+    qtng::BencodeStream parsed(wire);
+    std::map<std::string, std::int64_t> roundTrip;
+    parsed >> roundTrip;
+
+Build a DHT-style query with a dynamic tree::
+
+    std::map<std::string, qtng::Bencode> args;
+    args["id"] = qtng::Bencode(std::string(20, '\\x01'));
+    std::map<std::string, qtng::Bencode> msg;
+    msg["a"] = qtng::Bencode(args);
+    msg["q"] = "ping";
+    msg["t"] = "aa";
+    msg["y"] = "q";
+    std::string encoded = qtng::Bencode(std::move(msg)).encode();
+
+Manual list/dict markers (MsgPack-like control flow)::
+
+    qtng::BencodeStream s;
+    s.writeMapHeader(0);
+    s << std::string("foo") << std::int64_t(1);
+    s.writeMapEnd();
+    // "d3:fooi1ee"
+
+7.3 MQTT Client
+^^^^^^^^^^^^^^^
+
+``qtng/mqtt.h`` provides an **MQTT 3.1.1** client on top of ``SocketLike`` (TCP or TLS).
+The API mirrors ``WebSocketConnection``: blocking coroutine-style ``publish`` / ``subscribe`` /
+``recv``, with internal send/receive/keepalive coroutines.
+
+Supported in this release:
+
+* QoS 0 / 1 / 2
+* Clean session, Will message, username/password
+* Keep Alive ``PINGREQ`` / ``PINGRESP``
+* ``MqttClient::connect`` (TCP, default port 1883) and ``MqttClient::connectTls`` (TLS, default 8883)
+
+Not included: broker/server, MQTT 5.0, MQTT over WebSocket.
+
+Example (plaintext)::
+
+    #include "qtng/mqtt.h"
+    #include <iostream>
+
+    int main()
+    {
+        qtng::MqttConfiguration config;
+        config.setClientId("sensor-1");
+        config.setKeepAlive(60);
+
+        std::shared_ptr<qtng::MqttClient> client =
+            qtng::MqttClient::connect("127.0.0.1", 1883, config);
+        if (!client) {
+            return 1;
+        }
+
+        client->subscribe("sensors/#", qtng::MqttQos::AtLeastOnce);
+        client->publish(qtng::MqttMessage("sensors/temp", "22.5", qtng::MqttQos::AtLeastOnce));
+
+        qtng::MqttMessage msg = client->recv();
+        std::cout << msg.topic << ": " << msg.payload << std::endl;
+        client->disconnect();
+        return 0;
+    }
+
+Inject an already-connected ``SocketLike`` (proxy, custom TLS, etc.)::
+
+    auto raw = qtng::asSocketLike(qtng::Socket::createConnection("broker.local", 1883));
+    qtng::MqttClient client(raw, config);
+    if (!client.isConnected()) {
+        // inspect client.error() / errorString()
+    }
+
+.. method:: std::shared_ptr<MqttClient> MqttClient::connect(const std::string &host, std::uint16_t port = 1883, const MqttConfiguration &config = MqttConfiguration())
+
+    Open a TCP connection, send ``CONNECT``, wait for ``CONNACK``. Returns an empty
+    ``shared_ptr`` on failure.
+
+.. method:: std::shared_ptr<MqttClient> MqttClient::connectTls(const std::string &host, std::uint16_t port = 8883, const MqttConfiguration &config = MqttConfiguration(), const SslConfiguration &ssl = SslConfiguration())
+
+    Same as ``connect``, using ``SslSocket::createConnection``.
+
+.. method:: explicit MqttClient::MqttClient(std::shared_ptr<SocketLike> connection, const MqttConfiguration &config = MqttConfiguration())
+
+    Run the MQTT handshake on an existing stream. Check ``isConnected()`` afterwards.
+
+.. method:: bool MqttClient::publish(const MqttMessage &msg)
+
+    Publish and wait until the QoS handshake completes (QoS 0: after the packet is written).
+
+.. method:: bool MqttClient::publishAsync(const MqttMessage &msg)
+
+    Enqueue a publish without waiting for completion.
+
+.. method:: bool MqttClient::subscribe(const std::string &topic, MqttQos qos = MqttQos::AtMostOnce)
+.. method:: bool MqttClient::unsubscribe(const std::string &topic)
+
+    Subscribe / unsubscribe and wait for ``SUBACK`` / ``UNSUBACK``.
+
+.. method:: MqttMessage MqttClient::recv()
+
+    Block until the next inbound ``PUBLISH`` (after QoS handling). Returns an empty
+    message when the connection is closed.
+
+.. method:: void MqttClient::disconnect()
+
+    Send ``DISCONNECT`` then close the connection.
+
+.. method:: void MqttClient::abort()
+
+    Abort without a graceful ``DISCONNECT``.
+
+Configuration highlights (``MqttConfiguration``): ``clientId``, ``cleanSession`` (default
+true), ``keepAlive`` seconds, ``username`` / ``password``, ``setWill(MqttMessage)``,
+queue capacities, ``maxPacketSize``, ``connectTimeout``.
+
+
 8. Advanced Programming
 -----------------------
 
@@ -3600,3 +3928,335 @@ as a ``KcpSocket``. UDP-only methods fail or no-op when the link is not UDP.
 Wrapping does not install a UDP recv ``filter`` on the shared link (accepted slave
 streams share the master's ``UdpDatagramLink``); override ``filter`` on the
 listening ``KcpSocket`` that owns the socket instead.
+
+8.2.1 UtpStream and UtpSocket
+++++++++++++++++++++++++++++
+
+``UtpStream`` (private header ``qtng/private/utp.h``) mirrors the ``KcpStream`` session
+shape on top of the same ``DatagramLink`` / ``DatagramPath`` abstractions: construct from a
+link, then ``markBound`` / ``listen`` / ``accept`` or ``connect``, plus byte-stream
+``peek`` / ``recv`` / ``recvall`` / ``send`` / ``sendall``, ``busy`` / ``notBusy``, and
+``peerPath``.
+
+It does **not** expose KCP-specific APIs (``Mode``, ``setMode``, ``setSendQueueSize``,
+``setTearDownTime``, ikcp MTU helpers). Instead it provides BEP-29 / LEDBAT parameters:
+
+* ``setDelayTarget`` / ``delayTarget`` — LEDBAT target one-way delay (default 100 ms)
+* ``setMaxWindow`` / ``maxWindow`` — congestion window ceiling
+* ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — DATA payload sizing
+* ``setReceiveBufferSize`` / ``receiveBufferSize`` — advertised receive window
+* ``setIdleTimeout`` / ``idleTimeout`` — optional idle disconnect (0 disables)
+
+Wire protocol is µTP v1 (``ST_DATA`` / ``ST_FIN`` / ``ST_STATE`` / ``ST_RESET`` / ``ST_SYN``)
+with connection-id demultiplexing. Runtime does not depend on libutp.
+
+``UtpSocket`` (``udp.h``) is the thin UDP façade around ``UdpDatagramLink`` + ``UtpStream``,
+analogous to ``KcpSocket``. Use ``wrapUtpStreamAsSocket``, ``asSocketLike``, and
+``UtpServer`` the same way as the KCP counterparts. Factory helpers
+``UtpSocket::createConnection`` / ``createServer`` take no KCP ``Mode`` argument.
+
+8.2.2 QuicConnection and QuicStream (QUIC transport MVP)
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Header ``qtng/quic.h`` provides a **QUIC v1 transport-layer MVP** (RFC 9000/9001/9002
+subset). It does **not** implement HTTP/3.
+
+* ``QuicConfiguration`` — ALPN list, idle timeout, peer verification flag, server
+  certificate / private key, flow-control windows.
+* ``QuicConnection`` — ``connect`` (UDP address, hostname, or ``DatagramPath``),
+  ``serve`` (single-connection server handshake on a bound link), ``openStream`` /
+  ``acceptStream``, ``close`` / ``abort``, ``handshakeDone`` event.
+* ``QuicStream`` — blocking coroutine ``recv`` / ``send`` / ``close`` / ``reset``;
+  ``asSocketLike(shared_ptr<QuicStream>)`` for adapters that expect ``SocketLike``.
+
+Unlike ``KcpSocket`` / ``UtpSocket`` (one reliable byte stream per session), QUIC
+exposes a **connection** that multiplexes streams. Packet I/O uses ``DatagramLink``
+(UDP via an internal socket adapter, or a custom link in tests).
+
+MVP coverage: TLS 1.3 handshake with ``TLS_AES_128_GCM_SHA256`` + X25519, Initial /
+Handshake / 1-RTT packet protection (including coalesced packets and the 1200-byte
+client Initial minimum), CRYPTO and STREAM frames, simplified ACK + PTO
+retransmission, ``CONNECTION_CLOSE``. Optional process-level interop against
+``picoquicdemo`` is available via ``qtng_test_quic_picoquic`` (see
+``3rdparty/README.md``). Not in this MVP: HTTP/3, 0-RTT, connection migration, or
+full congestion control.
+
+8.3 Kademlia / BitTorrent DHT (BEP-5)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``DhtNode`` (header ``qtng/kademlia.h``) implements a **BitTorrent DHT** node as
+specified by `BEP-5 <http://www.bittorrent.org/beps/bep_0005.html>`_. Messages are
+bencoded (see §7.2) and carried in **plain UDP datagrams** — not µTP. µTP (BEP-29)
+is only used later for peer piece transfer, which is out of scope here.
+
+The node speaks the four standard RPCs: ``ping``, ``find_node``, ``get_peers``,
+and ``announce_peer``. Hot state lives in memory; durable state goes through the
+pluggable ``DhtStore`` interface.
+
+8.3.1 Concepts
+++++++++++++++
+
+**Node id / infohash.** Both are 20-byte SHA-1 digests represented by ``NodeId``.
+Distance is bitwise XOR: ``d(a,b) = a XOR b``. Nodes that share a longer common
+prefix are closer in the key space.
+
+**Routing table.** Up to 160 k-buckets (``k = 8``). Bucket *i* holds contacts whose
+XOR distance from the local id falls in that bit range. Contacts are refreshed on
+successful RPC; when a full bucket sees a new contact, the least-recently-seen
+node is pinged and replaced if unresponsive.
+
+**Iterative lookup.** ``find_node`` / ``get_peers`` share an α-parallel search
+(``α = 3``): query the closest known contacts, merge returned ``nodes`` /
+``nodes6``, repeat until the closest set stabilizes, then return up to ``k``
+contacts (and any ``values`` peers for ``get_peers``).
+
+**Tokens.** ``get_peers`` responses include a short-lived token bound to the
+requester's IP. ``announce_peer`` must present a valid token; qtng mints tokens as
+``SHA1(secret || IP || time_slot)[:8]`` with a ~10 minute slot.
+
+**Peers vs DHT nodes.** ``DhtNodeInfo`` is a DHT contact (id + UDP endpoint).
+``DhtPeer`` is a torrent peer (IP + download port) returned by ``get_peers`` /
+stored by ``announce_peer``.
+
+Implementation constants (private): RPC timeout 3 s, peer TTL ~30 min,
+token TTL ~10 min.
+
+8.3.2 Compact encodings
++++++++++++++++++++++++
+
+BEP-5 packs contacts into opaque byte strings inside bencode fields ``nodes``,
+``nodes6``, and ``values``:
+
+==================== ===========================================
+Field                Layout per entry
+==================== ===========================================
+``nodes`` (IPv4)     20-byte id + 4-byte IP + 2-byte BE port (26)
+``nodes6`` (IPv6)    20-byte id + 16-byte IP + 2-byte BE port (38)
+``values`` peer v4   4-byte IP + 2-byte BE port (6)
+``values`` peer v6   16-byte IP + 2-byte BE port (18)
+==================== ===========================================
+
+Helpers: ``encodeCompactNodes`` / ``decodeCompactNodes`` (and ``*6`` /
+``*Peers`` variants).
+
+8.3.3 NodeId
+++++++++++++
+
+.. class:: NodeId
+
+    .. attribute:: static const int Size
+
+        Always ``20``.
+
+    .. method:: static NodeId random()
+    .. method:: static NodeId fromBytes(const std::string &raw20)
+    .. method:: static NodeId fromHex(const std::string &hex40)
+
+    .. method:: bool isValid() const
+    .. method:: std::string toBytes() const
+    .. method:: std::string toHex() const
+
+    .. method:: NodeId operator^(const NodeId &other) const
+    .. method:: int commonPrefixLength(const NodeId &other) const
+    .. method:: int bucketIndex(const NodeId &other) const
+
+        ``bucketIndex`` is ``0..159`` relative to ``*this``, or ``-1`` if equal.
+
+8.3.4 Contacts and peers
+++++++++++++++++++++++++
+
+.. class:: DhtEndpoint
+
+    UDP ``HostAddress`` + port for a DHT node. ``isValid()`` requires a non-null
+    address and non-zero port.
+
+.. class:: DhtNodeInfo
+
+    ``NodeId`` plus ``DhtEndpoint`` — a routing-table / ``find_node`` contact.
+
+.. class:: DhtPeer
+
+    Torrent peer address + port from ``get_peers`` / ``announce_peer``.
+
+8.3.5 DhtStore
+++++++++++++++
+
+.. class:: DhtStore
+
+    Abstract persistence. ``DhtNode`` loads on ``open()`` and saves routing /
+    peer changes during maintenance and lookups.
+
+    .. class:: DhtStore::StoredPeer
+
+        ``DhtPeer peer`` and ``expireUnix`` (unix seconds; drop when ``<= now``).
+
+    .. method:: virtual bool loadMeta(NodeId *id, std::string *tokenSecret) = 0
+    .. method:: virtual bool saveMeta(const NodeId &id, const std::string &tokenSecret) = 0
+
+        Local node id and secret used to mint announce tokens. ``loadMeta``
+        returns false on first boot (nothing stored yet).
+
+    .. method:: virtual std::vector<DhtNodeInfo> loadNodes() = 0
+    .. method:: virtual bool saveNodes(const std::vector<DhtNodeInfo> &nodes) = 0
+
+    .. method:: virtual std::vector<StoredPeer> loadPeers(const NodeId &infoHash) = 0
+    .. method:: virtual bool putPeer(const NodeId &infoHash, const DhtPeer &peer, std::int64_t expireUnix) = 0
+    .. method:: virtual bool removeExpiredPeers(std::int64_t nowUnix) = 0
+
+    .. method:: virtual std::string errorString() const = 0
+
+.. class:: MemoryDhtStore
+
+    In-process maps. Used automatically when ``DhtNode::open()`` receives a null
+    store. Suitable for tests and ephemeral nodes.
+
+.. class:: LmdbDhtStore
+
+    LMDB-backed store with named databases ``meta``, ``nodes``, and ``peers``.
+    The constructor path uses ``LmdbBuilder`` with ``MDB_NOSUBDIR`` by default
+    (typically a single file, not a directory).
+
+    .. method:: explicit LmdbDhtStore(const std::string &dirPath)
+    .. method:: bool isOpen() const
+
+8.3.6 DhtNode
++++++++++++++
+
+Coroutine-blocking API. ``open()`` binds UDP and starts background coroutines for
+receive and periodic maintenance (peer expiry, bucket refresh via
+``find_node(self)``). Call DHT methods from a coroutine context (same as other
+qtng network APIs).
+
+.. class:: DhtNode
+
+    .. method:: explicit DhtNode(const NodeId &id = NodeId())
+
+        If ``id`` is invalid, ``open()`` loads from the store or generates a
+        random id and persists it.
+
+    .. method:: bool open(std::uint16_t bindPort, std::shared_ptr<DhtStore> store = std::shared_ptr<DhtStore>(), HostAddress::NetworkLayerProtocol proto = HostAddress::IPv4Protocol)
+
+        Bind UDP (``0`` = ephemeral). Null ``store`` creates a ``MemoryDhtStore``.
+        Returns false on bind failure; see ``errorString()``.
+
+    .. method:: void close()
+    .. method:: bool isOpen() const
+
+    .. method:: NodeId id() const
+    .. method:: std::uint16_t localPort() const
+    .. method:: std::shared_ptr<DhtStore> store() const
+
+    .. method:: bool bootstrap(const std::vector<DhtEndpoint> &seeds)
+
+        Ping each seed, then iterative ``find_node(self)`` to populate the table.
+        Returns true if the routing table is non-empty afterward.
+
+    .. method:: std::vector<DhtNodeInfo> findNode(const NodeId &target)
+
+        Iterative ``find_node``; up to ``k`` closest contacts.
+
+    .. method:: std::vector<DhtPeer> getPeers(const NodeId &infoHash)
+
+        Iterative ``get_peers``, merged with any locally stored peers for that
+        infohash (deduplicated).
+
+    .. method:: bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const std::string &token = std::string())
+
+        Announce ``peerPort`` for ``infoHash``. If ``token`` is empty, tokens are
+        obtained via ``get_peers`` against closest nodes. Also stores a local peer
+        entry for subsequent ``getPeers``.
+
+    .. method:: int routingTableSize() const
+    .. method:: std::string errorString() const
+
+8.3.7 Example
++++++++++++++
+
+Persistent node, bootstrap, and peer lookup::
+
+    auto store = std::make_shared<qtng::LmdbDhtStore>("/var/lib/myapp/dht.mdb");
+    qtng::DhtNode node;
+    if (!node.open(6881, store)) {
+        std::cerr << node.errorString() << std::endl;
+        return 1;
+    }
+
+    std::vector<qtng::DhtEndpoint> seeds;
+    seeds.push_back(qtng::DhtEndpoint(qtng::HostAddress("87.98.162.88"), 6881));
+    node.bootstrap(seeds);
+
+    qtng::NodeId info = qtng::NodeId::fromHex("0123456789abcdef0123456789abcdef01234567");
+    std::vector<qtng::DhtPeer> peers = node.getPeers(info);
+    node.announcePeer(info, /*torrent listen port*/ 51413);
+
+Two local nodes (tests)::
+
+    qtng::DhtNode a, b;
+    a.open(0);
+    b.open(0);
+    std::vector<qtng::DhtEndpoint> seeds;
+    seeds.push_back(qtng::DhtEndpoint(qtng::HostAddress::LocalHost, b.localPort()));
+    a.bootstrap(seeds);
+    auto contacts = a.findNode(b.id());
+
+8.3.8 Scope and non-goals
++++++++++++++++++++++++++
+
+This module does **not** implement:
+
+* BitTorrent peer wire or piece download (see §8.4 ``TorrentSession``)
+* BEP-32 IPv6 DHT extensions in full (basic ``nodes6`` / IPv6 bind are supported)
+* BEP-44 / BEP-46 mutable DHT storage
+
+µTP lives in §8.2.1 (``UtpSocket``). Peer discovery from this module feeds §8.4.
+
+8.4 BitTorrent download stack
+-----------------------------
+
+``TorrentSession`` / ``TorrentHandle`` / ``TorrentMeta`` / ``MagnetLink`` (header
+``qtng/bt.h``, implementation ``src/bt.cpp``) provide a **core BitTorrent download
+stack** for network programs: load a ``.torrent`` or magnet URI, discover peers,
+transfer pieces over the peer wire protocol, verify SHA-1, and write files.
+
+The stack **reuses** existing qtng building blocks and does not reimplement them:
+
+* §7.2 ``Bencode`` for ``.torrent`` / tracker bodies / extension payloads
+* §8.3 ``DhtNode`` for ``get_peers`` / ``announce_peer`` (enabled by default;
+  pass a ``shared_ptr<DhtNode>`` to the constructor or ``setDhtNode()`` to share one node;
+  trackerless magnets rely on DHT)
+* §8.2.1 ``UtpSocket`` plus TCP ``Socket``, both exposed as ``SocketLike``, for peer
+  transport (µTP preferred on outbound, TCP fallback; inbound listen on both when possible)
+* ``HttpSession`` for HTTP(S) trackers; UDP trackers follow BEP-15
+* ``MessageDigest::Sha1`` for infohash and piece hashes
+* ``InfoHash`` is a typedef of ``NodeId`` (20-byte SHA-1)
+
+**Magnet links (BEP-9).** ``MagnetLink::parse`` accepts v1 magnets
+(``xt=urn:btih:`` with 40-char hex or 32-char base32 infohash, optional ``dn`` /
+``tr`` / ``x.pe``). ``TorrentSession::addMagnet`` / ``addMagnetUri`` join the swarm
+with the infohash, then fetch the info dictionary via BEP-10 extension handshake +
+BEP-9 ``ut_metadata`` before opening storage. ``TorrentStats::Metadata`` covers that
+phase. BitTorrent v2 magnets (``urn:btmh``) are not supported yet.
+
+First-phase scope includes multi-file torrents, rarest-first picking, a simple
+endgame, and magnet metadata exchange. Not included yet: MSE encryption, PEX,
+webseeds, or BitTorrent v2.
+
+Example::
+
+    auto dht = std::make_shared<qtng::DhtNode>();
+    qtng::TorrentSession session(dht);  // or default ctor + session.setDhtNode(dht)
+    session.setDownloadDir("/tmp/downloads");
+    session.setDhtEnabled(true);
+    session.setUtpEnabled(true);
+    qtng::TorrentHandle h = session.addMagnetUri(
+        "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567");
+    // or: session.addTorrentFile("ubuntu.torrent");
+    session.start();
+    h.wait();  // coroutine-blocking until finished or error
+
+    qtng::TorrentStats st = h.stats();
+    // st.progress, st.peersConnected, st.state, ...
+
+A Qt Widgets demo lives under ``examples/btclient/`` (accepts ``.torrent`` paths or
+magnet URIs).
+

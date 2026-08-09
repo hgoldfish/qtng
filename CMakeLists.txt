@@ -8,13 +8,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(GNUInstallDirs)
 include(CheckFunctionExists)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libressl/CMakeLists.txt")
-    message(STATUS "Found libressl/ subdirectory, building bundled LibreSSL")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libressl/CMakeLists.txt")
+    message(STATUS "Found 3rdparty/libressl, building bundled LibreSSL")
+    add_subdirectory(3rdparty/libressl)
+    set(QTNG_SSL_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/libressl/include")
+    set(QTNG_SSL_LIBRARIES crypto ssl)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libressl/CMakeLists.txt")
+    message(STATUS "Found libressl/ subdirectory (legacy path), building bundled LibreSSL")
     add_subdirectory(libressl)
     set(QTNG_SSL_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/libressl/include")
     set(QTNG_SSL_LIBRARIES crypto ssl)
 else()
-    message(STATUS "libressl/ not found, using system OpenSSL")
+    message(STATUS "3rdparty/libressl not found, using system OpenSSL")
     # 1.1.1+ for X25519 raw keys / ChaCha20-Poly1305 used by Noise
     find_package(OpenSSL 1.1.1 REQUIRED)
     set(QTNG_SSL_INCLUDE ${OPENSSL_INCLUDE_DIR})
@@ -43,6 +48,9 @@ set(QTNG_SRC
     src/socket_utils.cpp
     src/io_utils.cpp
     src/http.cpp
+    src/http1.cpp
+    src/http2.cpp
+    src/hpack.cpp
     src/http_utils.cpp
     src/http_proxy.cpp
     src/http_cookie.cpp
@@ -57,10 +65,15 @@ set(QTNG_SRC
     src/httpd2.cpp
     src/socks5_server.cpp
     src/websocket.cpp
+    src/mqtt.cpp
+    src/bencode.cpp
+    src/kademlia.cpp
+    src/bt.cpp
     src/udp.cpp
     src/kcp.cpp
     src/kcp/ikcp.c
     src/kcp/ikcp.h
+    src/utp.cpp
     src/network_interface/network_interface.cpp
 )
 
@@ -83,6 +96,9 @@ set(QTNG_PUBLIC_INCLUDE
     include/qtng/deferred.h
     include/qtng/qtng.h
     include/qtng/msgpack.h
+    include/qtng/bencode.h
+    include/qtng/kademlia.h
+    include/qtng/bt.h
     include/qtng/data_channel.h
     include/qtng/multi_stream.h
     include/qtng/udp.h
@@ -90,6 +106,7 @@ set(QTNG_PUBLIC_INCLUDE
     include/qtng/network_interface.h
     include/qtng/gzip.h
     include/qtng/websocket.h
+    include/qtng/mqtt.h
 )
 
 set(QTNG_PRIVATE_INCLUDE
@@ -98,9 +115,14 @@ set(QTNG_PRIVATE_INCLUDE
     include/qtng/private/coroutine_utils_p.h
     include/qtng/private/socket_p.h
     include/qtng/private/kcp.h
+    include/qtng/private/utp.h
+    include/qtng/private/kademlia_p.h
+    include/qtng/private/bt_p.h
     include/qtng/private/http_p.h
     include/qtng/private/hostaddress_p.h
     include/qtng/private/network_interface_p.h
+    include/qtng/private/quic_p.h
+    include/qtng/private/quic_tls.h
 )
 
 set(QTNG_CRYPTO_SRC
@@ -112,6 +134,14 @@ set(QTNG_CRYPTO_SRC
     src/certificate.cpp
     src/qasn1element.cpp
     src/noise.cpp
+    src/aead.cpp
+    src/quic_varint.cpp
+    src/quic_packet.cpp
+    src/quic_frame.cpp
+    src/quic_crypto.cpp
+    src/quic_tls.cpp
+    src/quic_recovery.cpp
+    src/quic.cpp
 )
 
 set(QTNG_CRYPTO_INCLUDE
@@ -125,6 +155,8 @@ set(QTNG_CRYPTO_INCLUDE
     include/qtng/pkey.h
     include/qtng/certificate.h
     include/qtng/noise.h
+    include/qtng/aead.h
+    include/qtng/quic.h
 )
 
 set(QTNG_CRYPTO_PRIVATE_INCLUDE

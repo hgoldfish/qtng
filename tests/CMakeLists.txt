@@ -76,6 +76,15 @@ set_target_properties(qtng_tests PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRE
 
 catch_discover_tests(qtng_tests)
 
+add_executable(qtng_test_http2
+    test_http2.cpp
+)
+target_link_libraries(qtng_test_http2 PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_http2 PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
+set_target_properties(qtng_test_http2 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+catch_discover_tests(qtng_test_http2)
+
 add_executable(qtng_test_msgpack
     test_msgpack_variant.cpp
 )
@@ -93,3 +102,88 @@ target_include_directories(qtng_test_multi_stream PRIVATE "${CMAKE_SOURCE_DIR}/i
 set_target_properties(qtng_test_multi_stream PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
 catch_discover_tests(qtng_test_multi_stream)
+
+add_executable(qtng_test_bencode
+    test_bencode.cpp
+)
+target_link_libraries(qtng_test_bencode PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_bencode PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_bencode PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+catch_discover_tests(qtng_test_bencode)
+
+add_executable(qtng_test_noise
+    test_noise.cpp
+)
+target_link_libraries(qtng_test_noise PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_noise PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_noise PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+catch_discover_tests(qtng_test_noise)
+
+add_executable(qtng_test_mqtt
+    test_mqtt.cpp
+)
+target_link_libraries(qtng_test_mqtt PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_mqtt PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_mqtt PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+catch_discover_tests(qtng_test_mqtt)
+
+add_executable(qtng_test_kademlia
+    test_kademlia.cpp
+)
+target_link_libraries(qtng_test_kademlia PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_kademlia PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_kademlia PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+catch_discover_tests(qtng_test_kademlia)
+
+add_executable(qtng_test_bt
+    test_bt.cpp
+)
+target_link_libraries(qtng_test_bt PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_bt PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_bt PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+catch_discover_tests(qtng_test_bt)
+
+add_executable(qtng_test_utp
+    test_utp.cpp
+)
+target_link_libraries(qtng_test_utp PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_utp PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_utp PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+catch_discover_tests(qtng_test_utp)
+
+add_executable(qtng_test_quic
+    test_quic.cpp
+)
+target_link_libraries(qtng_test_quic PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_quic PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
+set_target_properties(qtng_test_quic PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+catch_discover_tests(qtng_test_quic)
+
+# Optional picoquic interop (process-level). Requires an external picoquicdemo binary.
+# See 3rdparty/README.md / README for how to build picoquic into /tmp/picoquic-build.
+add_executable(qtng_test_quic_picoquic
+    test_quic_picoquic.cpp
+)
+target_link_libraries(qtng_test_quic_picoquic PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_quic_picoquic PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
+set_target_properties(qtng_test_quic_picoquic PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+catch_discover_tests(qtng_test_quic_picoquic)
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/3rdparty/libutp/utp.h")
+    add_subdirectory(${CMAKE_SOURCE_DIR}/3rdparty/libutp ${CMAKE_BINARY_DIR}/3rdparty/libutp)
+    add_executable(qtng_test_utp_libutp
+        test_utp_libutp.cpp
+    )
+    target_link_libraries(qtng_test_utp_libutp PRIVATE qtng utp Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_utp_libutp PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
+    set_target_properties(qtng_test_utp_libutp PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_utp_libutp)
+    message(STATUS "3rdparty/libutp found: building uTP libutp interoperability tests")
+else()
+    message(STATUS "3rdparty/libutp not initialized: skipping uTP libutp interoperability tests")
+endif()

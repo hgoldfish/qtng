@@ -1438,7 +1438,7 @@ KCP 协议的服务器实现。
 3. HTTP 客户端
 --------------
 
-``HttpSession`` 是支持 HTTP 1.0/1.1 的客户端，具备自动 Cookie 管理和自动重定向功能。核心方法 ``HttpSession::send()`` 用于发送请求并解析响应，同时提供快捷方法如 ``get()``、 ``post()``、 ``head()`` 等实现单行代码发起 HTTP 请求。
+``HttpSession`` 是支持 HTTP 1.0/1.1 与 HTTP/2 的客户端（HTTPS 经 ALPN 协商 ``h2``；不支持 Server Push，亦不提供 HTTP/2 服务端），具备自动 Cookie 管理和自动重定向功能。HTTP/2 路径支持多路复用、流控（connection/stream WINDOW_UPDATE）、``MAX_CONCURRENT_STREAMS``、HEADERS/CONTINUATION 分片、trailers 消费，以及 ``streamResponse`` 下流式读取。核心方法 ``HttpSession::send()`` 用于发送请求并解析响应，同时提供快捷方法如 ``get()``、 ``post()``、 ``head()`` 等实现单行代码发起 HTTP 请求。
 
 该组件支持 SOCKS5 代理（默认未启用），目前暂不支持 HTTP 代理。Cookie 管理通过 ``HttpSession::cookieJar()`` 实现，响应缓存使用 ``HttpSession::cacheManager()``（默认无缓存）。qtng 提供内存缓存组件 ``HttpMemoryCacheManager``。
 
@@ -1960,7 +1960,7 @@ KCP 协议的服务器实现。
 
     不支持的HTTP版本。
 
-    注意：``HttpSession`` 仅支持 HTTP 1.0 和 1.1。
+    注意：``HttpSession`` 支持 HTTP 1.0、1.1 与 HTTP/2 客户端。HTTP/3 尚未实现。不支持 Server Push。
 
 * InvalidURL
 
@@ -2739,16 +2739,45 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 5.6 Noise 协议
 ^^^^^^^^^^^^^^
 
-提供 Noise Protocol Framework 的精简实现，支持 ``Noise_XX_25519_ChaChaPoly_SHA256`` 与
-``NoisePSK_XX_25519_ChaChaPoly_SHA256``（头文件 ``qtng/noise.h``）。
+提供 Noise Protocol Framework 的精简实现，支持 ``Noise_XX_25519_ChaChaPoly_SHA256``、
+``NoisePSK_XX_25519_ChaChaPoly_SHA256`` 与 ``Noise_IK_25519_ChaChaPoly_SHA256``
+（头文件 ``qtng/noise.h``）。
 
 * ``NoiseKey`` — X25519 密钥对生成、从私钥导入、DH。
 * ``NoiseCipherState`` — ChaCha20-Poly1305 AEAD，Noise 风格 12 字节 nonce
   （4 字节零 + 8 字节小端计数器），以及 64 位滑动窗口防重放（``acceptIncomingNonce``）。
   重载 ``decryptWithAd(ad, ciphertext, nonce)`` 面向多路径乱序投递：仅在 AEAD
   认证成功后才提交 nonce 窗口，避免伪造包或握手重传永久污染防重放状态。
-* ``NoiseHandshakeState`` — XX / PSK_XX 握手状态机；完成后调用 ``split()`` 得到传输层收发密码状态。
+  ``rekey()`` 按 Noise 规范替换密钥，不重置 nonce。
+* ``NoiseHandshakeState`` — XX / PSK_XX / IK 握手状态机；``initialize()`` 支持
+  prologue（始终 ``MixHash``，含空 prologue）；PSK 按 psk0 做 ``MixKeyAndHash``；
+  完成后调用 ``split()`` 得到传输层收发密码状态；``handshakeHash()`` 可用于通道绑定。
+  IK 发起方必须提供对端静态公钥；若预先提供了期望的远端静态公钥且握手中解密出的不符，握手失败。
+* ``NoiseStream`` — 在 ``SocketLike`` 之上完成握手，并以 2 字节大端长度前缀帧传输
+  AEAD 密文；``sendMessage`` / ``recvMessage`` 为消息语义，``sendall`` / ``recv`` 在
+  当前帧上提供流式读写。
 * ``noiseHkdf`` / ``noiseHmacSha256`` — HKDF-SHA256 与 HMAC-SHA256 辅助函数（可用于 cookie MAC 等）。
+
+.. code-block:: c++
+
+    NoiseKey alice = NoiseKey::generate();
+    NoiseKey bob = NoiseKey::generate();
+    auto client = make_shared<NoiseStream>(asSocketLike(tcpClient));
+    auto server = make_shared<NoiseStream>(asSocketLike(tcpServer));
+    client->initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
+    server->initialize(NoisePattern::XX, NoiseRole::Responder, bob);
+    // 两端分别调用 handshake() 后即可 sendMessage / recvMessage
+
+5.7 AEAD 与 HKDF 辅助接口
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+头文件 ``qtng/aead.h`` 提供可复用的加密原语（供 QUIC 使用，也可直接给应用调用）：
+
+* ``Aead`` — AES-128-GCM、AES-256-GCM、ChaCha20-Poly1305 的 seal/open（含 AAD）；
+  密文布局为 ``ciphertext || tag``。
+* ``hkdfExtract`` / ``hkdfExpand`` / ``hkdf`` — RFC 5869 HKDF。
+* ``hkdfExpandLabel`` — TLS 1.3 / QUIC 的 ``HKDF-Expand-Label``（带 ``tls13 `` 前缀）。
+* ``aesEcbEncryptBlock`` — 单块 AES-ECB，用于 QUIC header protection mask。
 
 6. 配置和构建
 --------------
@@ -2780,7 +2809,7 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 
 CMake 按以下顺序选择 TLS/加密库：
 
-* 若存在带 ``CMakeLists.txt`` 的 ``libressl/`` 子目录，自动构建并链接内置 LibreSSL。
+* 若已初始化含 ``CMakeLists.txt`` 的 ``3rdparty/libressl`` git 子模块，自动构建并链接内置 LibreSSL。
 * 否则需要 OpenSSL 1.1.1 或更高版本（``find_package(OpenSSL 1.1.1 REQUIRED)``；Noise 需要 X25519 raw key API）。
 
 未使用内置 LibreSSL 时，Debian/Ubuntu 可安装 ``libssl-dev`` 开发包。
@@ -3088,6 +3117,293 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
     按相对父目录处理（与 HTTP URL 路径一致）。含 ``..`` 的路径会被拒绝。
     失败时返回的 pair 两个字符串都为空。
 
+7.2 Bencode
+^^^^^^^^^^^
+
+BitTorrent **bencode** 是一种紧凑的二进制序列化格式，贯穿整个 BitTorrent 生态：
+``.torrent`` 文件、HTTP tracker 响应、扩展协议载荷，以及全部 DHT（BEP-5）UDP 报文。
+qtng 在 ``qtng/bencode.h`` 中提供与 ``MsgPackStream`` 对齐的两套 API：
+
+* ``BencodeStream`` — 基于 ``FileLike`` 或 ``std::string`` 的流式编解码
+* ``Bencode`` — 内存中的值树（整数 / 字符串 / 列表 / 字典）
+
+DHT（``DhtNode``）与 BitTorrent 下载栈（§8.4 ``TorrentSession``）共用本模块。
+
+7.2.1 线格式
+++++++++++++
+
+Bencode 只有四种类型：
+
+=========== =================================================== =======================
+类型        编码                                                示例
+=========== =================================================== =======================
+整数        ``i`` *十进制* ``e``                                ``i42e``、``i-3e``、``i0e``
+字节串      *长度* ``:`` *原始字节*                             ``4:spam``、``3:\\x00\\x01\\xff``
+列表        ``l`` *元素…* ``e``                                 ``l4:spami42ee``
+字典        ``d`` *键* *值* … ``e``                             ``d3:bar4:spam3:fooi42ee``
+=========== =================================================== =======================
+
+互通时需注意：
+
+* 整数**不能有前导零**（``0`` 本身除外）；``-0`` 非法。
+* 字符串是**任意字节**，不是 UTF-8。节点 ID、infohash、``pieces`` 位图都以字符串编码。
+* 字典的**键必须是字节串**；*编码*时按**原始字节序**（字典序）输出。规范键序是
+  ``info`` 字典的硬性要求：``infohash = SHA1(bencode(info))``。
+* *解码*时 qtng 接受未排序键（部分实现对端较松）；``encode()`` / ``std::map`` 始终产出有序结果。
+
+7.2.2 Stream 与 Value 的选择
+++++++++++++++++++++++++++++
+
+* 模式在编译期已知时用 ``BencodeStream``（类型化 ``operator<<`` / ``>>`` 写入
+  ``std::map``、``std::vector`` 等），或从文件增量读取。
+* 结构动态时用 ``Bencode``（DHT 可选字段、未知扩展键）。组装
+  ``std::map<std::string, Bencode>`` / ``std::vector<Bencode>``，用 ``Bencode``
+  构造函数包装后调用 ``encode()``。
+
+7.2.3 BencodeStream
++++++++++++++++++++
+
+.. class:: BencodeStream
+
+    .. method:: BencodeStream()
+    .. method:: BencodeStream(FileLike *d)
+    .. method:: BencodeStream(std::string *a, bool writeMode = false)
+    .. method:: BencodeStream(const std::string &a)
+
+        构造空流、绑定设备，或以字符串为后端。
+        ``writeMode=true`` 向 ``*a`` 追加；const 字符串为只读输入。
+
+    .. method:: void setDevice(FileLike *d)
+    .. method:: FileLike *device() const
+    .. method:: std::string data() const
+
+        流持有字符串设备时返回当前缓冲。
+
+    .. method:: bool atEnd() const
+    .. method:: Status status() const
+    .. method:: bool isOk() const
+    .. method:: void resetStatus()
+    .. method:: void setStatus(Status status)
+
+        ``Status`` 为 ``Ok``、``ReadPastEnd``、``ReadCorruptData`` 或 ``WriteFailed``。
+
+    .. method:: void setLengthLimit(std::uint32_t limit)
+    .. method:: std::uint32_t lengthLimit() const
+
+        解码字符串 / 嵌套预算上限（默认 ``16 MiB``），防止恶意包无限分配。
+
+    .. method:: BencodeStream &operator>>(std::int64_t &i)
+    .. method:: BencodeStream &operator>>(std::string &str)
+    .. method:: BencodeStream &operator>>(Bencode &v)
+    .. method:: bool readBytes(char *data, std::int64_t len)
+    .. method:: bool peekByte(std::uint8_t *b) const
+
+        ``peekByte`` 对任意 ``FileLike`` 最多预读一个字节，后续读取会消费同一字节
+        （用于判断下一类型标签）。
+
+    .. method:: bool readArrayHeader(std::uint32_t &len)
+    .. method:: bool readMapHeader(std::uint32_t &len)
+    .. method:: bool readArrayEnd()
+    .. method:: bool readMapEnd()
+    .. method:: bool peekContainerEnd() const
+
+        容器头辅助函数对齐 ``MsgPackStream``（``Array`` / ``Map`` 命名及 ``len`` 参数）。
+        Bencode **没有长度前缀**，因此 ``read*Header`` 将 ``len`` 设为 ``UINT32_MAX``
+        （不定长）。用 ``peekContainerEnd()`` 迭代，再以 ``readArrayEnd()`` /
+        ``readMapEnd()`` 结束。
+
+    .. method:: BencodeStream &operator<<(std::int64_t i)
+    .. method:: BencodeStream &operator<<(const std::string &str)
+    .. method:: BencodeStream &operator<<(const Bencode &v)
+    .. method:: bool writeBytes(const char *data, std::int64_t len)
+    .. method:: bool writeArrayHeader(std::uint32_t len)
+    .. method:: bool writeMapHeader(std::uint32_t len)
+    .. method:: bool writeArrayEnd()
+    .. method:: bool writeMapEnd()
+
+        ``write*Header`` 接受 ``len`` 仅为 API 一致，实际只写入 ``l`` / ``d`` 标记；
+        写完后必须配对 ``writeArrayEnd()`` / ``writeMapEnd()``。
+
+    模板 ``operator<<`` / ``operator>>`` 还支持 ``std::vector``、``std::list``、
+    ``std::set``、``std::unordered_set``（编码为列表）以及 ``std::map``、
+    ``std::unordered_map``（编码为字典）。需要规范编码（如 infohash）时请使用
+    ``std::map``。``std::unordered_map`` **不保证**键序。
+
+7.2.4 Bencode 值树
+++++++++++++++++++
+
+.. class:: Bencode
+
+    动态 bencode 值。列表/字典内容通过 ``toList()`` / ``toMap()`` 取得
+    ``std::vector<Bencode>`` / ``std::map<std::string, Bencode>``；在标准容器上组装后，
+    再用 ``Bencode`` 构造函数包装。
+
+    .. method:: Bencode()
+    .. method:: Bencode(std::int64_t i)
+    .. method:: Bencode(const std::string &s)
+    .. method:: Bencode(const char *s)
+    .. method:: Bencode(const std::vector<Bencode> &list)
+    .. method:: Bencode(std::vector<Bencode> &&list)
+    .. method:: Bencode(const std::map<std::string, Bencode> &dict)
+    .. method:: Bencode(std::map<std::string, Bencode> &&dict)
+
+    .. method:: static Bencode dict()
+    .. method:: static Bencode list()
+
+        空容器。
+
+    .. method:: Type type() const
+    .. method:: bool isValid() const
+    .. method:: bool isInteger() const
+    .. method:: bool isString() const
+    .. method:: bool isList() const
+    .. method:: bool isDict() const
+
+    .. method:: std::int64_t toInteger(std::int64_t defaultValue = 0) const
+    .. method:: std::string toString() const
+    .. method:: const std::vector<Bencode> &toList() const
+    .. method:: const std::map<std::string, Bencode> &toMap() const
+
+        类型不匹配时返回空 / 默认值。
+
+    .. method:: std::string encode() const
+
+        序列化，字典键已排序。
+
+    .. method:: static Bencode decode(const std::string &data, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
+    .. method:: static Bencode decode(FileLike *device, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
+
+        解析完整值。失败返回无效 ``Bencode``，并可写入 ``*error``。
+        值之后若有多余字节视为错误。
+
+7.2.5 示例
+++++++++++
+
+类型化 map 的流式往返::
+
+    qtng::BencodeStream stream;
+    std::map<std::string, std::int64_t> payload{{"spam", 42}};
+    stream << payload;
+    std::string wire = stream.data();  // "d4:spami42ee"
+
+    qtng::Bencode back = qtng::Bencode::decode(wire);
+    std::int64_t n = back.toMap().at("spam").toInteger();
+
+    qtng::BencodeStream parsed(wire);
+    std::map<std::string, std::int64_t> roundTrip;
+    parsed >> roundTrip;
+
+用动态树构造 DHT 风格查询::
+
+    std::map<std::string, qtng::Bencode> args;
+    args["id"] = qtng::Bencode(std::string(20, '\\x01'));
+    std::map<std::string, qtng::Bencode> msg;
+    msg["a"] = qtng::Bencode(args);
+    msg["q"] = "ping";
+    msg["t"] = "aa";
+    msg["y"] = "q";
+    std::string encoded = qtng::Bencode(std::move(msg)).encode();
+
+手动列表/字典标记（MsgPack 风格控制流）::
+
+    qtng::BencodeStream s;
+    s.writeMapHeader(0);
+    s << std::string("foo") << std::int64_t(1);
+    s.writeMapEnd();
+    // "d3:fooi1ee"
+
+7.3 MQTT 客户端
+^^^^^^^^^^^^^^^
+
+``qtng/mqtt.h`` 在 ``SocketLike``（TCP 或 TLS）之上提供 **MQTT 3.1.1** 客户端。
+API 对齐 ``WebSocketConnection``：协程阻塞式 ``publish`` / ``subscribe`` / ``recv``，
+内部使用收发与 keepalive 协程。
+
+本版本支持：
+
+* QoS 0 / 1 / 2
+* Clean Session、Will、用户名密码
+* Keep Alive ``PINGREQ`` / ``PINGRESP``
+* ``MqttClient::connect``（TCP，默认端口 1883）与 ``MqttClient::connectTls``（TLS，默认 8883）
+
+不包含：broker/服务端、MQTT 5.0、MQTT over WebSocket。
+
+明文示例::
+
+    #include "qtng/mqtt.h"
+    #include <iostream>
+
+    int main()
+    {
+        qtng::MqttConfiguration config;
+        config.setClientId("sensor-1");
+        config.setKeepAlive(60);
+
+        std::shared_ptr<qtng::MqttClient> client =
+            qtng::MqttClient::connect("127.0.0.1", 1883, config);
+        if (!client) {
+            return 1;
+        }
+
+        client->subscribe("sensors/#", qtng::MqttQos::AtLeastOnce);
+        client->publish(qtng::MqttMessage("sensors/temp", "22.5", qtng::MqttQos::AtLeastOnce));
+
+        qtng::MqttMessage msg = client->recv();
+        std::cout << msg.topic << ": " << msg.payload << std::endl;
+        client->disconnect();
+        return 0;
+    }
+
+注入已连接的 ``SocketLike``（代理、自定义 TLS 等）::
+
+    auto raw = qtng::asSocketLike(qtng::Socket::createConnection("broker.local", 1883));
+    qtng::MqttClient client(raw, config);
+    if (!client.isConnected()) {
+        // 查看 client.error() / errorString()
+    }
+
+.. method:: std::shared_ptr<MqttClient> MqttClient::connect(const std::string &host, std::uint16_t port = 1883, const MqttConfiguration &config = MqttConfiguration())
+
+    建立 TCP 连接，发送 ``CONNECT`` 并等待 ``CONNACK``。失败时返回空 ``shared_ptr``。
+
+.. method:: std::shared_ptr<MqttClient> MqttClient::connectTls(const std::string &host, std::uint16_t port = 8883, const MqttConfiguration &config = MqttConfiguration(), const SslConfiguration &ssl = SslConfiguration())
+
+    与 ``connect`` 相同，内部使用 ``SslSocket::createConnection``。
+
+.. method:: explicit MqttClient::MqttClient(std::shared_ptr<SocketLike> connection, const MqttConfiguration &config = MqttConfiguration())
+
+    在已有字节流上完成 MQTT 握手。之后检查 ``isConnected()``。
+
+.. method:: bool MqttClient::publish(const MqttMessage &msg)
+
+    发布并等待对应 QoS 握手完成（QoS 0：写出后即成功）。
+
+.. method:: bool MqttClient::publishAsync(const MqttMessage &msg)
+
+    仅将发布请求入队，不等待完成。
+
+.. method:: bool MqttClient::subscribe(const std::string &topic, MqttQos qos = MqttQos::AtMostOnce)
+.. method:: bool MqttClient::unsubscribe(const std::string &topic)
+
+    订阅 / 取消订阅，并等待 ``SUBACK`` / ``UNSUBACK``。
+
+.. method:: MqttMessage MqttClient::recv()
+
+    阻塞直到收到下一条入站 ``PUBLISH``（已完成 QoS 处理）。连接关闭时返回空消息。
+
+.. method:: void MqttClient::disconnect()
+
+    发送 ``DISCONNECT`` 后关闭连接。
+
+.. method:: void MqttClient::abort()
+
+    不发送优雅 ``DISCONNECT``，直接中止。
+
+``MqttConfiguration`` 主要项：``clientId``、``cleanSession``（默认 true）、
+``keepAlive``（秒）、``username`` / ``password``、``setWill(MqttMessage)``、
+队列容量、``maxPacketSize``、``connectTimeout``。
+
+
 8. 高级编程
 -----------
 
@@ -3295,3 +3611,309 @@ listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠
 包装不会在共享链路上安装 UDP 接收 ``filter``（``accept`` 得到的 slave 与 master
 共用 ``UdpDatagramLink``）；若需过滤报文，请在持有套接字的监听端 ``KcpSocket``
 上重写 ``filter``。
+
+8.2.1 UtpStream 与 UtpSocket
++++++++++++++++++++++++++++
+
+``UtpStream``（私有头 ``qtng/private/utp.h``）在同样的 ``DatagramLink`` / ``DatagramPath``
+抽象上对齐 ``KcpStream`` 会话形态：由 link 构造，然后 ``markBound`` / ``listen`` /
+``accept`` 或 ``connect``，以及字节流 ``peek`` / ``recv`` / ``recvall`` / ``send`` /
+``sendall``、``busy`` / ``notBusy``、``peerPath``。
+
+它**不**提供 KCP 专有 API（``Mode``、``setMode``、``setSendQueueSize``、``setTearDownTime``、
+ikcp MTU 相关接口），而是使用 BEP-29 / LEDBAT 参数：
+
+* ``setDelayTarget`` / ``delayTarget`` — LEDBAT 目标单向时延（默认 100 ms）
+* ``setMaxWindow`` / ``maxWindow`` — 拥塞窗口上限
+* ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — DATA 载荷大小
+* ``setReceiveBufferSize`` / ``receiveBufferSize`` — 通告接收窗口
+* ``setIdleTimeout`` / ``idleTimeout`` — 可选空闲断开（0 表示禁用）
+
+线协议为 µTP v1（``ST_DATA`` / ``ST_FIN`` / ``ST_STATE`` / ``ST_RESET`` / ``ST_SYN``），
+按 ``connection_id`` 解复用。运行时不依赖 libutp。
+
+``UtpSocket``（``udp.h``）是 ``UdpDatagramLink`` + ``UtpStream`` 的薄 UDP 门面，用法对齐
+``KcpSocket``。可用 ``wrapUtpStreamAsSocket``、``asSocketLike`` 与 ``UtpServer``。工厂
+``UtpSocket::createConnection`` / ``createServer`` 不接受 KCP ``Mode`` 参数。
+
+8.2.2 QuicConnection 与 QuicStream（QUIC 传输层 MVP）
+++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+头文件 ``qtng/quic.h`` 提供 **QUIC v1 传输层 MVP**（RFC 9000/9001/9002 子集）。
+**不包含** HTTP/3。
+
+* ``QuicConfiguration`` — ALPN、空闲超时、是否校验对端证书、服务端证书/私钥、流控窗口。
+* ``QuicConnection`` — ``connect``（UDP 地址、主机名或 ``DatagramPath``）、``serve``
+  （在已绑定链路上完成单连接服务端握手）、``openStream`` / ``acceptStream``、
+  ``close`` / ``abort``、``handshakeDone`` 事件。
+* ``QuicStream`` — 协程阻塞式 ``recv`` / ``send`` / ``close`` / ``reset``；
+  ``asSocketLike(shared_ptr<QuicStream>)`` 可接入需要 ``SocketLike`` 的组件。
+
+与 ``KcpSocket`` / ``UtpSocket``（每会话一条可靠字节流）不同，QUIC 以**连接**多路复用流。
+收发包走 ``DatagramLink``（UDP 内部适配，或测试用自定义链路）。
+
+MVP 能力：``TLS_AES_128_GCM_SHA256`` + X25519 的 TLS 1.3 握手，Initial / Handshake /
+1-RTT 包保护（含合并包与客户端 Initial ≥1200 字节），CRYPTO / STREAM 帧，简化 ACK +
+PTO 重传，``CONNECTION_CLOSE``。可选通过 ``qtng_test_quic_picoquic`` 与
+``picoquicdemo`` 做进程级互通（见 ``3rdparty/README.md``）。
+本阶段不含：HTTP/3、0-RTT、连接迁移、完整拥塞控制。
+
+8.3 Kademlia / BitTorrent DHT（BEP-5）
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``DhtNode``（头文件 ``qtng/kademlia.h``）实现 `BEP-5 <http://www.bittorrent.org/beps/bep_0005.html>`_
+规定的 **BitTorrent DHT** 节点。报文使用 bencode（见 §7.2），经**普通 UDP 数据报**传输——
+不是 µTP。µTP（BEP-29）只用于后续 peer 传片，不在本模块范围内。
+
+节点支持四个标准 RPC：``ping``、``find_node``、``get_peers``、``announce_peer``。
+热数据在内存中；持久化走可插拔的 ``DhtStore``。
+
+8.3.1 概念
+++++++++++
+
+**节点 ID / infohash。** 二者都是 20 字节 SHA-1，由 ``NodeId`` 表示。距离为按位 XOR：
+``d(a,b) = a XOR b``。公共前缀越长，在键空间中越近。
+
+**路由表。** 最多 160 个 k-bucket（``k = 8``）。桶 *i* 存放与本机 id 的 XOR 距离落在
+对应比特区间的联系人。成功 RPC 会刷新联系人；桶满且出现新节点时，对最久未见节点
+发 ping，无应答则替换。
+
+**迭代查找。** ``find_node`` / ``get_peers`` 共用 α 并行搜索（``α = 3``）：查询当前
+已知的最近联系人，合并返回的 ``nodes`` / ``nodes6``，直到最近集合稳定，再返回最多
+``k`` 个联系人（``get_peers`` 时还可能带 ``values`` peer 列表）。
+
+**Token。** ``get_peers`` 响应含短时 token，与请求方 IP 绑定。``announce_peer`` 必须
+携带有效 token；qtng 的 token 为 ``SHA1(secret || IP || time_slot)[:8]``，时间槽约
+10 分钟。
+
+**Peer 与 DHT 节点。** ``DhtNodeInfo`` 是 DHT 联系人（id + UDP 端点）。``DhtPeer`` 是
+torrent peer（IP + 下载端口），由 ``get_peers`` 返回、由 ``announce_peer`` 写入。
+
+实现常量（私有）：RPC 超时 3 秒，peer TTL 约 30 分钟，token TTL 约 10 分钟。
+
+8.3.2 Compact 编码
+++++++++++++++++++
+
+BEP-5 将联系人打包进 bencode 字段 ``nodes``、``nodes6``、``values`` 的不透明字节串：
+
+==================== ===========================================
+字段                 每条布局
+==================== ===========================================
+``nodes``（IPv4）    20 字节 id + 4 字节 IP + 2 字节大端端口（26）
+``nodes6``（IPv6）   20 字节 id + 16 字节 IP + 2 字节大端端口（38）
+``values`` peer v4   4 字节 IP + 2 字节大端端口（6）
+``values`` peer v6   16 字节 IP + 2 字节大端端口（18）
+==================== ===========================================
+
+辅助函数：``encodeCompactNodes`` / ``decodeCompactNodes``（以及 ``*6`` / ``*Peers`` 变体）。
+
+8.3.3 NodeId
+++++++++++++
+
+.. class:: NodeId
+
+    .. attribute:: static const int Size
+
+        固定为 ``20``。
+
+    .. method:: static NodeId random()
+    .. method:: static NodeId fromBytes(const std::string &raw20)
+    .. method:: static NodeId fromHex(const std::string &hex40)
+
+    .. method:: bool isValid() const
+    .. method:: std::string toBytes() const
+    .. method:: std::string toHex() const
+
+    .. method:: NodeId operator^(const NodeId &other) const
+    .. method:: int commonPrefixLength(const NodeId &other) const
+    .. method:: int bucketIndex(const NodeId &other) const
+
+        相对 ``*this`` 的桶下标为 ``0..159``；相等时为 ``-1``。
+
+8.3.4 联系人与 Peer
++++++++++++++++++++
+
+.. class:: DhtEndpoint
+
+    DHT 节点的 UDP ``HostAddress`` + 端口。``isValid()`` 要求地址非空且端口非 0。
+
+.. class:: DhtNodeInfo
+
+    ``NodeId`` 加 ``DhtEndpoint``——路由表 / ``find_node`` 联系人。
+
+.. class:: DhtPeer
+
+    ``get_peers`` / ``announce_peer`` 中的 torrent peer 地址与端口。
+
+8.3.5 DhtStore
+++++++++++++++
+
+.. class:: DhtStore
+
+    持久化抽象。``DhtNode`` 在 ``open()`` 时加载，并在维护与查找过程中保存路由 /
+    peer 变更。
+
+    .. class:: DhtStore::StoredPeer
+
+        ``DhtPeer peer`` 与 ``expireUnix``（Unix 秒；``<= now`` 时删除）。
+
+    .. method:: virtual bool loadMeta(NodeId *id, std::string *tokenSecret) = 0
+    .. method:: virtual bool saveMeta(const NodeId &id, const std::string &tokenSecret) = 0
+
+        本机节点 id 与用于签发 announce token 的密钥。首次启动（尚无数据）时
+        ``loadMeta`` 返回 false。
+
+    .. method:: virtual std::vector<DhtNodeInfo> loadNodes() = 0
+    .. method:: virtual bool saveNodes(const std::vector<DhtNodeInfo> &nodes) = 0
+
+    .. method:: virtual std::vector<StoredPeer> loadPeers(const NodeId &infoHash) = 0
+    .. method:: virtual bool putPeer(const NodeId &infoHash, const DhtPeer &peer, std::int64_t expireUnix) = 0
+    .. method:: virtual bool removeExpiredPeers(std::int64_t nowUnix) = 0
+
+    .. method:: virtual std::string errorString() const = 0
+
+.. class:: MemoryDhtStore
+
+    进程内 map。``DhtNode::open()`` 传入空 store 时自动使用。适合测试与临时节点。
+
+.. class:: LmdbDhtStore
+
+    基于 LMDB，命名库为 ``meta``、``nodes``、``peers``。构造路径经 ``LmdbBuilder``，
+    默认 ``MDB_NOSUBDIR``（通常是单个文件而非目录）。
+
+    .. method:: explicit LmdbDhtStore(const std::string &dirPath)
+    .. method:: bool isOpen() const
+
+8.3.6 DhtNode
++++++++++++++
+
+协程阻塞式 API。``open()`` 绑定 UDP，并启动收包与定期维护协程（peer 过期清理、
+经 ``find_node(self)`` 刷新桶）。请在协程上下文中调用 DHT 方法（与其它 qtng 网络
+API 相同）。
+
+.. class:: DhtNode
+
+    .. method:: explicit DhtNode(const NodeId &id = NodeId())
+
+        若 ``id`` 无效，``open()`` 从 store 加载或生成随机 id 并持久化。
+
+    .. method:: bool open(std::uint16_t bindPort, std::shared_ptr<DhtStore> store = std::shared_ptr<DhtStore>(), HostAddress::NetworkLayerProtocol proto = HostAddress::IPv4Protocol)
+
+        绑定 UDP（``0`` = 临时端口）。空 ``store`` 会创建 ``MemoryDhtStore``。
+        绑定失败返回 false，见 ``errorString()``。
+
+    .. method:: void close()
+    .. method:: bool isOpen() const
+
+    .. method:: NodeId id() const
+    .. method:: std::uint16_t localPort() const
+    .. method:: std::shared_ptr<DhtStore> store() const
+
+    .. method:: bool bootstrap(const std::vector<DhtEndpoint> &seeds)
+
+        对每个 seed 发 ping，再迭代 ``find_node(self)`` 填充路由表。
+        结束后表非空则返回 true。
+
+    .. method:: std::vector<DhtNodeInfo> findNode(const NodeId &target)
+
+        迭代 ``find_node``；最多 ``k`` 个最近联系人。
+
+    .. method:: std::vector<DhtPeer> getPeers(const NodeId &infoHash)
+
+        迭代 ``get_peers``，并与本地已存的该 infohash peer 合并（去重）。
+
+    .. method:: bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const std::string &token = std::string())
+
+        为 ``infoHash`` 宣告 ``peerPort``。``token`` 为空时，通过对最近节点的
+        ``get_peers`` 获取 token。同时写入本地 peer，供后续 ``getPeers`` 使用。
+
+    .. method:: int routingTableSize() const
+    .. method:: std::string errorString() const
+
+8.3.7 示例
+++++++++++
+
+持久化节点、bootstrap 与 peer 查找::
+
+    auto store = std::make_shared<qtng::LmdbDhtStore>("/var/lib/myapp/dht.mdb");
+    qtng::DhtNode node;
+    if (!node.open(6881, store)) {
+        std::cerr << node.errorString() << std::endl;
+        return 1;
+    }
+
+    std::vector<qtng::DhtEndpoint> seeds;
+    seeds.push_back(qtng::DhtEndpoint(qtng::HostAddress("87.98.162.88"), 6881));
+    node.bootstrap(seeds);
+
+    qtng::NodeId info = qtng::NodeId::fromHex("0123456789abcdef0123456789abcdef01234567");
+    std::vector<qtng::DhtPeer> peers = node.getPeers(info);
+    node.announcePeer(info, /*torrent 监听端口*/ 51413);
+
+本地双节点（测试）::
+
+    qtng::DhtNode a, b;
+    a.open(0);
+    b.open(0);
+    std::vector<qtng::DhtEndpoint> seeds;
+    seeds.push_back(qtng::DhtEndpoint(qtng::HostAddress::LocalHost, b.localPort()));
+    a.bootstrap(seeds);
+    auto contacts = a.findNode(b.id());
+
+8.3.8 范围与非目标
+++++++++++++++++++
+
+本模块**不**实现：
+
+* BitTorrent peer 线协议或分片下载（见 §8.4 ``TorrentSession``）
+* BEP-32 IPv6 DHT 扩展的完整矩阵（已支持基础 ``nodes6`` / IPv6 绑定）
+* BEP-44 / BEP-46 可变 DHT 存储
+
+µTP 见 §8.2.1（``UtpSocket``）。本模块的 peer 发现结果供给 §8.4 使用。
+
+8.4 BitTorrent 下载栈
+---------------------
+
+``TorrentSession`` / ``TorrentHandle`` / ``TorrentMeta`` / ``MagnetLink``（头文件
+``qtng/bt.h``，实现 ``src/bt.cpp``）提供面向网络程序的 **BitTorrent 核心下载栈**：
+加载 ``.torrent`` 或 magnet URI、发现 peer、经 peer wire 传片、SHA-1 校验并写盘。
+
+本栈**复用**已有 qtng 组件，不重复实现：
+
+* §7.2 ``Bencode``：``.torrent`` / tracker / 扩展协议报文
+* §8.3 ``DhtNode``：``get_peers`` / ``announce_peer``（默认开启；
+  可向构造函数或 ``setDhtNode()`` 传入 ``shared_ptr<DhtNode>`` 以共享同一节点；
+  无 tracker 的 magnet 依赖 DHT）
+* §8.2.1 ``UtpSocket`` 与 TCP ``Socket``，均经 ``SocketLike`` 接入 peer 传输
+  （出站优先 µTP，失败回退 TCP；入站尽可能同时监听）
+* ``HttpSession``：HTTP(S) tracker；UDP tracker 遵循 BEP-15
+* ``MessageDigest::Sha1``：infohash 与分片哈希
+* ``InfoHash`` 是 ``NodeId`` 的类型别名（20 字节 SHA-1）
+
+**Magnet（BEP-9）。** ``MagnetLink::parse`` 支持 v1 magnet（``xt=urn:btih:``，
+40 位十六进制或 32 位 base32 infohash，可选 ``dn`` / ``tr`` / ``x.pe``）。
+``TorrentSession::addMagnet`` / ``addMagnetUri`` 先以 infohash 入群，再经 BEP-10
+扩展握手与 BEP-9 ``ut_metadata`` 拉取 info 字典，随后开盘下载。该阶段对应
+``TorrentStats::Metadata``。尚不支持 BitTorrent v2 magnet（``urn:btmh``）。
+
+第一期支持多文件种子、rarest-first 选片、简单 endgame，以及 magnet 元数据交换。
+尚未包含：MSE 协议加密、PEX、webseed、BitTorrent v2。
+
+示例::
+
+    auto dht = std::make_shared<qtng::DhtNode>();
+    qtng::TorrentSession session(dht);  // 或默认构造后再 session.setDhtNode(dht)
+    session.setDownloadDir("/tmp/downloads");
+    session.setDhtEnabled(true);
+    session.setUtpEnabled(true);
+    qtng::TorrentHandle h = session.addMagnetUri(
+        "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567");
+    // 或: session.addTorrentFile("ubuntu.torrent");
+    session.start();
+    h.wait();  // 协程内阻塞直至完成或出错
+
+    qtng::TorrentStats st = h.stats();
+    // st.progress, st.peersConnected, st.state, ...
+
+Qt Widgets 演示见 ``examples/btclient/``（支持 ``.torrent`` 路径或 magnet URI）。
+

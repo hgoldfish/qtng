@@ -104,6 +104,7 @@ User Guide
    :maxdepth: 3
 
    intro
+   qt_integration
    practices
    references
    index.HANS

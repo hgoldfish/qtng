@@ -21,7 +21,7 @@ Cross platforms
 
 qtng is tested in Linux, Android, Windows, MacOS, and OpenBSD. And support gcc, clang, mingw32, msvc.
 
-Building qtng requires a C++11 compiler, zlib, and TLS/crypto support via bundled LibreSSL (when a ``libressl/`` subdirectory is present) or system OpenSSL 1.1.1 or newer. The bundled unit tests require C++17 and a system-installed Catch2 v3 (or newer); they are not built by default. Catch2 is never downloaded automatically — see "Build and run tests" below for how to install it.
+Building qtng requires a C++11 compiler, zlib, and TLS/crypto support via bundled LibreSSL (when the ``3rdparty/libressl`` git submodule is initialized) or system OpenSSL 1.1.1 or newer. The bundled unit tests require C++17 and a system-installed Catch2 v3 (or newer); they are not built by default. Catch2 is never downloaded automatically — see "Build and run tests" below for how to install it. Optional µTP interoperability tests need ``3rdparty/libutp`` (``git submodule update --init 3rdparty/libutp``); they are skipped when that submodule is absent.
 
 The coroutine is implemented using boost::context asm code, and support native posix `ucontext` and windows `fiber` API. Running tests is success in ARM, ARM64, x86, amd64.
 
@@ -166,10 +166,13 @@ Killing coroutine safely is a big advanced feature of coroutine compare to threa
 The ``CoroutineExit`` exception is handled by qtng silently.
 
 
-Note on Qt GUI integration (removed in 2.0)
--------------------------------------------
+Note on Qt GUI integration (optional ``qt/`` binding)
+-----------------------------------------------------
 
-qtng 2.0 no longer integrates with Qt Widgets or the Qt event loop. Use a standard ``main()`` entry point; the library manages its own event loop internally. Functions such as ``startQtLoop()`` and ``qAwait()`` have been removed.
+The **qtng core** does not depend on Qt. For Qt5/Qt6 applications, include ``qt/CMakeLists.txt``
+and link ``qtnetworkng`` to get ``QString``/``QByteArray`` APIs, ``startQtLoop()``, and ``qAwait()``.
+Call ``startQtLoop()`` before coroutine/network usage in ``QCoreApplication`` processes. See
+:doc:`qt_integration`.
 
 
 The Socket and SslSocket
@@ -185,6 +188,12 @@ The ``Socket`` class is a straightforward transliteration of the bsd socket inte
 
 ``KcpSocket`` is the recommended KCP-over-UDP API. It mirrors ``Socket`` and can be converted to
 ``SocketLike``.
+
+``UtpSocket`` is the µTP (BEP-29) counterpart: same UDP façade shape as ``KcpSocket``, but congestion
+control and reliability follow LEDBAT rather than KCP ``Mode``. Protocol parameters use
+``setDelayTarget`` / ``setMaxWindow`` / ``setPacketSize`` (and related setters) instead of
+``setMode`` / ``setTearDownTime``. The session core is ``UtpStream`` (``qtng/private/utp.h``), also
+built on ``DatagramLink``. Runtime does not link libutp; libutp is only an optional test peer.
 
 
 Create Socket client

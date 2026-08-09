@@ -12,12 +12,17 @@
 #include "qtng/http_cookie.h"
 #include "qtng/socks5_proxy.h"
 #include "qtng/msgpack.h"
+#include "qtng/bencode.h"
 #include "qtng/httpd.h"
 #include "qtng/udp.h"
 #include "qtng/socket_server.h"
 #include "qtng/network_interface.h"
 #include "qtng/websocket.h"
+#include "qtng/mqtt.h"
 #include "qtng/lmdb.h"
+#include "qtng/kademlia.h"
+#include "qtng/bt.h"
+#include "qtng/quic.h"
 
 #ifndef QTNG_NO_CRYPTO
 #  include "qtng/ssl.h"
@@ -27,6 +32,7 @@
 #  include "qtng/pkey.h"
 #  include "qtng/certificate.h"
 #  include "qtng/noise.h"
+#  include "qtng/aead.h"
 #endif
 
 #ifdef QTNG_HAVE_ZLIB

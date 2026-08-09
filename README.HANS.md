@@ -6,7 +6,9 @@ qtng
 简介
 ----
 
-qtng 是基于协程的网络工具包。与 boost::asio 等传统异步框架相比，它提供了受 Python gevent 启发的更简洁 API。**2.0 版本**已移除 Qt 依赖：库目标标准为 **C++11**，公开 API 使用 C++ 标准库类型。
+qtng 是基于协程的网络工具包。与 boost::asio 等传统异步框架相比，它提供了受 Python gevent 启发的更简洁 API。**2.0 版本**核心库目标 **C++11**，公开 API 使用 C++ 标准库类型；**核心库不依赖 Qt**。
+
+Qt 应用可选用 [`qt/`](qt/) 兼容层，以旧版 [qtnetworkng](https://github.com/hgoldfish/qtnetworkng) API（`QString`、`startQtLoop()`、`qAwait()` 等）接入，且不会暴露核心头文件。详见 [Qt 集成](docs/qt_integration.HANS.rst) 与 `qt/examples/fetch_web_content/`。
 
 更多文档见：
 
@@ -26,13 +28,19 @@ qtng 是基于协程的网络工具包。与 boost::asio 等传统异步框架�
 * `Socket` 支持 UDP 与 TCP。
 * `SSLSocket` 与 `Socket` API 类似。
 * `KcpSocket` 在 UDP 上实现 KCP。
+* `UtpSocket` 在 UDP 上实现 µTP（BEP-29），自研 LEDBAT，运行时不依赖 libutp。
+* `QuicConnection` / `QuicStream` 实现 QUICv1 **传输层 MVP**（不含 HTTP/3）。
 * `SocketLike` 统一上述类型，作为其他组件的基础。
 * `SocketServer` 提供网络服务器框架（HTTP 代理、SOCKS5 代理等）。
-* `HttpSession` 实现 HTTP/1.1 客户端，支持 SOCKS5/HTTP 代理。
+* `HttpSession` 实现 HTTP/1.1 与 HTTP/2 客户端，支持 SOCKS5/HTTP 代理。
 * `SimpleHttpServer` / `TcpServer<SimpleHttpRequestHandler>` 用于静态 HTTP/1.1 文件服务。
 * `NetworkInterface` 与 `HostAddress` 用于网络配置。
 * `WebSocketConnection` 实现 WebSocket 客户端/服务端。
+* `MqttClient` 实现 MQTT 3.1.1 客户端（QoS 0/1/2、Will、TLS），见 `qtng/mqtt.h`。
 * `MsgPackStream` 为 MessagePack 实现。
+* `BencodeStream` / `Bencode` 编解码 BitTorrent bencode（种子、tracker、DHT）。
+* `DhtNode` 实现 BitTorrent DHT（BEP-5），存储可插拔（`MemoryDhtStore` / `LmdbDhtStore`）。
+* `TorrentSession` 实现 BitTorrent 核心下载栈（peer wire、HTTP/UDP tracker、DHT + µTP/TCP），见 ``qtng/bt.h``。
 * `Cipher`、`MessageDigest`、`PublicKey`、`PrivateKey` 封装 OpenSSL/LibreSSL API。
 
 示例
@@ -112,8 +120,9 @@ qtng 以 LGPL 3.0 许可证发布。
 * **C++11** 编译器即可构建库本身（GCC、Clang、MSVC）；仅编译内置单元测试时需要 C++17，测试默认关闭（`-DQTNG_BUILD_TESTS=ON` 启用）
 * **zlib**（系统库，用于 gzip）
 * **OpenSSL 1.1.1+ 或 LibreSSL**（TLS/加密）：
-  * 将 LibreSSL 源码放入 `libressl/` 可内嵌编译，或
+  * 初始化 `3rdparty/libressl/` 子模块可内嵌编译（`git submodule update --init 3rdparty/libressl`），或
   * 安装系统 OpenSSL 开发包（如 Debian/Ubuntu 的 `libssl-dev`）
+
 
 
 支持平台
@@ -129,13 +138,13 @@ gzip 压缩需要 zlib。
 2.0 路线图
 ----------
 
-- [x] 移除 QtCore 依赖
-- [ ] 支持 HTTP/2
+- [x] 核心库移除 QtCore 依赖（Qt 应用可选 ``qt/`` 兼容层）
+- [x] 支持 HTTP/2
 - [ ] 支持 HTTP/3
-- [ ] 支持 QUIC
-- [ ] 支持 Kademlia
-- [ ] 支持 BitTorrent 协议
-- [ ] 支持 MQTT
+- [x] 支持 QUIC（传输层 MVP：`QuicConnection` / `QuicStream`；尚无 HTTP/3）
+- [x] 支持 Kademlia
+- [x] 支持 BitTorrent 协议（核心下载栈 + magnet/BEP-9 + ``examples/btclient``；MSE/PEX 后续）
+- [x] 支持 MQTT
 
 
 3.0 路线图
@@ -150,12 +159,16 @@ gzip 压缩需要 zlib。
 ----
 
 ```bash
-git clone https://github.com/hgoldfish/qtng.git
+git clone --recurse-submodules https://github.com/hgoldfish/qtng.git
 cd qtng
+# 若已用普通 clone：
+# git submodule update --init --recursive
 mkdir build && cd build
 cmake ..
 cmake --build .
 ```
+
+第三方源码位于 `3rdparty/` 下的 git 子模块（`libressl`、`libutp`）。默认构建不强制初始化子模块：无 LibreSSL 时回退到系统 OpenSSL；无 libutp 时跳过 µTP 互通测试。
 
 将应用程序与 `qtng` 静态库（`libqtng.a`，MSVC 上为 `qtng.lib`）链接。头文件位于 `include/qtng/`，公开包含路径为 `include/`，因此使用：
 

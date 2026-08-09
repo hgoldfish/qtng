@@ -105,6 +105,7 @@ qtng是基于协程的网络工具包，类似 boost::asio，并借鉴 Python ge
    :maxdepth: 3
 
    intro.HANS
+   qt_integration.HANS
    practices.HANS
    references.HANS
    
