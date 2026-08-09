@@ -175,7 +175,7 @@ set_target_properties(qtng_test_quic_picoquic PROPERTIES CXX_STANDARD 17 CXX_STA
 catch_discover_tests(qtng_test_quic_picoquic)
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/3rdparty/libutp/utp.h")
-    add_subdirectory(${CMAKE_SOURCE_DIR}/3rdparty/libutp ${CMAKE_BINARY_DIR}/3rdparty/libutp)
+    include("${CMAKE_SOURCE_DIR}/3rdparty/libutp.cmake")
     add_executable(qtng_test_utp_libutp
         test_utp_libutp.cpp
     )
