@@ -126,7 +126,7 @@ public:
     utils::DateTime notValidAfter;
 };
 
-static string asn1ObjectId(ASN1_OBJECT *object)
+static string asn1ObjectId(const ASN1_OBJECT *object)
 {
     char buf[80];  // The openssl docs a buffer length of 80 should be more than enough
     OBJ_obj2txt(buf, sizeof(buf), object, 1);  // the 1 says always use the oid not the long name
@@ -134,7 +134,7 @@ static string asn1ObjectId(ASN1_OBJECT *object)
     return string(buf);
 }
 
-static string asn1ObjectName(ASN1_OBJECT *object)
+static string asn1ObjectName(const ASN1_OBJECT *object)
 {
     int nid = OBJ_obj2nid(object);
     if (nid != NID_undef)
@@ -143,11 +143,11 @@ static string asn1ObjectName(ASN1_OBJECT *object)
     return asn1ObjectId(object);
 }
 
-static multimap<string, string> _mapFromX509Name(X509_NAME *name)
+static multimap<string, string> _mapFromX509Name(const X509_NAME *name)
 {
     multimap<string, string> info;
     for (int i = 0; i < X509_NAME_entry_count(name); ++i) {
-        X509_NAME_ENTRY *e = X509_NAME_get_entry(name, i);
+        const X509_NAME_ENTRY *e = X509_NAME_get_entry(name, i);
 
         string name = asn1ObjectName(X509_NAME_ENTRY_get_object(e));
         unsigned char *data = nullptr;
@@ -522,7 +522,7 @@ Certificate CertificatePrivate::load(const string &data, Ssl::EncodingFormat for
 
 static bool setIssuerInfos(X509 *x, const multimap<Certificate::SubjectInfo, string> &subjectInfoes)
 {
-    X509_NAME *name = X509_get_issuer_name(x);
+    X509_NAME *name = X509_NAME_dup(X509_get_issuer_name(x));
     if (!name) {
         return false;
     }
@@ -552,15 +552,17 @@ static bool setIssuerInfos(X509 *x, const multimap<Certificate::SubjectInfo, str
         }
     }
     if (!success) {
+        X509_NAME_free(name);
         return false;
     }
     int r = X509_set_issuer_name(x, name);
+    X509_NAME_free(name);
     return r;
 }
 
 static bool setSubjectInfos(X509 *x, const multimap<Certificate::SubjectInfo, string> &subjectInfoes)
 {
-    X509_NAME *name = X509_get_subject_name(x);
+    X509_NAME *name = X509_NAME_dup(X509_get_subject_name(x));
     if (!name) {
         return false;
     }
@@ -590,9 +592,11 @@ static bool setSubjectInfos(X509 *x, const multimap<Certificate::SubjectInfo, st
         }
     }
     if (!success) {
+        X509_NAME_free(name);
         return false;
     }
     int r = X509_set_subject_name(x, name);
+    X509_NAME_free(name);
     return r;
 }
 
