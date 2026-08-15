@@ -6,9 +6,9 @@ timeout = 10
 # exchange_buffer_size is the max chunk size for Exchanger between channel and forward.
 # Accepts plain bytes or K/M/G suffixes (1024-based), e.g. 33554432 or 32M.
 [socket]
-send_buffer_size = 32M
-receive_buffer_size = 32M
-exchange_buffer_size = 8M
+send_buffer_size = 4M
+receive_buffer_size = 512K
+exchange_buffer_size = 1M
 
 [kcp]
 address = 0.0.0.0
