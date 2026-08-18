@@ -1,5 +1,9 @@
+#include <QtCore/qobject.h>
 #include <QtCore/qprocess.h>
 #include <QtCore/qthread.h>
+#ifdef Q_OS_WIN
+#  include <windows.h>
+#endif
 
 #include "bridge/core_access.h"
 #include "coroutine_utils.h"
@@ -76,15 +80,46 @@ void CoroutineThread::apply(const std::function<void()> &f)
     dd_ptr->core.apply(f);
 }
 
+namespace {
+
+bool qtEventLoopIsRunning()
+{
+    const QSharedPointer<EventLoopCoroutine> loop = currentLoop()->get();
+    return loop && loop->isQt();
+}
+
+struct DisconnectGuard {
+    QMetaObject::Connection a;
+    QMetaObject::Connection b;
+    ~DisconnectGuard()
+    {
+        QObject::disconnect(a);
+        QObject::disconnect(b);
+    }
+};
+
+}  // namespace
+
 bool waitThread(QThread *thread)
 {
-    if (!thread || !thread->isRunning()) {
+    if (!thread) {
+        return false;
+    }
+    if (!thread->isRunning() || thread->isFinished()) {
         return true;
     }
-    return qtng_core::callInThread<bool>([thread]() {
-        thread->wait();
-        return true;
-    });
+    if (qtEventLoopIsRunning()) {
+        QSharedPointer<ThreadEvent> event = QSharedPointer<ThreadEvent>::create();
+        DisconnectGuard guard{
+            QObject::connect(thread, &QThread::finished, [event] { event->set(); }),
+            QObject::connect(thread, &QThread::destroyed, [event] { event->set(); }),
+        };
+        if (thread->isFinished()) {
+            event->set();
+        }
+        return event->tryWait();
+    }
+    return qtng_core::callInThread<bool>([thread]() { return thread->wait(); });
 }
 
 bool waitProcess(QProcess *process)
@@ -92,7 +127,54 @@ bool waitProcess(QProcess *process)
     if (!process) {
         return false;
     }
-    return qtng_core::callInThread<bool>([process]() { return process->waitForFinished(-1); });
+    if (!qtEventLoopIsRunning()) {
+        // QProcess does not observe child exit unless a Qt loop is pumping.
+#ifdef Q_OS_UNIX
+        return qtng_core::waitProcessPid(static_cast<int>(process->processId()));
+#else
+#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        const DWORD nativePid = static_cast<DWORD>(process->processId());
+        if (!nativePid) {
+            return false;
+        }
+        HANDLE handle = OpenProcess(SYNCHRONIZE, FALSE, nativePid);
+        if (!handle) {
+            return false;
+        }
+        struct ScopedHandle {
+            HANDLE h;
+            ~ScopedHandle()
+            {
+                if (h) {
+                    CloseHandle(h);
+                }
+            }
+        } closer{handle};
+        return qtng_core::callInThread<bool>(
+                [handle] { return WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0; });
+#  else
+        HANDLE handle = process->pid() ? process->pid()->hProcess : nullptr;
+        if (!handle) {
+            return false;
+        }
+        return qtng_core::callInThread<bool>(
+                [handle] { return WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0; });
+#  endif
+#endif
+    }
+    if (process->state() == QProcess::NotRunning) {
+        return true;
+    }
+    QSharedPointer<ThreadEvent> event = QSharedPointer<ThreadEvent>::create();
+    DisconnectGuard guard{
+        QObject::connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                         [event](int, QProcess::ExitStatus) { event->set(); }),
+        QObject::connect(process, &QProcess::destroyed, [event] { event->set(); }),
+    };
+    if (process->state() == QProcess::NotRunning) {
+        event->set();
+    }
+    return event->tryWait();
 }
 
 CoroutineGroup::CoroutineGroup() { }

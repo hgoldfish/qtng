@@ -48,6 +48,11 @@ Qt 事件循环
 
 若明确要使用 libev/Win 后端而非 Qt 集成，可调用 ``qtng::preferLibev()``。
 
+``waitThread(QThread *)`` 与 ``waitProcess(QProcess *)`` 在协程中等待 Qt 对象结束，而不会阻塞事件循环：
+
+* 若当前事件循环是 Qt 后端（已调用 ``startQtLoop()``），则监视 ``QThread::finished`` / ``QProcess::finished`` 信号，调用方协程在事件上 yield。
+* 否则（libev/Win 后端，或尚未启动 Qt 事件循环），改在工作线程上执行 ``QThread::wait()`` 或 ``waitpid`` / ``WaitForSingleObject``。没有 Qt 事件循环时 ``QProcess`` 状态不会更新，因此不能只连接信号。
+
 Include 隔离
 ------------
 

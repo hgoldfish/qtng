@@ -61,6 +61,11 @@ process. It injects a Qt-backed ``EventLoopCoroutine`` via ``currentLoop()->set(
 
 Use ``qtng::preferLibev()`` if you explicitly want the libev/Win backend instead of Qt integration.
 
+``waitThread(QThread *)`` and ``waitProcess(QProcess *)`` wait for a Qt object from a coroutine without blocking the event loop:
+
+* If the current loop is the Qt backend (``startQtLoop()`` was called), they watch ``QThread::finished`` / ``QProcess::finished`` and yield the caller on an event.
+* Otherwise (libev/Win backend, or the Qt event loop is not running) they join on a worker thread via ``QThread::wait()`` or ``waitpid`` / ``WaitForSingleObject``. ``QProcess`` does not update its state without a Qt event loop, so connecting to the signal alone is not enough.
+
 Include isolation
 -----------------
 
