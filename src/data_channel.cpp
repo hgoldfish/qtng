@@ -340,7 +340,7 @@ DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t chan
     if (channelNumber == DataChannelNumber) {
         if (!slowDownRequested && receivingQueue.size() >= (receivingQueue.capacity() * 3 / 4)) {
             slowDownRequested = true;
-            sendPacketRaw(CommandChannelNumber, packSlowDownRequest(), BlockFlag::Block_And_Not_Wait_Sent);
+            sendPacketRaw(CommandChannelNumber, packSlowDownRequest(), BlockFlag::NonBlock);
         }
         receivingQueue.put(std::move(payload));
     } else if (channelNumber == CommandChannelNumber) {
