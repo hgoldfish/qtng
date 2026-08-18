@@ -173,33 +173,14 @@ template<typename T>
 T callInThread(std::function<T()> func)
 {
     QSharedPointer<T> result = QSharedPointer<T>::create();
-    std::function<void()> makeResult = [result, func]() mutable { *result = func(); };
-    spawnInThread(makeResult)->tryWait();
+    spawnInThread([result, func]() mutable { *result = func(); })->tryWait();
     return *result;
 }
 
-template<typename T, typename ARG1>
-T callInThread(std::function<T(ARG1)> func, ARG1 arg1)
+template<typename T, typename ARG1, typename... Args>
+T callInThread(std::function<T(ARG1, Args...)> func, ARG1 arg1, Args... args)
 {
-    return callInThread<T>([func, arg1]() -> T { return func(arg1); });
-}
-
-template<typename T, typename ARG1, typename ARG2>
-T callInThread(std::function<T(ARG1, ARG2)> func, ARG1 arg1, ARG2 arg2)
-{
-    return callInThread<T>([func, arg1, arg2]() -> T { return func(arg1, arg2); });
-}
-
-template<typename T, typename ARG1, typename ARG2, typename ARG3>
-T callInThread(std::function<T(ARG1, ARG2, ARG3)> func, ARG1 arg1, ARG2 arg2, ARG3 arg3)
-{
-    return callInThread<T>([func, arg1, arg2, arg3]() -> T { return func(arg1, arg2, arg3); });
-}
-
-template<typename T, typename ARG1, typename ARG2, typename ARG3, typename ARG4>
-T callInThread(std::function<T(ARG1, ARG2, ARG3)> func, ARG1 arg1, ARG2 arg2, ARG3 arg3, ARG4 arg4)
-{
-    return callInThread<T>([func, arg1, arg2, arg3, arg4]() -> T { return func(arg1, arg2, arg3, arg4); });
+    return callInThread<T>([func, arg1, args...]() -> T { return func(arg1, args...); });
 }
 
 inline void callInThread(const std::function<void()> &func)

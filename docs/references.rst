@@ -769,7 +769,7 @@ Several utilities help run work on the internal event loop or in background thre
 
 .. method:: T callInThread(std::function<T()> func)
 
-    Run ``func`` in a new thread and return its value.
+    Run ``func`` in a new thread and return its value. Extra arguments may be passed when ``func`` itself takes parameters.
 
 
 1.7 The Internal: How Coroutines Switch
