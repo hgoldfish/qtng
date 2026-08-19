@@ -97,6 +97,8 @@ enum FrameType {
     PongFrame = 0xa
 };
 
+inline bool isCloseCodeValid(int closeCode);
+
 class WebSocketFrame
 {
 public:
@@ -107,6 +109,7 @@ public:
     uint8_t rsv2 : 1;
     uint8_t rsv3 : 1;
     uint8_t opcode : 4;
+    bool masked;
     uint32_t maskkey;
     string payload;
 public:
@@ -138,7 +141,13 @@ public:
     bool close();
 private:
     string makeClosePayload(int closeCode, const string &closeReason);
-    pair<int, string> parseClosePayload(const string &payload);
+    struct ClosePayload
+    {
+        bool valid;
+        int closeCode;
+        string closeReason;
+    };
+    ClosePayload parseClosePayload(const string &payload);
     WebSocketFrame makeControlFrame(FrameType type);
     vector<WebSocketFrame> fragmentFrame(const PacketToWrite &writingPacket, const int blockSize);
     uint32_t makeMaskkey();
@@ -281,7 +290,12 @@ void WebSocketConfiguration::setProtocols(const vector<string> &protocols)
 void WebSocketConfiguration::setOutgoingSize(int32_t size)
 {
     NG_D(WebSocketConfiguration);
-    d->outgoingSize = size;
+    // Must be positive; it's used as the fragmentation block size.
+    if (size < 1) {
+        d->outgoingSize = 1;
+    } else {
+        d->outgoingSize = size;
+    }
 }
 
 int32_t WebSocketConfiguration::outgoingSize() const
@@ -296,6 +310,7 @@ WebSocketFrame::WebSocketFrame()
     , rsv2(0)
     , rsv3(0)
     , opcode(0)
+    , masked(false)
     , maskkey(0)
 {
 }
@@ -314,8 +329,8 @@ int64_t WebSocketFrame::feedHeader(char *packet, int &packetSize)
     rsv3 = (b0 & 0x10) >> 4;
     opcode = b0 & 0x0f;
 
-    bool has_mask = b1 & 0x80;
-    int len = b1 & 0x7f;
+    masked = (b1 & 0x80) != 0;
+    uint64_t len = b1 & 0x7f;
     maskkey = 0;
 
     int headerSize = 2;
@@ -329,15 +344,20 @@ int64_t WebSocketFrame::feedHeader(char *packet, int &packetSize)
             return -1;
         }
     } else {
+        // RFC6455: if the 64-bit payload length is used, the most significant bit must be 0.
         assert(len == 127);
         if (packetSize >= headerSize + 8) {
             len = ngFromBigEndian<uint64_t>(upacket + headerSize);
+            if (len & (1ull << 63)) {
+                // Protocol violation: length too large to fit into 63 bits.
+                return -2;
+            }
             headerSize += 8;
         } else {
             return -1;
         }
     }
-    if (has_mask) {
+    if (masked) {
         if (packetSize >= headerSize + 4) {
             maskkey = ngFromBigEndian<uint32_t>(upacket + headerSize);
             headerSize += 4;
@@ -347,7 +367,7 @@ int64_t WebSocketFrame::feedHeader(char *packet, int &packetSize)
     }
     memmove(packet, packet + headerSize, packetSize - headerSize);
     packetSize -= headerSize;
-    return len;
+    return static_cast<int64_t>(len);
 }
 
 // the length of dst must larger than offset + size!
@@ -378,14 +398,13 @@ void WebSocketFrame::applyMaskTo(char *dst, int offset, int size) const
         ngWarning() << "applyMaskTo() got an dest buffer which is too small.";
     }
     int last = offset + min(size, static_cast<int>(payload.size()));
-    int next_offset_8 = (offset + 7) / 8 * 8;
+    int next_offset_16 = (offset + 15) / 16 * 16;
     const char *src = payload.data();
     uint8_t maskbuf[4];
     ngToBigEndian<uint32_t>(maskkey, maskbuf);
 
-    // We shoud make sure the memory allocator aligns everything on 8 bytes boundaries.
-    // and assume that payload buf is aligns on 8 bytes boundaries.
-    for (; i < next_offset_8 && i < last; ++i, ++j) {
+    // Align dst to 16-byte boundary before SIMD path.
+    for (; i < next_offset_16 && i < last; ++i, ++j) {
         dst[i] = src[j] ^ maskbuf[j % 4];
     }
 
@@ -395,33 +414,40 @@ void WebSocketFrame::applyMaskTo(char *dst, int offset, int size) const
         // With NEON support, XOR by blocks of 16 bytes = 128 bits.
 
         int last_128 = last & ~15;
-        uint8x16_t mask_128 = vreinterpretq_u8_u32(vdupq_n_u32(maskkey));
+        uint8_t mask_16[16];
+        for (int k = 0; k < 16; ++k) {
+            mask_16[k] = maskbuf[(j + k) % 4];
+        }
+        uint8x16_t mask_128 = vld1q_u8(mask_16);
 
         for (; i < last_128; i += 16, j += 16) {
-            uint8x16_t in_128 = vld1q_u8((uint8_t *) (src + j));
+            uint8x16_t in_128 = vld1q_u8((const uint8_t *) (src + j));
             uint8x16_t out_128 = veorq_u8(in_128, mask_128);
             vst1q_u8((uint8_t *) (dst + i), out_128);
         }
 #elif __SSE2__
         // With SSE2 support, XOR by blocks of 16 bytes = 128 bits.
-        // we use load/store instead of loadu/storeu
+        // Use loadu/storeu so src/dst do not need strict alignment.
 
         int last_128 = last & ~15;
-        __m128i mask_128 = _mm_set1_epi32(maskkey);
+        uint8_t mask_16[16];
+        for (int k = 0; k < 16; ++k) {
+            mask_16[k] = maskbuf[(j + k) % 4];
+        }
+        __m128i mask_128 = _mm_loadu_si128((const __m128i *) mask_16);
 
         for (; i < last_128; i += 16, j += 16) {
-            __m128i in_128 = _mm_loadu_si128((__m128i *) (src + j));
+            __m128i in_128 = _mm_loadu_si128((const __m128i *) (src + j));
             __m128i out_128 = _mm_xor_si128(in_128, mask_128);
             _mm_storeu_si128((__m128i *) (dst + i), out_128);
         }
 #else
-        // Without SSE2 support, XOR by blocks of 8 bytes = 64 bits.
-
+        // Portable 8-byte chunks without aliasing/unaligned UB.
         int last_64 = last & ~7;
-        uint64_t mask_64 = ((uint64_t) maskkey << 32) | (uint64_t) maskkey;
-
         for (; i < last_64; i += 8, j += 8) {
-            *(uint64_t *) (dst + i) = *(uint64_t *) (src + j) ^ mask_64;
+            for (int k = 0; k < 8; ++k) {
+                dst[i + k] = src[j + k] ^ maskbuf[(j + k) % 4];
+            }
         }
 #endif
     }
@@ -435,7 +461,7 @@ void WebSocketFrame::applyMaskTo(char *dst, int offset, int size) const
 
 string WebSocketFrame::toByteArray() const
 {
-    int len = payload.size();
+    uint64_t len = payload.size();
     string buf(static_cast<size_t>(len + 32), '\0');
     int packetSize = 2;
 
@@ -446,7 +472,7 @@ string WebSocketFrame::toByteArray() const
     }
     buf[0] = buf[0] | opcode;
 
-    if (maskkey > 0) {
+    if (masked) {
         buf[1] = 0x80;
     } else {
         buf[1] = 0;
@@ -454,10 +480,10 @@ string WebSocketFrame::toByteArray() const
 
     uint8_t *ubuf = reinterpret_cast<uint8_t *>(&buf[0]);
     if (len <= 125) {
-        buf[1] = buf[1] | len;
-    } else if (len < 65535) {
+        buf[1] = buf[1] | static_cast<uint8_t>(len);
+    } else if (len <= 65535) {
         buf[1] = buf[1] | 126;
-        ngToBigEndian<uint16_t>(len, ubuf + 2);
+        ngToBigEndian<uint16_t>(static_cast<uint16_t>(len), ubuf + 2);
         packetSize += 2;
     } else {
         buf[1] = buf[1] | 127;
@@ -465,7 +491,7 @@ string WebSocketFrame::toByteArray() const
         packetSize += 8;
     }
 
-    if (maskkey > 0) {
+    if (masked) {
         ngToBigEndian<uint32_t>(this->maskkey, ubuf + packetSize);
         packetSize += 4;
         applyMaskTo(&buf[0], packetSize, buf.size() - packetSize);
@@ -525,6 +551,7 @@ vector<WebSocketFrame> WebSocketConnectionPrivate::fragmentFrame(const PacketToW
     // optimize if there is only one frame
     if (nFrames == 1) {
         frames[0].payload = writingPacket.payload;
+        frames[0].masked = mustMask;
         if (mustMask) {
             frames[0].maskkey = makeMaskkey();
         } else {
@@ -537,6 +564,7 @@ vector<WebSocketFrame> WebSocketConnectionPrivate::fragmentFrame(const PacketToW
             frames[i].fin = 0;  // may be changed before function returns
             frames[i].opcode = 0;  // continuation frame, may be changed before function returns
             frames[i].payload = writingPacket.payload.substr(start, static_cast<size_t>(len));
+            frames[i].masked = mustMask;
             if (mustMask) {
                 frames[i].maskkey = makeMaskkey();
             } else {
@@ -573,6 +601,7 @@ WebSocketFrame WebSocketConnectionPrivate::makeControlFrame(FrameType type)
     default:
         NG_UNREACHABLE();
     }
+    frame.masked = mustMask;
     if (mustMask) {
         frame.maskkey = makeMaskkey();
     } else {
@@ -581,15 +610,25 @@ WebSocketFrame WebSocketConnectionPrivate::makeControlFrame(FrameType type)
     return frame;
 }
 
-pair<int, string> WebSocketConnectionPrivate::parseClosePayload(const string &payload)
+WebSocketConnectionPrivate::ClosePayload WebSocketConnectionPrivate::parseClosePayload(const string &payload)
 {
-    pair<int, string> result = make_pair(WebSocketConnection::NormalClosure, "Normal Closure");
-    if (payload.size() < 2) {
-        return result;
+    if (payload.empty()) {
+        return {true, WebSocketConnection::NoStatusRcvd, string()};
     }
-    result.first = ngFromBigEndian<uint16_t>(reinterpret_cast<const uint8_t*>(payload.data()));
-    result.second = payload.substr(2);
-    return result;
+    if (payload.size() == 1) {
+        return {false, WebSocketConnection::ProtocolError, "protocol error"};
+    }
+
+    const int closeCode = ngFromBigEndian<uint16_t>(reinterpret_cast<const uint8_t *>(payload.data()));
+    const string closeReason = payload.substr(2);
+    if (!isCloseCodeValid(closeCode)) {
+        return {false, WebSocketConnection::ProtocolError, "protocol error"};
+    }
+    if (!closeReason.empty() && !utils::isValidUtf8(closeReason)) {
+        return {false, WebSocketConnection::ProtocolError, "protocol error"};
+    }
+
+    return {true, closeCode, closeReason};
 }
 
 string WebSocketConnectionPrivate::makeClosePayload(int closeCode, const string &closeReason)
@@ -619,7 +658,8 @@ void WebSocketConnectionPrivate::doSend()
             return abort(WebSocketConnection::InternalError);
         }
         if (!writingPacket.isValid()) {
-            assert(errorCode != WebSocketConnection::NoError);
+            // Avoid silently exiting the send coroutine; otherwise further sends will deadlock.
+            abort(WebSocketConnection::InternalError);
             return;
         }
 
@@ -662,8 +702,10 @@ inline bool isOpCodeReserved(int code)
 inline bool isCloseCodeValid(int closeCode)
 {
     // see RFC6455 7.4.1
-    return (closeCode > 999) && (closeCode < 5000) && (closeCode != 1004) && (closeCode != 1005) && (closeCode != 1006)
-            && ((closeCode >= 3000) || (closeCode < 1012));
+    // Valid codes: 1000-1014 (except 1004/1005/1006) and 3000-4999.
+    // 1015 is reserved and MUST NOT appear on the wire.
+    return ((closeCode >= 1000 && closeCode <= 1014 && closeCode != 1004 && closeCode != 1005 && closeCode != 1006)
+            || (closeCode >= 3000 && closeCode <= 4999));
 }
 
 void WebSocketConnectionPrivate::doReceive(const string &headBytes)
@@ -693,7 +735,11 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
         WebSocketFrame frame;
         int64_t payloadSize = frame.feedHeader(&buf[0], usedSize);
         if (payloadSize < 0) {
-            // there are not enough header bytes to parse. we will receive more, and try again later.
+            if (payloadSize == -2) {
+                // Protocol violation: invalid 64-bit length (MSB must be 0).
+                return abort(WebSocketConnection::ProtocolError);
+            }
+            // payloadSize == -1: there are not enough header bytes to parse. Receive more, and try again later.
             assert(buf.size() > usedSize);
             needMoreData = true;
             continue;
@@ -713,6 +759,26 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
         if (debugLevel >= 3) {
             ngDebug() << "want payload:" << payloadSize;
         }
+        // RFC6455: clients must mask frames sent to servers; servers must not mask frames sent to clients.
+        // This connection's `side` tells which side we are on locally.
+        const bool expectedMasked = (side == WebSocketConnection::Server);
+        if (frame.masked != expectedMasked) {
+            return abort(WebSocketConnection::ProtocolError);
+        }
+        if (frame.rsv1 || frame.rsv2 || frame.rsv3) {
+            return abort(WebSocketConnection::ProtocolError);
+        }
+        if (isOpCodeReserved(frame.opcode)) {
+            return abort(WebSocketConnection::ProtocolError);
+        }
+
+        const bool isControlFrame = (frame.opcode == CloseFrame || frame.opcode == PingFrame || frame.opcode == PongFrame);
+        if (isControlFrame) {
+            // Control frames MUST have FIN=1 and MUST have payload length <= 125.
+            if (!frame.fin || payloadSize > 125 || (frame.opcode == CloseFrame && payloadSize == 1)) {
+                return abort(WebSocketConnection::ProtocolError);
+            }
+        }
 
         while (frame.payload.size() < payloadSize) {
             int size = min<int>(payloadSize - frame.payload.size(), usedSize);
@@ -725,8 +791,8 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
             // we got enougth data!
             if (frame.payload.size() >= payloadSize) {
                 assert(frame.payload.size() == payloadSize);
-                if (frame.maskkey > 0) {
-                    frame.applyMaskTo(&frame.payload[0], 0, payloadSize);
+                if (frame.masked && payloadSize > 0) {
+                    frame.applyMaskTo(&frame.payload[0], 0, static_cast<int>(payloadSize));
                 }
                 break;
             }
@@ -747,6 +813,9 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
             tmpPayload.append(frame.payload);
             if (frame.fin) {
                 PacketToRead packet;
+                if (tmpType == WebSocketConnection::Text && !utils::isValidUtf8(tmpPayload)) {
+                    return abort(WebSocketConnection::InvalidData);
+                }
                 packet.payload = tmpPayload;
                 packet.type = tmpType;
                 receivingQueue.put(packet);
@@ -756,6 +825,9 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
         } else if (frame.opcode == FrameType::TextFrame) {
             if (frame.fin) {
                 PacketToRead packet;
+                if (!utils::isValidUtf8(frame.payload)) {
+                    return abort(WebSocketConnection::InvalidData);
+                }
                 packet.payload = frame.payload;
                 packet.type = WebSocketConnection::Text;
                 receivingQueue.put(packet);
@@ -782,20 +854,33 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
                 tmpPayload = frame.payload;
             }
         } else if (frame.opcode == FrameType::CloseFrame) {
-            const pair<int, string> &result = parseClosePayload(frame.payload);
+            const WebSocketConnectionPrivate::ClosePayload result = parseClosePayload(frame.payload);
             if (state == WebSocketConnection::Open) {
                 state = WebSocketConnection::Closing;
                 WebSocketFrame closeFrame = makeControlFrame(CloseFrame);
-                closeFrame.payload = frame.payload;
+                if (result.valid) {
+                    // Echo the peer Close payload.
+                    closeFrame.payload = frame.payload;
+                } else {
+                    // Invalid Close payload: respond with ProtocolError.
+                    closeFrame.payload = makeClosePayload(WebSocketConnection::ProtocolError, "protocol error");
+                }
                 if (!sendBytes(closeFrame.toByteArray())) {
                     return;
                 }
-                return abort(WebSocketConnection::NormalClosure);
+                if (result.valid) {
+                    errorString = result.closeReason;
+                    return abort(result.closeCode);
+                }
+                errorString = result.closeReason;
+                return abort(WebSocketConnection::ProtocolError);
             } else if (state == WebSocketConnection::Closing) {
-                return abort(WebSocketConnection::NormalClosure);
-            }
-            if (result.first >= 1000) {
-                // TODO normal closure.
+                if (result.valid) {
+                    errorString = result.closeReason;
+                    return abort(result.closeCode);
+                }
+                errorString = result.closeReason;
+                return abort(WebSocketConnection::ProtocolError);
             }
         } else if (frame.opcode == FrameType::PingFrame) {
             WebSocketFrame pongFrame = makeControlFrame(PongFrame);
@@ -921,14 +1006,16 @@ void WebSocketConnectionPrivate::setErrorCode(int errorCode, const string &error
 
 void WebSocketConnectionPrivate::abort(int errorCode)
 {
-        if (this->errorCode != WebSocketConnection::NoError) {
+    if (this->errorCode != WebSocketConnection::NoError) {
         return;
     }
     if (debugLevel >= 1) {
         ngDebug() << "abort(" << errorCode << ")";
     }
     assert(state != WebSocketConnection::Closed);
-    setErrorCode(errorCode, string());
+    // Preserve any already-computed error reason in `this->errorString`
+    // (e.g. received Close frame reason).
+    setErrorCode(errorCode, errorString);
     state = WebSocketConnection::Closed;
     Coroutine *current = Coroutine::current();
     if (errorCode == WebSocketConnection::NormalClosure) {
@@ -1159,7 +1246,13 @@ int WebSocketConnection::debugLevel() const
 void WebSocketConnection::setMustMask(bool yes)
 {
     NG_D(WebSocketConnection);
-    d->mustMask = yes;
+    // Enforce RFC6455: client frames must be masked, server frames must not.
+    const bool forced = (d->side == WebSocketConnection::Client);
+    if (yes != forced) {
+        ngWarning() << "setMustMask(" << yes
+                     << ") is ignored; RFC6455 requires client-to-server masking.";
+    }
+    d->mustMask = forced;
 }
 
 bool WebSocketConnection::mustMask() const

@@ -146,13 +146,26 @@ static string asn1ObjectName(const ASN1_OBJECT *object)
 static multimap<string, string> _mapFromX509Name(const X509_NAME *name)
 {
     multimap<string, string> info;
+    if (!name) {
+        return info;
+    }
     for (int i = 0; i < X509_NAME_entry_count(name); ++i) {
         const X509_NAME_ENTRY *e = X509_NAME_get_entry(name, i);
+        if (!e) {
+            continue;
+        }
+        const ASN1_OBJECT *obj = X509_NAME_ENTRY_get_object(e);
+        if (!obj) {
+            continue;
+        }
 
-        string name = asn1ObjectName(X509_NAME_ENTRY_get_object(e));
+        string attr = asn1ObjectName(obj);
         unsigned char *data = nullptr;
         int size = ASN1_STRING_to_UTF8(&data, X509_NAME_ENTRY_get_data(e));
-        info.insert({name, string(reinterpret_cast<char *>(data), static_cast<size_t>(size))});
+        if (size < 0 || !data) {
+            continue;
+        }
+        info.insert({attr, string(reinterpret_cast<char *>(data), static_cast<size_t>(size))});
 #if LIBRESSL_VERSION_NUMBER >= 0x3090000fL
         CRYPTO_free(data, __FILE__, __LINE__);
 #elif defined(LIBRESSL_VERSION_NUMBER)
@@ -172,13 +185,13 @@ bool CertificatePrivate::init(X509 *x)
     this->x509.reset(x, X509_free);
 
     int parsed = 0;  // 0 for never parsed, -1 for failed, and 1 for success.
-    ASN1_TIME *t = X509_getm_notBefore(x);
+    const ASN1_TIME *t = X509_get0_notBefore(x);
     if (t) {
         notValidBefore = getTimeFromASN1(t);
     } else {
         parsed = qtParse() ? 1 : -1;
     }
-    t = X509_getm_notAfter(x);
+    t = X509_get0_notAfter(x);
     if (t) {
         notValidAfter = getTimeFromASN1(t);
     } else if (parsed == 0) {
@@ -314,7 +327,7 @@ string CertificatePrivate::serialNumber() const
         return string();
     }
 
-    ASN1_INTEGER *serialNumber = X509_get_serialNumber(x509.get());
+    const ASN1_INTEGER *serialNumber = X509_get0_serialNumber(x509.get());
     if (!serialNumber) {
         return string();
     }
@@ -520,84 +533,61 @@ Certificate CertificatePrivate::load(const string &data, Ssl::EncodingFormat for
     return cert;
 }
 
-static bool setIssuerInfos(X509 *x, const multimap<Certificate::SubjectInfo, string> &subjectInfoes)
+struct X509NameCleaner
 {
-    X509_NAME *name = X509_NAME_dup(X509_get_issuer_name(x));
-    if (!name) {
-        return false;
+    void operator()(X509_NAME *n) const
+    {
+        if (n)
+            X509_NAME_free(n);
     }
-    map<Certificate::SubjectInfo, string> table = {
-        { Certificate::Organization, "O" },
-        { Certificate::CommonName, "CN" },
-        { Certificate::LocalityName, "L" },
-        { Certificate::OrganizationalUnitName, "OU" },
-        { Certificate::CountryName, "C" },
-        { Certificate::StateOrProvinceName, "ST" },
-        { Certificate::DistinguishedNameQualifier, "dnQualifier" },
-        { Certificate::SerialNumber, "serialNumber" },
-        //        {Certificate::EmailAddress, "emailAddress" },
+};
 
+static bool fillX509Name(X509_NAME *name, const multimap<Certificate::SubjectInfo, string> &subjectInfoes)
+{
+    static const Certificate::SubjectInfo fields[] = {
+        Certificate::Organization,
+        Certificate::CommonName,
+        Certificate::LocalityName,
+        Certificate::OrganizationalUnitName,
+        Certificate::CountryName,
+        Certificate::StateOrProvinceName,
+        Certificate::DistinguishedNameQualifier,
+        Certificate::SerialNumber,
+        // Certificate::EmailAddress is intentionally omitted, matching historical behavior.
     };
-    bool success = true;
-    for (map<Certificate::SubjectInfo, string>::const_iterator itor = table.begin(); itor != table.end();
-         ++itor) {
-        const vector<string> &sl = multimapValues(subjectInfoes, itor->first);
+    for (Certificate::SubjectInfo field : fields) {
+        const string key = CertificatePrivate::subjectInfoToString(field);
+        const vector<string> &sl = multimapValues(subjectInfoes, field);
         for (const string &s : sl) {
-            string bs = s;
-            success = success
-                    && X509_NAME_add_entry_by_txt(name, itor->second.c_str(), MBSTRING_UTF8,
-                                                  reinterpret_cast<const unsigned char *>(bs.data()),
-                                                  static_cast<int>(bs.size()),
-                                                  -1, 0);
+            if (!X509_NAME_add_entry_by_txt(name, key.c_str(), MBSTRING_UTF8,
+                                            reinterpret_cast<const unsigned char *>(s.data()),
+                                            static_cast<int>(s.size()), -1, 0)) {
+                return false;
+            }
         }
     }
-    if (!success) {
-        X509_NAME_free(name);
+    return true;
+}
+
+// OpenSSL 4 returns const X509_NAME * from X509_get_*_name(); do not mutate it.
+// X509_NAME_new() plus X509_set_*_name() (which copies internally) is the
+// compatible write path. unique_ptr still owns this working copy.
+static bool setIssuerInfos(X509 *x, const multimap<Certificate::SubjectInfo, string> &subjectInfoes)
+{
+    unique_ptr<X509_NAME, X509NameCleaner> name(X509_NAME_new());
+    if (!name || !fillX509Name(name.get(), subjectInfoes)) {
         return false;
     }
-    int r = X509_set_issuer_name(x, name);
-    X509_NAME_free(name);
-    return r;
+    return X509_set_issuer_name(x, name.get()) != 0;
 }
 
 static bool setSubjectInfos(X509 *x, const multimap<Certificate::SubjectInfo, string> &subjectInfoes)
 {
-    X509_NAME *name = X509_NAME_dup(X509_get_subject_name(x));
-    if (!name) {
+    unique_ptr<X509_NAME, X509NameCleaner> name(X509_NAME_new());
+    if (!name || !fillX509Name(name.get(), subjectInfoes)) {
         return false;
     }
-    map<Certificate::SubjectInfo, string> table = {
-        { Certificate::Organization, "O" },
-        { Certificate::CommonName, "CN" },
-        { Certificate::LocalityName, "L" },
-        { Certificate::OrganizationalUnitName, "OU" },
-        { Certificate::CountryName, "C" },
-        { Certificate::StateOrProvinceName, "ST" },
-        { Certificate::DistinguishedNameQualifier, "dnQualifier" },
-        { Certificate::SerialNumber, "serialNumber" },
-        //        {Certificate::EmailAddress, "emailAddress" },
-
-    };
-    bool success = true;
-    for (map<Certificate::SubjectInfo, string>::const_iterator itor = table.begin(); itor != table.end();
-         ++itor) {
-        const vector<string> &sl = multimapValues(subjectInfoes, itor->first);
-        for (const string &s : sl) {
-            string bs = s;
-            success = success
-                    && X509_NAME_add_entry_by_txt(name, itor->second.c_str(), MBSTRING_UTF8,
-                                                  reinterpret_cast<const unsigned char *>(bs.data()),
-                                                  static_cast<int>(bs.size()),
-                                                  -1, 0);
-        }
-    }
-    if (!success) {
-        X509_NAME_free(name);
-        return false;
-    }
-    int r = X509_set_subject_name(x, name);
-    X509_NAME_free(name);
-    return r;
+    return X509_set_subject_name(x, name.get()) != 0;
 }
 
 struct Asn1TimeCleaner

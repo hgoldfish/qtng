@@ -15,11 +15,14 @@ namespace utils {
 
 namespace {
 
-// UTF-8 -> Unicode code points. Rejects overlong encodings and surrogate code points.
-bool utf8ToCodepoints(const string &text, vector<uint32_t> &out)
+// UTF-8 validation / decoding. Rejects overlong encodings and surrogate code points.
+// When `out` is null, this acts as a validator without storing code points.
+bool utf8ToCodepoints(const string &text, vector<uint32_t> *out)
 {
-    out.clear();
-    out.reserve(text.size());
+    if (out) {
+        out->clear();
+        out->reserve(text.size());
+    }
     size_t i = 0;
     while (i < text.size()) {
         unsigned char c = static_cast<unsigned char>(text[i]);
@@ -62,7 +65,9 @@ bool utf8ToCodepoints(const string &text, vector<uint32_t> &out)
         if (extra == 3 && cp < 0x10000) {
             return false;
         }
-        out.push_back(cp);
+        if (out) {
+            out->push_back(cp);
+        }
         i += 1 + extra;
     }
     return true;
@@ -327,7 +332,7 @@ string toAce(const string &domain)
             continue;
         }
         vector<uint32_t> cps;
-        if (!utf8ToCodepoints(label, cps)) {
+        if (!utf8ToCodepoints(label, &cps)) {
             return string();  // invalid UTF-8
         }
         string encoded;
@@ -486,6 +491,11 @@ string formatMessage(const string &pattern, const vector<string> &args)
         }
     }
     return result;
+}
+
+bool isValidUtf8(const string &text)
+{
+    return utf8ToCodepoints(text, nullptr);
 }
 
 }  // namespace utils

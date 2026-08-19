@@ -1009,7 +1009,7 @@ DNS相关
 
     执行DNS解析。若 ``hostName`` 为 IP 地址，则直接返回该 IP。
 
-    国际化域名（IDN）会先经 ``utils::toAce()`` 转为 Punycode（ACE）再查询解析器，因此包含非 ASCII 字符的主机名（如 ``"bücher.com"``、``"中文.com"``）可用。该转换为最小 IDNA 外壳：纯 ASCII 标签原样通过，非 ASCII 标签以 ``xn--`` ACE 前缀编码。**不**做 Unicode 归一化（NFKC）、非 ASCII 大小写折叠及 Bidi/Joining 检查，需要 ASCII 小写归一化的调用方应自行处理。
+    国际化域名（IDN）会先经 ``utils::toAce()`` 转为 Punycode（ACE）再查询解析器，因此包含非 ASCII 字符的主机名（如 ``"bücher.com"``、``"中文.com"``）可用。该转换为最小 IDNA 外壳：纯 ASCII 标签原样通过，非 ASCII 标签以 ``xn--`` ACE 前缀编码。**不**做 Unicode 归一化（NFKC）、非 ASCII 大小写折叠及 Bidi/Joining 检查，需要 ASCII 小写归一化的调用方应自行处理。若需独立校验任意 UTF-8 文本，可使用 ``utils::isValidUtf8()``。
     
 .. method:: void setDnsCache(std::shared_ptr<SocketDnsCache> dnsCache)
 
@@ -2055,7 +2055,7 @@ KCP 协议的服务器实现。
 
 .. method:: bool switchToWebSocket()
 
-    验证 Upgrade: websocket 和 Sec-WebSocket-Key,计算并返回 Sec-WebSocket-Accept,标记连接升级为 WebSocket
+    验证 Upgrade: websocket 和 Connection 首部包含 "Upgrade" token（大小写不敏感）,计算并返回 Sec-WebSocket-Accept,标记连接升级为 WebSocket
 
 .. method:: virtual void logRequest(HttpStatus status, int bodySize);
 
@@ -2604,11 +2604,11 @@ Clipher
 
 .. method:: qtng::utils::DateTime effectiveDate() const
 
-    在 CertificatePrivate::init 中解析 X509_getm_notBefore 和 X509_getm_notAfter。
+    在 CertificatePrivate::init 中解析 X509_get0_notBefore 和 X509_get0_notAfter。
 
 .. method:: qtng::utils::DateTime expiryDate() const
 
-    在 CertificatePrivate::init 中解析 X509_getm_notBefore 和 X509_getm_notAfter。
+    在 CertificatePrivate::init 中解析 X509_get0_notBefore 和 X509_get0_notAfter。
 
 .. method::  std::stringList subjectInfo(SubjectInfo subject)
 

@@ -58,6 +58,7 @@ endif()
 
 add_executable(qtng_tests
     test_string_utils.cpp
+    test_websocket_mask_simd.cpp
     test_url.cpp
     test_datetime.cpp
     test_mime.cpp
@@ -138,6 +139,14 @@ set_target_properties(qtng_test_bencode PROPERTIES CXX_STANDARD 17 CXX_STANDARD_
 catch_discover_tests(qtng_test_bencode)
 
 if(QTNG_HAVE_CRYPTO)
+    add_executable(qtng_test_certificate
+        test_certificate.cpp
+    )
+    target_link_libraries(qtng_test_certificate PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_certificate PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    set_target_properties(qtng_test_certificate PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_certificate)
+
     add_executable(qtng_test_noise
         test_noise.cpp
     )

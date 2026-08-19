@@ -1243,7 +1243,7 @@ These are the member functions of ``Socket`` type.
 
     Make a DNS query to resolve the ``hostName``. If the ``hostName`` is an IP address, return the IP immediately.
 
-    Internationalized domain names (IDN) are converted to Punycode (ACE) via ``utils::toAce()`` before querying the resolver, so hostnames containing non-ASCII characters (e.g. ``"bücher.com"``, ``"中文.com"``) are supported. The conversion is a minimal IDNA shell: pure-ASCII labels pass through unchanged, non-ASCII labels are encoded with the ``xn--`` ACE prefix. Unicode normalization (NFKC), case folding for non-ASCII, and Bidi/Joining checks are **not** performed, so callers should ASCII-lowercase hostnames themselves when needed.
+    Internationalized domain names (IDN) are converted to Punycode (ACE) via ``utils::toAce()`` before querying the resolver, so hostnames containing non-ASCII characters (e.g. ``"bücher.com"``, ``"中文.com"``) are supported. The conversion is a minimal IDNA shell: pure-ASCII labels pass through unchanged, non-ASCII labels are encoded with the ``xn--`` ACE prefix. Unicode normalization (NFKC), case folding for non-ASCII, and Bidi/Joining checks are **not** performed, so callers should ASCII-lowercase hostnames themselves when needed. For standalone validation of arbitrary UTF-8 text, use ``utils::isValidUtf8()``.
 
 .. method:: void setDnsCache(std::shared_ptr<SocketDnsCache> dnsCache)
 
@@ -2349,7 +2349,7 @@ Base class for handling HTTP requests, providing core functionality for HTTP pro
 
 .. method:: bool switchToWebSocket()
 
-    Validates Upgrade: websocket and Sec-WebSocket-Key headers, calculates and returns Sec-WebSocket-Accept, marks connection upgrade to WebSocket.
+    Validates Upgrade: websocket and the Connection header containing an "Upgrade" token (case-insensitive), calculates and returns Sec-WebSocket-Accept, marks connection upgrade to WebSocket.
 
 .. method:: virtual void logRequest(HttpStatus status, int bodySize);
 
@@ -2878,11 +2878,11 @@ Encapsulates certificate operations. Provides interfaces like load/save certific
 
 .. method:: qtng::utils::DateTime effectiveDate() const
 
-    Parses X509_getm_notBefore and X509_getm_notAfter in CertificatePrivate::init.
+    Parses X509_get0_notBefore and X509_get0_notAfter in CertificatePrivate::init.
 
 .. method:: qtng::utils::DateTime expiryDate() const
 
-    Parses X509_getm_notBefore and X509_getm_notAfter in CertificatePrivate::init.
+    Parses X509_get0_notBefore and X509_get0_notAfter in CertificatePrivate::init.
 
 .. method:: std::stringList subjectInfo(SubjectInfo subject)
 

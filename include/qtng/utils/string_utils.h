@@ -26,6 +26,7 @@ std::string join(const std::vector<std::string> &parts, const std::string &separ
 bool equalsIgnoreCase(const std::string &a, const std::string &b);
 std::string htmlEscape(const std::string &text);
 std::string formatMessage(const std::string &pattern, const std::vector<std::string> &args);
+bool isValidUtf8(const std::string &text);
 std::string toAce(const std::string &domain);
 std::string fromAce(const std::string &domain);
 std::string bytesToHex(const std::string &data);

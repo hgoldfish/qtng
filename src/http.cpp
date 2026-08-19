@@ -1219,7 +1219,19 @@ shared_ptr<WebSocketConnection> HttpSessionPrivate::makeWebSocketConnection(Http
 
     const string &upgradeHeader = response.header("Upgrade");
     const string &connectionHeader = response.header("Connection");
-    if (upgradeHeader != "websocket" || connectionHeader != "upgrade") {
+    if (utils::toLower(upgradeHeader) != "websocket") {
+        // TODO set error value and return.
+        return shared_ptr<WebSocketConnection>();
+    }
+    bool okConnection = false;
+    const vector<string> &tokens = utils::split(connectionHeader, ',');
+    for (const string &token : tokens) {
+        if (utils::toLower(utils::trimmed(token)) == "upgrade") {
+            okConnection = true;
+            break;
+        }
+    }
+    if (!okConnection) {
         // TODO set error value and return.
         return shared_ptr<WebSocketConnection>();
     }
