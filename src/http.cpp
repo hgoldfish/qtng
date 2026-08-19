@@ -733,6 +733,7 @@ HttpSessionPrivate::HttpSessionPrivate(HttpSession *q_ptr)
     , debugLevel(0)
     , managingCookies(true)
     , keepAlive(true)
+    , webSocketErrorCode(0)
 {
     defaultUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0";
 }
@@ -1208,20 +1209,29 @@ void setWebSocketConnectionPrivateResponse(WebSocketConnectionPrivate *d, HttpRe
 shared_ptr<WebSocketConnection> HttpSessionPrivate::makeWebSocketConnection(HttpResponse &response,
                                                                                 const string &secKey)
 {
-    if (!response.isOk()) {
-        // TODO set error value and return.
+    auto fail = [this](int code, const string &reason) -> shared_ptr<WebSocketConnection> {
+        webSocketErrorCode = code;
+        webSocketErrorReason = reason;
+        if (debugLevel >= 1) {
+            ngWarning() << "websocket handshake failed:" << code << reason;
+        }
         return shared_ptr<WebSocketConnection>();
+    };
+
+    webSocketErrorCode = WebSocketConnection::NoError;
+    webSocketErrorReason.clear();
+
+    if (!response.isOk()) {
+        return fail(-1, "http response has request error");
     }
     if (response.statusCode() != SwitchProtocol) {
-        // TODO set error value and return.
-        return shared_ptr<WebSocketConnection>();
+        return fail(response.statusCode(), "status code is not 101 Switching Protocols");
     }
 
     const string &upgradeHeader = response.header("Upgrade");
     const string &connectionHeader = response.header("Connection");
     if (utils::toLower(upgradeHeader) != "websocket") {
-        // TODO set error value and return.
-        return shared_ptr<WebSocketConnection>();
+        return fail(WebSocketConnection::ProtocolError, "Upgrade header is not websocket");
     }
     bool okConnection = false;
     const vector<string> &tokens = utils::split(connectionHeader, ',');
@@ -1232,8 +1242,7 @@ shared_ptr<WebSocketConnection> HttpSessionPrivate::makeWebSocketConnection(Http
         }
     }
     if (!okConnection) {
-        // TODO set error value and return.
-        return shared_ptr<WebSocketConnection>();
+        return fail(WebSocketConnection::ProtocolError, "Connection header does not contain Upgrade token");
     }
 
     const string uuid("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
@@ -1241,8 +1250,7 @@ shared_ptr<WebSocketConnection> HttpSessionPrivate::makeWebSocketConnection(Http
     const string &myKey = utils::bytesToBase64(MessageDigest::hash(t, MessageDigest::Sha1));
     const string &itsKey = response.header("Sec-WebSocket-Accept");
     if (myKey != itsKey) {
-        // TODO set error value and return.
-        return shared_ptr<WebSocketConnection>();
+        return fail(WebSocketConnection::ProtocolError, "Sec-WebSocket-Accept mismatch");
     }
 
     string headBytes;
@@ -1781,6 +1789,18 @@ shared_ptr<WebSocketConnection> HttpSession::ws(const string &url, const utils::
     d->prepareWebSocketRequest(request, secKey);
     HttpResponse response = send(request);
     return d->makeWebSocketConnection(response, secKey);
+}
+
+int HttpSession::webSocketErrorCode() const
+{
+    NG_D(const HttpSession);
+    return d->webSocketErrorCode;
+}
+
+string HttpSession::webSocketErrorReason() const
+{
+    NG_D(const HttpSession);
+    return d->webSocketErrorReason;
 }
 
 static bool isRedirect(int httpCode)

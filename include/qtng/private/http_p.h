@@ -132,6 +132,8 @@ public:
 public:
     HttpCookieJar cookieJar;
     WebSocketConfiguration webSocketConfiguration;
+    int webSocketErrorCode;
+    std::string webSocketErrorReason;
     std::shared_ptr<HttpCacheManager> cacheManager;
     std::string defaultUserAgent;
     HttpVersion defaultVersion;

@@ -1650,6 +1650,19 @@ KCP 协议的服务器实现。
         HttpResponse put(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
         HttpResponse put(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
+.. method:: int webSocketErrorCode() const
+
+    返回 ``HttpSession::ws(...)`` 最近一次握手失败的错误码。
+    最近一次握手成功时返回 ``0``（``WebSocketConnection::NoError``）。
+    若因 HTTP 响应状态码不是 101 而失败，返回该 HTTP 状态码。
+    若因握手头/Accept 校验失败，返回 ``1002``（``WebSocketConnection::ProtocolError``）。
+    若属于传输/请求错误且没有可用 HTTP 状态码，返回 ``-1``。
+
+.. method:: std::string webSocketErrorReason() const
+
+    返回 ``HttpSession::ws(...)`` 最近一次握手失败的错误原因文本。
+    空字符串表示无错误。
+
 3.2 HttpResponse
 ^^^^^^^^^^^^^^^^
 

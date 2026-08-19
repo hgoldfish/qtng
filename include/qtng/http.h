@@ -282,6 +282,8 @@ public:
     std::shared_ptr<WebSocketConnection> ws(const std::string &url, const std::map<std::string, std::string> &query, const std::map<std::string, std::string> &headers);
     std::shared_ptr<WebSocketConnection> ws(const std::string &url, const qtng::utils::UrlQuery &query);
     std::shared_ptr<WebSocketConnection> ws(const std::string &url, const qtng::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
+    int webSocketErrorCode() const;
+    std::string webSocketErrorReason() const;
 
     HttpResponse send(HttpRequest &request);
     HttpCookieJar &cookieJar();

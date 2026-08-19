@@ -1935,6 +1935,19 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
         HttpResponse put(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
 
+.. method:: int webSocketErrorCode() const
+
+    Return the last WebSocket handshake error code from ``HttpSession::ws(...)``.
+    Returns ``0`` (``WebSocketConnection::NoError``) when the last handshake succeeds.
+    Returns the HTTP status code when the handshake fails due to non-101 HTTP response.
+    Returns ``1002`` (``WebSocketConnection::ProtocolError``) for header/accept validation failures.
+    Returns ``-1`` for transport/request errors where no valid HTTP response status is available.
+
+.. method:: std::string webSocketErrorReason() const
+
+    Return the last WebSocket handshake error reason from ``HttpSession::ws(...)``.
+    Empty string means no error.
+
 3.2 HttpResponse
 ^^^^^^^^^^^^^^^^
 

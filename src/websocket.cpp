@@ -109,13 +109,12 @@ public:
     uint8_t rsv2 : 1;
     uint8_t rsv3 : 1;
     uint8_t opcode : 4;
-    bool masked;
     uint32_t maskkey;
     string payload;
 public:
     // parse the header and returns the payload size.
     // if the header is valid, it will be removed from the buf
-    int64_t feedHeader(char *packet, int &packetSize);
+    int64_t feedHeader(char *packet, int &packetSize, bool &hasMask);
 
     // apply mask to payload and copy to src[offset: len]. this function also decode payload using mask
     void applyMaskTo(char *dst, int offset, int dst_max_len) const;
@@ -310,12 +309,11 @@ WebSocketFrame::WebSocketFrame()
     , rsv2(0)
     , rsv3(0)
     , opcode(0)
-    , masked(false)
     , maskkey(0)
 {
 }
 
-int64_t WebSocketFrame::feedHeader(char *packet, int &packetSize)
+int64_t WebSocketFrame::feedHeader(char *packet, int &packetSize, bool &hasMask)
 {
     assert(packetSize >= 2);
     // the ngFromBigEndian<>() only accept uint8_t* in the earlier version of Qt.
@@ -329,7 +327,7 @@ int64_t WebSocketFrame::feedHeader(char *packet, int &packetSize)
     rsv3 = (b0 & 0x10) >> 4;
     opcode = b0 & 0x0f;
 
-    masked = (b1 & 0x80) != 0;
+    hasMask = (b1 & 0x80) != 0;
     uint64_t len = b1 & 0x7f;
     maskkey = 0;
 
@@ -357,7 +355,7 @@ int64_t WebSocketFrame::feedHeader(char *packet, int &packetSize)
             return -1;
         }
     }
-    if (masked) {
+    if (hasMask) {
         if (packetSize >= headerSize + 4) {
             maskkey = ngFromBigEndian<uint32_t>(upacket + headerSize);
             headerSize += 4;
@@ -472,7 +470,7 @@ string WebSocketFrame::toByteArray() const
     }
     buf[0] = buf[0] | opcode;
 
-    if (masked) {
+    if (maskkey > 0) {
         buf[1] = 0x80;
     } else {
         buf[1] = 0;
@@ -491,7 +489,7 @@ string WebSocketFrame::toByteArray() const
         packetSize += 8;
     }
 
-    if (masked) {
+    if (maskkey > 0) {
         ngToBigEndian<uint32_t>(this->maskkey, ubuf + packetSize);
         packetSize += 4;
         applyMaskTo(&buf[0], packetSize, buf.size() - packetSize);
@@ -551,7 +549,6 @@ vector<WebSocketFrame> WebSocketConnectionPrivate::fragmentFrame(const PacketToW
     // optimize if there is only one frame
     if (nFrames == 1) {
         frames[0].payload = writingPacket.payload;
-        frames[0].masked = mustMask;
         if (mustMask) {
             frames[0].maskkey = makeMaskkey();
         } else {
@@ -564,7 +561,6 @@ vector<WebSocketFrame> WebSocketConnectionPrivate::fragmentFrame(const PacketToW
             frames[i].fin = 0;  // may be changed before function returns
             frames[i].opcode = 0;  // continuation frame, may be changed before function returns
             frames[i].payload = writingPacket.payload.substr(start, static_cast<size_t>(len));
-            frames[i].masked = mustMask;
             if (mustMask) {
                 frames[i].maskkey = makeMaskkey();
             } else {
@@ -601,7 +597,6 @@ WebSocketFrame WebSocketConnectionPrivate::makeControlFrame(FrameType type)
     default:
         NG_UNREACHABLE();
     }
-    frame.masked = mustMask;
     if (mustMask) {
         frame.maskkey = makeMaskkey();
     } else {
@@ -733,7 +728,8 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
         }
 
         WebSocketFrame frame;
-        int64_t payloadSize = frame.feedHeader(&buf[0], usedSize);
+        bool frameMasked = false;
+        int64_t payloadSize = frame.feedHeader(&buf[0], usedSize, frameMasked);
         if (payloadSize < 0) {
             if (payloadSize == -2) {
                 // Protocol violation: invalid 64-bit length (MSB must be 0).
@@ -762,7 +758,7 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
         // RFC6455: clients must mask frames sent to servers; servers must not mask frames sent to clients.
         // This connection's `side` tells which side we are on locally.
         const bool expectedMasked = (side == WebSocketConnection::Server);
-        if (frame.masked != expectedMasked) {
+        if (frameMasked != expectedMasked) {
             return abort(WebSocketConnection::ProtocolError);
         }
         if (frame.rsv1 || frame.rsv2 || frame.rsv3) {
@@ -791,7 +787,7 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
             // we got enougth data!
             if (frame.payload.size() >= payloadSize) {
                 assert(frame.payload.size() == payloadSize);
-                if (frame.masked && payloadSize > 0) {
+                if (frameMasked && payloadSize > 0) {
                     frame.applyMaskTo(&frame.payload[0], 0, static_cast<int>(payloadSize));
                 }
                 break;
@@ -911,10 +907,12 @@ void WebSocketConnectionPrivate::doKeepalive()
             return abort(WebSocketConnection::GoingAway);
         }
 
-        // TODO only send ping frame while the doSend() coroutine is idle.
-        // now and lastKeepaliveTimestamp both are unsigned int, we should check which is larger before apply minus
-        // operator to them.
         if (now > lastKeepaliveTimestamp && (now - lastKeepaliveTimestamp > keepaliveInterval)) {
+            // Lightweight optimization: only send ping when sendingQueue is empty.
+            // This is a queue-based approximation, not a strict doSend-idle check.
+            if (!sendingQueue.isEmpty()) {
+                continue;
+            }
             if (debugLevel >= 2) {
                 ngDebug() << "sending keepalive packet.";
             }
