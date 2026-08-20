@@ -21,7 +21,7 @@ Cross platforms
 
 qtng is tested in Linux, Android, Windows, MacOS, and OpenBSD. And support gcc, clang, mingw32, msvc.
 
-Building qtng requires a C++11 compiler and zlib. TLS/crypto support is optional via bundled LibreSSL (when the ``3rdparty/libressl`` git submodule is initialized) or system OpenSSL 1.1.1 or newer. If neither is available (or ``-DQTNG_DISABLE_CRYPTO=ON``), the library builds with ``QTNG_NO_CRYPTO``: TLS/SSL, Noise, AEAD, and QUIC are omitted; ``MessageDigest`` still provides MD5/SHA-1/SHA-256 via a software fallback. Incomplete protocols can be turned off with ``-DQTNG_WITH_HTTP2=OFF``, ``-DQTNG_WITH_QUIC=OFF``, and ``-DQTNG_WITH_HTTP3=OFF`` (all default to ON; QUIC/HTTP3 are also forced off without crypto). The bundled unit tests require C++17 and a system-installed Catch2 v3 (or newer); they are not built by default. Catch2 is never downloaded automatically — see "Build and run tests" below for how to install it. Optional µTP interoperability tests need ``3rdparty/libutp`` (``git submodule update --init 3rdparty/libutp``); they are skipped when that submodule is absent.
+Building qtng requires a C++11 compiler and zlib. TLS/crypto support is optional via bundled LibreSSL (when the ``3rdparty/libressl`` git submodule is initialized) or system OpenSSL 1.1.1 or newer. If neither is available (or ``-DQTNG_DISABLE_CRYPTO=ON``), the library builds with ``QTNG_NO_CRYPTO``: TLS/SSL, Noise, AEAD, and QUIC are omitted; ``MessageDigest`` still provides MD5/SHA-1/SHA-224/SHA-256 via a software fallback. Incomplete protocols can be turned off with ``-DQTNG_WITH_HTTP2=OFF``, ``-DQTNG_WITH_QUIC=OFF``, and ``-DQTNG_WITH_HTTP3=OFF`` (all default to ON; QUIC/HTTP3 are also forced off without crypto). The bundled unit tests require C++17 and a system-installed Catch2 v3 (or newer); they are not built by default. Catch2 is never downloaded automatically — see "Build and run tests" below for how to install it. Optional µTP interoperability tests need ``3rdparty/libutp`` (``git submodule update --init 3rdparty/libutp``); they are skipped when that submodule is absent.
 
 The coroutine is implemented using boost::context asm code, and support native posix `ucontext` and windows `fiber` API. Running tests is success in ARM, ARM64, x86, amd64.
 
@@ -355,7 +355,7 @@ qtng support most OpenSSL Message Digest.
 .. code-block:: c++
     :caption: hash message using sha512
 
-    MessageDigest m(MessageDigest::SHA512);
+    MessageDigest m(MessageDigest::Sha512);
     m.update("data");
     ngDebug() << m.hexDigest();
     
@@ -386,7 +386,7 @@ qtng can generate and manipulate RSA/DSA keys.
     :caption: generate rsa key
 
     PrivateKey key = PrivateKey::generate(PrivateKey::Rsa, 2048);
-    ngDebug() << key.sign("fish is here.", MessageDigest::SHA256);
+    ngDebug() << key.sign("fish is here.", MessageDigest::Sha256);
     ngDebug() << key.save();
     PrivateKey clonedKey = PrivateKey::load(key.save());
 

@@ -7,58 +7,58 @@ namespace qtng {
 
 const EVP_MD *getOpenSSL_MD(MessageDigest::Algorithm algo)
 {
-    const EVP_MD *md = nullptr;
+    const char *name = nullptr;
     switch (algo) {
-    case MessageDigest::Md4:
-#ifndef OPENSSL_NO_MD4
-        md = EVP_md4();
-#endif
-        break;
     case MessageDigest::Md5:
-#ifndef OPENSSL_NO_MD5
-        md = EVP_md5();
-#endif
+        name = "md5";
         break;
     case MessageDigest::Sha1:
-#ifndef OPENSSL_NO_SHA
-        md = EVP_sha1();
-#endif
+        name = "sha1";
         break;
     case MessageDigest::Sha224:
-#ifndef OPENSSL_NO_SHA256
-        md = EVP_sha224();
-#endif
+        name = "sha224";
         break;
     case MessageDigest::Sha256:
-#ifndef OPENSSL_NO_SHA256
-        md = EVP_sha256();
-#endif
+        name = "sha256";
         break;
     case MessageDigest::Sha384:
-#ifndef OPENSSL_NO_SHA512
-        md = EVP_sha384();
-#endif
+        name = "sha384";
         break;
     case MessageDigest::Sha512:
-#ifndef OPENSSL_NO_SHA512
-        md = EVP_sha512();
-#endif
+        name = "sha512";
+        break;
+    case MessageDigest::Sha3_224:
+        name = "sha3-224";
+        break;
+    case MessageDigest::Sha3_256:
+        name = "sha3-256";
+        break;
+    case MessageDigest::Sha3_384:
+        name = "sha3-384";
+        break;
+    case MessageDigest::Sha3_512:
+        name = "sha3-512";
         break;
     case MessageDigest::Ripemd160:
-#ifndef OPENSSL_NO_RIPEMD
-        md = EVP_ripemd160();
-#endif
+        name = "ripemd160";
         break;
-    case MessageDigest::Whirlpool:
-        // LibreSSL 4.0+ removed Whirlpool; OPENSSL_NO_WHIRLPOOL is always defined there.
-#ifndef OPENSSL_NO_WHIRLPOOL
-        md = EVP_whirlpool();
-#endif
+    case MessageDigest::Sha512_224:
+        name = "sha512-224";
         break;
-    default:
-        NG_UNREACHABLE();
+    case MessageDigest::Sha512_256:
+        name = "sha512-256";
+        break;
+    case MessageDigest::Blake2s_256:
+        name = "blake2s256";
+        break;
+    case MessageDigest::Blake2b_512:
+        name = "blake2b512";
+        break;
+    case MessageDigest::Sm3:
+        name = "sm3";
+        break;
     }
-    return md;
+    return name ? EVP_get_digestbyname(name) : nullptr;
 }
 
 class MessageDigestPrivate

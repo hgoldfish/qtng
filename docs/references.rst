@@ -2457,7 +2457,18 @@ There is no specific implementation yet
 ^^^^^^^^^^^^^^^^^^^^^^^
 MessageDigest
 ++++++++++++++
-Provides message digest (hash) functionality, supporting multiple hash algorithms, allows processing data in chunks and generating digests. Supports MD4 and MD5 algorithms, Sha1, Sha224, Sha256, Sha384, Sha512 series of SHA algorithms, as well as Ripemd160 and Whirlpool hash algorithms. Availability of optional algorithms (notably Whirlpool, and sometimes MD4/RIPEMD) depends on the linked OpenSSL/LibreSSL build; LibreSSL 4.0+ no longer provides Whirlpool. If an algorithm is unavailable, construction fails and ``result()`` returns an empty string.
+Provides message digest (hash) functionality, supporting multiple hash algorithms, allowing data to be processed in chunks. The ``Algorithm`` enumeration is:
+
+* ``Md5`` — MD5, kept for checksums and legacy protocols (not collision-resistant)
+* ``Sha1`` — SHA-1, retained only for WebSocket, BitTorrent, and Kademlia protocol compatibility
+* ``Sha224``, ``Sha256``, ``Sha384``, ``Sha512`` — SHA-2
+* ``Sha3_224``, ``Sha3_256``, ``Sha3_384``, ``Sha3_512`` — SHA-3
+* ``Ripemd160`` — RIPEMD-160, for Bitcoin HASH160 (``RIPEMD160(SHA256(data))``)
+* ``Sha512_224``, ``Sha512_256`` — truncated SHA-512
+* ``Blake2s_256``, ``Blake2b_512`` — BLAKE2
+* ``Sm3`` — SM3
+
+MD4 and Whirlpool are not provided. SHA-3, SHA-512/224, SHA-512/256, BLAKE2, SM3, and RIPEMD-160 depend on the linked OpenSSL/LibreSSL build; if an algorithm is unavailable, construction fails and ``result()`` returns an empty string. Without OpenSSL/LibreSSL (``QTNG_NO_CRYPTO``), a software fallback implements MD5, SHA-1, SHA-224, and SHA-256.
 
 .. method:: MessageDigest(Algoritim algo)
 
@@ -2559,7 +2570,7 @@ Provides symmetric encryption/decryption functionality. Supports multiple algori
 
 .. method:: bool setOpensslPassword(const std::string &password, const std::string &salt, const MessageDigest::Algorithm hashAlgo = MessageDigest::Md5, int i = 1)
 
-    Compatible with OpenSSL's key derivation (EVP_BytesToKey). Parameters: password, salt (must be 8 bytes), hash algorithm, iteration count. Uses legacy method to generate keys, suitable for decrypting data encrypted by OpenSSL.
+    Compatible with OpenSSL's key derivation (EVP_BytesToKey). Parameters: password, salt (must be 8 bytes), hash algorithm, iteration count. Uses the legacy method to generate keys, suitable for decrypting data produced by historic ``openssl enc`` (MD5 by default). OpenSSL 3's CLI default is SHA-256; pass ``MessageDigest::Sha256`` for that.
 
 .. method:: std::string addData(const std::string &data)
 
@@ -3053,11 +3064,54 @@ Encryption cipher suite used in SSL/TLS connections. Contains detailed informati
 5.6 Noise Protocol
 ^^^^^^^^^^^^^^^^^^
 
-Minimal Noise Protocol Framework support for ``XX`` / ``PSK_XX`` / ``IK``, with AEAD
-``ChaCha20-Poly1305`` (default, protocol names ``*_25519_ChaChaPoly_SHA256``) or
-``AES-256-GCM`` (``*_25519_AESGCM_SHA256``; header ``qtng/noise.h``, implemented via ``Aead``).
+Minimal Noise Protocol Framework support for ``XX`` / ``IK`` / ``XK`` / ``KK``, plus
+``psk0``–``psk3`` modifiers. AEAD may be ``ChaCha20-Poly1305`` (default, protocol-name
+component ``ChaChaPoly``) or ``AES-256-GCM`` (``AESGCM``; header ``qtng/noise.h``,
+implemented via ``Aead``). Hash may be ``SHA256`` (default), ``SHA512``, ``BLAKE2s``,
+or ``BLAKE2b`` via ``NoiseHash``. Protocol names are
+``Noise_<pattern>[pskN]_25519_<cipher>_<hash>``.
+
+Handshake patterns (X25519):
+
+* ``XX`` (``Noise_XX_25519_*_*``) — three messages; neither side needs the peer
+  static public key in advance; both authenticate with static keys.
+* ``IK`` (``Noise_IK_25519_*_*``) — two messages; the initiator must already
+  know the responder static public key.
+* ``XK`` (``Noise_XK_25519_*_*``) — three messages; the initiator must already
+  know the responder static public key; the initiator static is sent in message 3.
+* ``KK`` (``Noise_KK_25519_*_*``) — two messages; both sides must already know
+  each other's static public keys.
+
+Hash is ``NoiseConfig::hash`` (default ``Sha256``):
+
+* ``Sha256`` (HASHLEN 32) and ``Sha512`` (HASHLEN 64) — protocol-name suffixes
+  ``SHA256`` / ``SHA512``.
+* ``Blake2s`` (HASHLEN 32) and ``Blake2b`` (HASHLEN 64) — suffixes ``BLAKE2s`` /
+  ``BLAKE2b``. These depend on the linked OpenSSL/LibreSSL build; if the digest
+  is missing, ``initialize()`` fails immediately and ``errorString()``
+  reports that the hash is unavailable (do not continue with an empty handshake hash).
+* Cipher keys remain 32 bytes (Truncate-32 when HASHLEN is 64). ``handshakeHash()``
+  is HASHLEN bytes.
+
+PSK is a ``NoisePskModifier`` (``None`` / ``Psk0``–``Psk3``), not a separate pattern:
+
+* Protocol names become ``Noise_<pattern>pskN_25519_*_*`` (e.g. ``Noise_XXpsk0_...``,
+  ``Noise_IKpsk2_...``).
+* ``psk0`` is ``MixKeyAndHash`` at the start of handshake message 1; ``pskN`` (N>0) is at
+  the end of message N, before payload AEAD.
+* Two-message patterns (``IK`` / ``KK``) allow ``psk0``–``psk2``; three-message patterns
+  (``XX`` / ``XK``) allow ``psk0``–``psk3``.
+* The PSK must be exactly 32 bytes; a non-empty PSK requires a modifier, and a modifier
+  requires a PSK.
+* When a PSK is used, ``e`` tokens also ``MixKey(e.public_key)`` after ``MixHash`` (Noise spec).
 
 * ``NoiseKey`` — X25519 keypair generation, private-key import, and DH.
+* ``NoiseConfig`` — handshake options for ``initialize()``. ``NoiseConfig()`` /
+  ``NoiseConfig("")`` generates a local static key (N patterns are not supported).
+  ``NoiseConfig(NoiseKey)`` copies the keypair as-is, including empty/invalid.
+  Defaults: ``XX`` / Initiator / ChaCha20-Poly1305 / ``Sha256`` / no PSK.
+  Set ``remoteStaticPublic``, ``psk`` + ``pskModifier``, ``prologue``, ``cipher``,
+  and ``hash`` as needed.
 * ``NoiseCipherState`` — AEAD via ``Aead`` (``ChaCha20Poly1305`` or ``Aes256Gcm``) with a
   Noise-style 12-byte nonce (4 zero bytes + 8-byte counter: little-endian for ChaChaPoly,
   big-endian for AESGCM). After ``split()``, send and recv each keep a separate counter.
@@ -3073,14 +3127,15 @@ Minimal Noise Protocol Framework support for ``XX`` / ``PSK_XX`` / ``IK``, with 
   ignored with a warning. ``2^64-1`` is reserved for ``rekey()``
   (``ENCRYPT(k, 2^64-1, zerolen, zeros)``) and is never used as a transport nonce.
   ``rekey()`` replaces the key without resetting the nonce.
-* ``NoiseHandshakeState`` — XX / PSK_XX / IK handshake state machine;
-  ``initialize()`` accepts a prologue (always ``MixHash``'d, including empty) and
-  ``Aead::Algorithm`` (default ChaCha20-Poly1305; only 32-byte-key ``ChaCha20Poly1305`` /
-  ``Aes256Gcm`` are accepted, AES-128-GCM is rejected); PSK uses ``MixKeyAndHash`` as psk0;
+* ``NoiseHandshakeState`` — XX / IK / XK / KK handshake state machine;
+  ``initialize(const NoiseConfig &)`` applies MixHash to ``prologue`` (including empty),
+  accepts only 32-byte-key ``ChaCha20Poly1305`` / ``Aes256Gcm`` (AES-128-GCM is rejected),
+  and fails immediately if ``Blake2s`` / ``Blake2b`` are selected but OpenSSL/LibreSSL
+  does not provide them;
   call ``split()`` after completion to obtain
   transport send/recv cipher states; ``handshakeHash()`` is available for channel
-  binding. IK initiators must supply the remote static public key; if an expected
-  remote static was provided and the decrypted key differs, the handshake fails.
+  binding. IK/XK initiators and both KK roles must supply the remote static public key;
+  if an expected remote static was provided and the decrypted key differs, the handshake fails.
 * ``NoiseDatagram`` — the same handshake and transport as a codec: the caller
   owns the socket (UDP or otherwise) and passes packet bytes in and out.
   ``writeHandshake`` / ``readHandshake`` consume and produce Noise handshake
@@ -3108,15 +3163,18 @@ Minimal Noise Protocol Framework support for ``XX`` / ``PSK_XX`` / ``IK``, with 
     NoiseKey bob = NoiseKey::generate();
     auto client = make_shared<NoiseSocket>(asSocketLike(tcpClient));
     auto server = make_shared<NoiseSocket>(asSocketLike(tcpServer));
-    client->initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
-    server->initialize(NoisePattern::XX, NoiseRole::Responder, bob);
+    NoiseConfig clientCfg(alice.privateKey);  // XX initiator, SHA-256, ChaChaPoly
+    NoiseConfig serverCfg(bob.privateKey);
+    serverCfg.role = NoiseRole::Responder;
+    client->initialize(clientCfg);
+    server->initialize(serverCfg);
     // call handshake() on both sides, then sendall / recv
     // wrap with asSocketLike(client) when a SocketLike is required
 
     NoiseDatagram udpClient;
     NoiseDatagram udpServer;
-    udpClient.initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
-    udpServer.initialize(NoisePattern::XX, NoiseRole::Responder, bob);
+    udpClient.initialize(clientCfg);
+    udpServer.initialize(serverCfg);
     udpClient.writeHandshake("hello", &packet);
     udpSocket.sendto(packet, peerAddr, peerPort);  // caller owns I/O
     packet = udpSocket.recvfrom(65535, &from, &fromPort);
@@ -3169,7 +3227,7 @@ CMake chooses the TLS/crypto library as follows:
 * If ``QTNG_DISABLE_CRYPTO=ON``, crypto is skipped and ``QTNG_NO_CRYPTO`` is defined.
 * Else if the ``3rdparty/libressl`` git submodule is initialized and contains usable sources, bundled LibreSSL is built and linked automatically.
 * Else ``find_package(OpenSSL 1.1.1 QUIET)`` is used; when found, system OpenSSL is linked (Noise needs the X25519 raw-key API from 1.1.1+).
-* If neither LibreSSL nor OpenSSL is available, CMake emits a warning and continues with ``QTNG_NO_CRYPTO`` (TLS/SSL, Noise, AEAD, and QUIC are not built). ``MessageDigest`` still supports MD5/SHA-1/SHA-256 via a software fallback.
+* If neither LibreSSL nor OpenSSL is available, CMake emits a warning and continues with ``QTNG_NO_CRYPTO`` (TLS/SSL, Noise, AEAD, and QUIC are not built). ``MessageDigest`` still supports MD5/SHA-1/SHA-224/SHA-256 via a software fallback.
 
 Incomplete protocol modules (default ON):
 

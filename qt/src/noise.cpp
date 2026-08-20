@@ -141,6 +141,37 @@ QByteArray NoiseKey::dh(const QByteArray &privateKey32, const QByteArray &peerPu
     return toQByteArray(qtng_core::NoiseKey::dh(toStdString(privateKey32), toStdString(peerPublicKey32)));
 }
 
+NoiseConfig::NoiseConfig(const QByteArray &localPrivateKey)
+    : localStatic(localPrivateKey.isEmpty() ? NoiseKey::generate() : NoiseKey::fromPrivateKey(localPrivateKey))
+{
+}
+
+NoiseConfig::NoiseConfig(const NoiseKey &key)
+    : localStatic(key)
+{
+}
+
+namespace {
+
+qtng_core::NoiseConfig toCoreConfig(const NoiseConfig &cfg)
+{
+    qtng_core::NoiseKey key;
+    key.privateKey = toStdString(cfg.localStatic.privateKey);
+    key.publicKey = toStdString(cfg.localStatic.publicKey);
+    qtng_core::NoiseConfig core(key);
+    core.pattern = static_cast<qtng_core::NoisePattern>(cfg.pattern);
+    core.role = static_cast<qtng_core::NoiseRole>(cfg.role);
+    core.remoteStaticPublic = toStdString(cfg.remoteStaticPublic);
+    core.psk = toStdString(cfg.psk);
+    core.pskModifier = static_cast<qtng_core::NoisePskModifier>(cfg.pskModifier);
+    core.prologue = toStdString(cfg.prologue);
+    core.cipher = static_cast<qtng_core::Aead::Algorithm>(cfg.cipher);
+    core.hash = static_cast<qtng_core::NoiseHash>(cfg.hash);
+    return core;
+}
+
+}  // namespace
+
 class NoiseHandshakeStatePrivate
 {
 public:
@@ -157,18 +188,10 @@ NoiseHandshakeState::~NoiseHandshakeState()
     delete d_ptr;
 }
 
-bool NoiseHandshakeState::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
-                                     const QByteArray &remoteStaticPublic, const QByteArray &psk,
-                                     const QByteArray &prologue, AeadAlgorithm cipher)
+bool NoiseHandshakeState::initialize(const NoiseConfig &config)
 {
     Q_D(NoiseHandshakeState);
-    qtng_core::NoiseKey coreKey;
-    coreKey.privateKey = toStdString(localStatic.privateKey);
-    coreKey.publicKey = toStdString(localStatic.publicKey);
-    return d->core.initialize(static_cast<qtng_core::NoisePattern>(pattern),
-                              static_cast<qtng_core::NoiseRole>(role), coreKey, toStdString(remoteStaticPublic),
-                              toStdString(psk), toStdString(prologue),
-                              static_cast<qtng_core::Aead::Algorithm>(cipher));
+    return d->core.initialize(toCoreConfig(config));
 }
 
 bool NoiseHandshakeState::isComplete() const
@@ -248,18 +271,10 @@ NoiseSocket::~NoiseSocket()
     delete d_ptr;
 }
 
-bool NoiseSocket::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
-                             const QByteArray &remoteStaticPublic, const QByteArray &psk, const QByteArray &prologue,
-                             AeadAlgorithm cipher)
+bool NoiseSocket::initialize(const NoiseConfig &config)
 {
     Q_D(NoiseSocket);
-    qtng_core::NoiseKey coreKey;
-    coreKey.privateKey = toStdString(localStatic.privateKey);
-    coreKey.publicKey = toStdString(localStatic.publicKey);
-    return d->core->initialize(static_cast<qtng_core::NoisePattern>(pattern),
-                               static_cast<qtng_core::NoiseRole>(role), coreKey, toStdString(remoteStaticPublic),
-                               toStdString(psk), toStdString(prologue),
-                               static_cast<qtng_core::Aead::Algorithm>(cipher));
+    return d->core->initialize(toCoreConfig(config));
 }
 
 bool NoiseSocket::handshake(const QByteArray &payload)
@@ -544,18 +559,10 @@ NoiseDatagram::~NoiseDatagram()
     delete d_ptr;
 }
 
-bool NoiseDatagram::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
-                               const QByteArray &remoteStaticPublic, const QByteArray &psk,
-                               const QByteArray &prologue, AeadAlgorithm cipher)
+bool NoiseDatagram::initialize(const NoiseConfig &config)
 {
     Q_D(NoiseDatagram);
-    qtng_core::NoiseKey coreKey;
-    coreKey.privateKey = toStdString(localStatic.privateKey);
-    coreKey.publicKey = toStdString(localStatic.publicKey);
-    return d->core.initialize(static_cast<qtng_core::NoisePattern>(pattern),
-                              static_cast<qtng_core::NoiseRole>(role), coreKey, toStdString(remoteStaticPublic),
-                              toStdString(psk), toStdString(prologue),
-                              static_cast<qtng_core::Aead::Algorithm>(cipher));
+    return d->core.initialize(toCoreConfig(config));
 }
 
 bool NoiseDatagram::writeHandshake(const QByteArray &payload, QByteArray *outMessage)

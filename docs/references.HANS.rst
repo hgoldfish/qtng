@@ -2163,7 +2163,18 @@ SimpleHttpsServer : public SslServer<SimpleHttpRequestHandler>
 ^^^^^^^^^^^^^^^^
 MessageDigest
 ++++++++++++++
-提供消息摘要（哈希）功能，支持多种哈希算法，允许分块处理数据并生成摘要。支持MD4和MD5算法，Sha1, Sha224, Sha256, Sha384, Sha512一系列SHA系列算法以及Ripemd160, Whirlpool哈希算法。可选算法是否可用取决于链接的 OpenSSL/LibreSSL 构建（尤其是 Whirlpool；LibreSSL 4.0+ 已移除 Whirlpool，MD4/RIPEMD 在部分构建中也可能不可用）。若算法不可用，构造会失败，``result()`` 返回空字符串。
+提供消息摘要（哈希）功能，支持多种哈希算法，允许分块处理数据。``Algorithm`` 枚举为：
+
+* ``Md5`` — MD5，用于校验和与遗留协议（不抗碰撞）
+* ``Sha1`` — SHA-1，仅为 WebSocket、BitTorrent、Kademlia 等协议兼容而保留
+* ``Sha224``、``Sha256``、``Sha384``、``Sha512`` — SHA-2
+* ``Sha3_224``、``Sha3_256``、``Sha3_384``、``Sha3_512`` — SHA-3
+* ``Ripemd160`` — RIPEMD-160，用于比特币 HASH160（``RIPEMD160(SHA256(data))``）
+* ``Sha512_224``、``Sha512_256`` — 截断的 SHA-512
+* ``Blake2s_256``、``Blake2b_512`` — BLAKE2
+* ``Sm3`` — SM3
+
+不提供 MD4、Whirlpool。SHA-3、SHA-512/224、SHA-512/256、BLAKE2、SM3、RIPEMD-160 是否可用取决于链接的 OpenSSL/LibreSSL 构建；若算法不可用，构造会失败，``result()`` 返回空字符串。无 OpenSSL/LibreSSL（``QTNG_NO_CRYPTO``）时，软件实现提供 MD5、SHA-1、SHA-224、SHA-256。
 
 .. method:: MessageDigest(Algoritim algo)
     :no-index:
@@ -2270,7 +2281,7 @@ Clipher
 
 .. method:: bool setOpensslPassword(const std::string &password, const std::string &salt,const MessageDigest::Algorithm hashAlgo = MessageDigest::Md5,int i = 1)
 
-    兼容 OpenSSL 的密钥派生（EVP_BytesToKey）,参数：密码、盐值（必须 8 字节）、哈希算法、迭代次数。使用传统方法生成密钥，适合解密 OpenSSL 加密的数据。
+    兼容 OpenSSL 的密钥派生（EVP_BytesToKey）。参数：密码、盐值（必须 8 字节）、哈希算法、迭代次数。使用传统方法生成密钥，适合解密历史上 ``openssl enc`` 加密的数据（默认 MD5）。OpenSSL 3 命令行默认已改为 SHA-256，需要时传入 ``MessageDigest::Sha256``。
 
 .. method:: std::string addData(const std::string &data)
 
@@ -2779,11 +2790,40 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 5.6 Noise 协议
 ^^^^^^^^^^^^^^
 
-提供 Noise Protocol Framework 的精简实现，支持 ``XX`` / ``PSK_XX`` / ``IK`` 握手，AEAD 可选
-``ChaCha20-Poly1305``（默认，协议名 ``*_25519_ChaChaPoly_SHA256``）或 ``AES-256-GCM``
-（``*_25519_AESGCM_SHA256``；头文件 ``qtng/noise.h``，经 ``Aead`` 实现）。
+提供 Noise Protocol Framework 的精简实现，支持 ``XX`` / ``IK`` / ``XK`` / ``KK`` 握手，以及
+``psk0``–``psk3`` 修饰符。AEAD 可选 ``ChaCha20-Poly1305``（默认，协议名分量 ``ChaChaPoly``）
+或 ``AES-256-GCM``（``AESGCM``；头文件 ``qtng/noise.h``，经 ``Aead`` 实现）。哈希由
+``NoiseHash`` 选择：``SHA256``（默认）、``SHA512``、``BLAKE2s``、``BLAKE2b``。协议名为
+``Noise_<pattern>[pskN]_25519_<cipher>_<hash>``。
+
+握手模式（X25519）：
+
+* ``XX``（``Noise_XX_25519_*_*``）— 3 条消息；双方事先无需对端静态公钥，握手中互相认证静态密钥。
+* ``IK``（``Noise_IK_25519_*_*``）— 2 条消息；发起方必须事先提供响应方静态公钥。
+* ``XK``（``Noise_XK_25519_*_*``）— 3 条消息；发起方必须事先提供响应方静态公钥，发起方静态钥在第 3 条消息中给出。
+* ``KK``（``Noise_KK_25519_*_*``）— 2 条消息；双方都必须事先提供对端静态公钥。
+
+哈希是 ``NoiseConfig::hash``（默认 ``Sha256``）：
+
+* ``Sha256``（HASHLEN 32）与 ``Sha512``（HASHLEN 64）— 协议名后缀 ``SHA256`` / ``SHA512``。
+* ``Blake2s``（HASHLEN 32）与 ``Blake2b``（HASHLEN 64）— 后缀 ``BLAKE2s`` / ``BLAKE2b``。
+  是否可用取决于链接的 OpenSSL/LibreSSL 构建；若摘要不可用，``initialize()`` 立即失败，
+  ``errorString()`` 说明该哈希不可用（不要带着空握手哈希继续）。
+* 密码密钥仍为 32 字节（HASHLEN 为 64 时 Truncate-32）。``handshakeHash()`` 长度为 HASHLEN。
+
+PSK 不是独立 pattern，而是 ``NoisePskModifier``（``None`` / ``Psk0``–``Psk3``）：
+
+* 协议名变为 ``Noise_<pattern>pskN_25519_*_*``（例如 ``Noise_XXpsk0_...``、``Noise_IKpsk2_...``）。
+* ``psk0`` 在第 1 条握手消息的 token 之前做 ``MixKeyAndHash``；``pskN``（N>0）在第 N 条消息其余 token 之后、payload AEAD 之前。
+* 2 条消息的 pattern（``IK`` / ``KK``）允许 ``psk0``–``psk2``；3 条消息的（``XX`` / ``XK``）允许 ``psk0``–``psk3``。
+* PSK 必须恰好 32 字节；非空 PSK 必须带修饰符，带修饰符则 PSK 不得为空。
+* 使用 PSK 时，``e`` token 在 ``MixHash`` 之后额外 ``MixKey(e.public_key)``（Noise 规范）。
 
 * ``NoiseKey`` — X25519 密钥对生成、从私钥导入、DH。
+* ``NoiseConfig`` — ``initialize()`` 的握手选项。``NoiseConfig()`` / ``NoiseConfig("")``
+  会生成本地静态密钥（不支持无本地静态钥的 N 模式）。``NoiseConfig(NoiseKey)`` 原样拷贝密钥对，
+  含空/无效。默认：``XX`` / 发起方 / ChaCha20-Poly1305 / ``Sha256`` / 无 PSK。
+  按需设置 ``remoteStaticPublic``、``psk`` + ``pskModifier``、``prologue``、``cipher``、``hash``。
 * ``NoiseCipherState`` — 通过 ``Aead`` 做 AEAD（``ChaCha20Poly1305`` 或 ``Aes256Gcm``），Noise 风格 12 字节 nonce
   （4 字节零 + 8 字节计数器：ChaChaPoly 小端，AESGCM 大端）。``split()`` 后 send / recv 各持独立计数器。
   ``encryptWithAd`` 始终从计数器取号并在成功后自增（无显式 nonce 加密重载）；``outNonce`` 返回所用值供
@@ -2796,11 +2836,11 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
   超出时忽略并记录 warning。``2^64-1`` 保留给 ``rekey()``
   （``ENCRYPT(k, 2^64-1, zerolen, zeros)``），不用作传输 nonce。
   ``rekey()`` 按 Noise 规范替换密钥，不重置 nonce。
-* ``NoiseHandshakeState`` — XX / PSK_XX / IK 握手状态机；``initialize()`` 支持
-  prologue（始终 ``MixHash``，含空 prologue）与 ``Aead::Algorithm``（默认 ChaCha20-Poly1305；
-  仅接受 32 字节密钥的 ``ChaCha20Poly1305`` / ``Aes256Gcm``，拒绝 AES-128-GCM）；PSK 按 psk0 做 ``MixKeyAndHash``；
-  完成后调用 ``split()`` 得到传输层收发密码状态；``handshakeHash()`` 可用于通道绑定。
-  IK 发起方必须提供对端静态公钥；若预先提供了期望的远端静态公钥且握手中解密出的不符，握手失败。
+* ``NoiseHandshakeState`` — XX / IK / XK / KK 握手状态机；``initialize(const NoiseConfig &)``
+  对 ``prologue`` 做 ``MixHash``（含空 prologue），仅接受 32 字节密钥的 ``ChaCha20Poly1305`` /
+  ``Aes256Gcm``（拒绝 AES-128-GCM）；若选择 ``Blake2s`` / ``Blake2b`` 而 OpenSSL/LibreSSL 未提供
+  则立即失败。完成后调用 ``split()`` 得到传输层收发密码状态；``handshakeHash()`` 可用于通道绑定。
+  IK/XK 发起方以及 KK 的两端必须提供对端静态公钥；若预先提供了期望的远端静态公钥且握手中解密出的不符，握手失败。
 * ``NoiseDatagram`` — 同一套握手与传输，但是编解码器：调用方自己持有套接字（UDP 等），
   只把报文字节送进取出。``writeHandshake`` / ``readHandshake`` 处理 Noise 握手消息；
   完成后 ``encrypt`` / ``decrypt`` 使用 ``[8 字节大端 nonce][密文||tag]``。接收方用包内
@@ -2821,15 +2861,18 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
     NoiseKey bob = NoiseKey::generate();
     auto client = make_shared<NoiseSocket>(asSocketLike(tcpClient));
     auto server = make_shared<NoiseSocket>(asSocketLike(tcpServer));
-    client->initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
-    server->initialize(NoisePattern::XX, NoiseRole::Responder, bob);
+    NoiseConfig clientCfg(alice.privateKey);  // XX 发起方，SHA-256，ChaChaPoly
+    NoiseConfig serverCfg(bob.privateKey);
+    serverCfg.role = NoiseRole::Responder;
+    client->initialize(clientCfg);
+    server->initialize(serverCfg);
     // 两端分别调用 handshake() 后即可 sendall / recv
     // 需要 SocketLike 时：asSocketLike(client)
 
     NoiseDatagram udpClient;
     NoiseDatagram udpServer;
-    udpClient.initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
-    udpServer.initialize(NoisePattern::XX, NoiseRole::Responder, bob);
+    udpClient.initialize(clientCfg);
+    udpServer.initialize(serverCfg);
     udpClient.writeHandshake("hello", &packet);
     udpSocket.sendto(packet, peerAddr, peerPort);  // I/O 由调用方完成
     packet = udpSocket.recvfrom(65535, &from, &fromPort);
@@ -2881,7 +2924,7 @@ CMake 按如下顺序选择 TLS/加密库：
 * 若 ``QTNG_DISABLE_CRYPTO=ON``，跳过加密并定义 ``QTNG_NO_CRYPTO``。
 * 否则若已初始化含可用源码的 ``3rdparty/libressl`` git 子模块，自动构建并链接内置 LibreSSL。
 * 否则调用 ``find_package(OpenSSL 1.1.1 QUIET)``；找到则链接系统 OpenSSL（Noise 需要 1.1.1+ 的 X25519 raw key API）。
-* 若 LibreSSL 与 OpenSSL 皆不可用，CMake 发出警告并继续构建（``QTNG_NO_CRYPTO``）：不编译 TLS/SSL、Noise、AEAD、QUIC。``MessageDigest`` 仍通过软件实现支持 MD5/SHA-1/SHA-256。
+* 若 LibreSSL 与 OpenSSL 皆不可用，CMake 发出警告并继续构建（``QTNG_NO_CRYPTO``）：不编译 TLS/SSL、Noise、AEAD、QUIC。``MessageDigest`` 仍通过软件实现支持 MD5/SHA-1/SHA-224/SHA-256。
 
 不完善协议模块（默认开启）：
 

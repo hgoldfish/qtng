@@ -122,7 +122,7 @@ Dependencies
 * **OpenSSL 1.1.1+ or LibreSSL** for TLS/crypto (optional):
   * Initialize the LibreSSL submodule under `3rdparty/libressl/` to build a bundled copy (`git submodule update --init 3rdparty/libressl`), or
   * Install system OpenSSL development packages (e.g. `libssl-dev` on Debian/Ubuntu)
-  * If neither is available (or `-DQTNG_DISABLE_CRYPTO=ON`), the build continues with `QTNG_NO_CRYPTO`: TLS/SSL, Noise, AEAD, and QUIC are omitted; `MessageDigest` (MD5/SHA-1/SHA-256) still works via a software fallback
+  * If neither is available (or `-DQTNG_DISABLE_CRYPTO=ON`), the build continues with `QTNG_NO_CRYPTO`: TLS/SSL, Noise, AEAD, and QUIC are omitted; `MessageDigest` (MD5/SHA-1/SHA-224/SHA-256) still works via a software fallback
 
 Optional protocol toggles (default **ON**; turn off incomplete stacks when needed):
 

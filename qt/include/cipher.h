@@ -54,7 +54,7 @@ public:
                      int i = 100000 /* same as django PBKDF2*/);
     bool setOpensslPassword(const QByteArray &password, const QByteArray &salt,
                             const MessageDigest::Algorithm hashAlgo = MessageDigest::Md5,
-                            int i = 1);  // same as openssl command line.
+                            int i = 1);  // historic openssl enc / EVP_BytesToKey
     QByteArray salt() const;
     QByteArray saltHeader() const;  // `openssl enc` generate a header contains salt
     bool setPadding(bool padding);

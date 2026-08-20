@@ -122,7 +122,7 @@ qtng 以 LGPL 3.0 许可证发布。
 * **OpenSSL 1.1.1+ 或 LibreSSL**（TLS/加密，可选）：
   * 初始化 `3rdparty/libressl/` 子模块可内嵌编译（`git submodule update --init 3rdparty/libressl`），或
   * 安装系统 OpenSSL 开发包（如 Debian/Ubuntu 的 `libssl-dev`）
-  * 若两者皆无（或 `-DQTNG_DISABLE_CRYPTO=ON`），构建仍可继续并定义 `QTNG_NO_CRYPTO`：不编译 TLS/SSL、Noise、AEAD、QUIC；`MessageDigest`（MD5/SHA-1/SHA-256）改用软件实现
+  * 若两者皆无（或 `-DQTNG_DISABLE_CRYPTO=ON`），构建仍可继续并定义 `QTNG_NO_CRYPTO`：不编译 TLS/SSL、Noise、AEAD、QUIC；`MessageDigest`（MD5/SHA-1/SHA-224/SHA-256）改用软件实现
 
 可选协议开关（默认 **ON**；不完善协议可按需关闭）：
 

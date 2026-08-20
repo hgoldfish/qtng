@@ -73,9 +73,32 @@ private:
 };
 
 enum class NoisePattern {
-    XX,       // Noise_XX_25519_*_SHA256 — mutual static key auth (3 messages)
-    PSK_XX,   // NoisePSK_XX — XX with a pre-shared key mixed as psk0
-    IK,       // Noise_IK_25519_*_SHA256 — initiator knows responder static (2 messages)
+    XX,  // Noise_XX_25519_*_* — 3 messages, no pre-message keys
+    IK,  // Noise_IK_25519_*_* — 2 messages, initiator knows responder static
+    XK,  // Noise_XK_25519_*_* — 3 messages, initiator knows responder static
+    KK,  // Noise_KK_25519_*_* — 2 messages, both sides know each other's static
+};
+
+// Noise PSK modifiers (psk0..psk3). Protocol name becomes Noise_<pattern>pskN_25519_*_<HASH>.
+// None: no PSK. psk0 is MixKeyAndHash at the start of message 1; pskN (N>0) is at the
+// end of message N, before payload AEAD. 2-message patterns (IK, KK) allow psk0..psk2;
+// 3-message patterns (XX, XK) allow psk0..psk3. PSK must be exactly 32 bytes.
+enum class NoisePskModifier {
+    None,
+    Psk0,
+    Psk1,
+    Psk2,
+    Psk3,
+};
+
+// Noise HASH functions (protocol-name suffix / HASHLEN). Cipher keys stay 32 bytes
+// (Truncate-32 when HASHLEN is 64). BLAKE2 requires the linked OpenSSL/LibreSSL
+// build; initialize() fails immediately if the digest is unavailable.
+enum class NoiseHash {
+    Sha256 = 0,  // HASHLEN = 32, SHA256
+    Sha512 = 1,  // HASHLEN = 64, SHA512
+    Blake2s = 2,  // HASHLEN = 32, BLAKE2s
+    Blake2b = 3,  // HASHLEN = 64, BLAKE2b
 };
 
 enum class NoiseRole {
@@ -83,7 +106,26 @@ enum class NoiseRole {
     Responder,
 };
 
-// Minimal Noise handshake state machine for XX / PSK_XX / IK.
+// Handshake options for initialize(). Empty localPrivateKey generates a static
+// X25519 key: N patterns (no local static) are not supported. Passing a NoiseKey
+// copies it as-is (including invalid/empty; initialize() then fails).
+struct NoiseConfig
+{
+    NoiseKey localStatic;
+    NoisePattern pattern = NoisePattern::XX;
+    NoiseRole role = NoiseRole::Initiator;
+    std::string remoteStaticPublic;
+    std::string psk;
+    NoisePskModifier pskModifier = NoisePskModifier::None;
+    std::string prologue;
+    Aead::Algorithm cipher = Aead::ChaCha20Poly1305;
+    NoiseHash hash = NoiseHash::Sha256;
+
+    explicit NoiseConfig(const std::string &localPrivateKey = std::string());
+    explicit NoiseConfig(const NoiseKey &key);
+};
+
+// Minimal Noise handshake state machine for XX / IK / XK / KK, with optional PSK modifiers.
 // After handshake finishes, take transport ciphers via split().
 class NoiseHandshakeStatePrivate;
 class NoiseHandshakeState
@@ -92,15 +134,9 @@ public:
     NoiseHandshakeState();
     ~NoiseHandshakeState();
 
-    // prologue is MixHash()'d after the protocol name (Noise Initialize).
-    // For IK, initiator must supply remoteStaticPublic (32 bytes).
-    // cipher must be ChaCha20Poly1305 (default) or Aes256Gcm (Noise AESGCM).
-    bool initialize(NoisePattern pattern, NoiseRole role,
-                    const NoiseKey &localStatic,
-                    const std::string &remoteStaticPublic = std::string(),
-                    const std::string &psk = std::string(),
-                    const std::string &prologue = std::string(),
-                    Aead::Algorithm cipher = Aead::ChaCha20Poly1305);
+    // MixHash(prologue) after the protocol name. IK/XK initiator and both KK roles
+    // need remoteStaticPublic. See NoiseConfig for cipher, hash, and PSK rules.
+    bool initialize(const NoiseConfig &config);
 
     bool isComplete() const;
     bool writeMessage(const std::string &payload, std::string *outMessage);
@@ -134,12 +170,7 @@ public:
     NoiseDatagram &operator=(NoiseDatagram &&other) noexcept;
     ~NoiseDatagram();
 
-    bool initialize(NoisePattern pattern, NoiseRole role,
-                    const NoiseKey &localStatic,
-                    const std::string &remoteStaticPublic = std::string(),
-                    const std::string &psk = std::string(),
-                    const std::string &prologue = std::string(),
-                    Aead::Algorithm cipher = Aead::ChaCha20Poly1305);
+    bool initialize(const NoiseConfig &config);
 
     bool writeHandshake(const std::string &payload, std::string *outMessage);
     bool readHandshake(const std::string &message, std::string *outPayload);
@@ -171,12 +202,7 @@ public:
     explicit NoiseSocket(std::shared_ptr<SocketLike> backend);
     ~NoiseSocket();
 
-    bool initialize(NoisePattern pattern, NoiseRole role,
-                    const NoiseKey &localStatic,
-                    const std::string &remoteStaticPublic = std::string(),
-                    const std::string &psk = std::string(),
-                    const std::string &prologue = std::string(),
-                    Aead::Algorithm cipher = Aead::ChaCha20Poly1305);
+    bool initialize(const NoiseConfig &config);
 
     bool handshake(const std::string &payload = std::string());
     bool isHandshakeComplete() const;

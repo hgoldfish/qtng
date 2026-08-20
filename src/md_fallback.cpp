@@ -1,5 +1,5 @@
 // Software MessageDigest when OpenSSL/LibreSSL is unavailable (QTNG_NO_CRYPTO).
-// Supports Md5, Sha1, and Sha256 used by HTTP/WebSocket, BitTorrent, and Kademlia.
+// Md5/Sha1/Sha224/Sha256. Sha1 is required by HTTP WebSocket, BitTorrent, and Kademlia.
 // Streaming addData() must match the OpenSSL-backed MessageDigest contract.
 
 #include "qtng/md.h"
@@ -219,7 +219,7 @@ void sha256Transform(uint32_t state[8], const unsigned char block[64])
     state[7] += h;
 }
 
-enum DigestKind { DigestMd5, DigestSha1, DigestSha256 };
+enum DigestKind { DigestMd5, DigestSha1, DigestSha224, DigestSha256 };
 
 bool algoToKind(MessageDigest::Algorithm algo, DigestKind *kind)
 {
@@ -229,6 +229,9 @@ bool algoToKind(MessageDigest::Algorithm algo, DigestKind *kind)
         return true;
     case MessageDigest::Sha1:
         *kind = DigestSha1;
+        return true;
+    case MessageDigest::Sha224:
+        *kind = DigestSha224;
         return true;
     case MessageDigest::Sha256:
         *kind = DigestSha256;
@@ -259,6 +262,7 @@ public:
     string result();
 
     DigestKind kind;
+    int digestBytes;
     uint32_t state[8];
     unsigned char block[64];
     size_t blockLen;
@@ -270,6 +274,7 @@ public:
 
 MessageDigestPrivate::MessageDigestPrivate(MessageDigest::Algorithm algo)
     : kind(DigestSha256)
+    , digestBytes(32)
     , blockLen(0)
     , totalBytes(0)
     , hasError(false)
@@ -286,12 +291,24 @@ MessageDigestPrivate::MessageDigestPrivate(MessageDigest::Algorithm algo)
         state[1] = 0xefcdab89u;
         state[2] = 0x98badcfeu;
         state[3] = 0x10325476u;
+        digestBytes = 16;
     } else if (kind == DigestSha1) {
         state[0] = 0x67452301u;
         state[1] = 0xefcdab89u;
         state[2] = 0x98badcfeu;
         state[3] = 0x10325476u;
         state[4] = 0xc3d2e1f0u;
+        digestBytes = 20;
+    } else if (kind == DigestSha224) {
+        state[0] = 0xc1059ed8u;
+        state[1] = 0x367cd507u;
+        state[2] = 0x3070dd17u;
+        state[3] = 0xf70e5939u;
+        state[4] = 0xffc00b31u;
+        state[5] = 0x68581511u;
+        state[6] = 0x64f98fa7u;
+        state[7] = 0xbefa4fa4u;
+        digestBytes = 28;
     } else {
         state[0] = 0x6a09e667u;
         state[1] = 0xbb67ae85u;
@@ -301,6 +318,7 @@ MessageDigestPrivate::MessageDigestPrivate(MessageDigest::Algorithm algo)
         state[5] = 0x9b05688cu;
         state[6] = 0x1f83d9abu;
         state[7] = 0x5be0cd19u;
+        digestBytes = 32;
     }
 }
 
@@ -375,22 +393,15 @@ string MessageDigestPrivate::result()
         storeLe32(pad + 56, static_cast<uint32_t>(totalBits));
         storeLe32(pad + 60, static_cast<uint32_t>(totalBits >> 32));
         transformBlock(kind, st, pad);
-        finalData.resize(16);
-        for (int i = 0; i < 4; ++i) {
+        finalData.resize(static_cast<size_t>(digestBytes));
+        for (int i = 0; i < digestBytes / 4; ++i) {
             storeLe32(reinterpret_cast<unsigned char *>(&finalData[0]) + i * 4, st[i]);
-        }
-    } else if (kind == DigestSha1) {
-        storeBe64(pad + 56, totalBits);
-        transformBlock(kind, st, pad);
-        finalData.resize(20);
-        for (int i = 0; i < 5; ++i) {
-            storeBe32(reinterpret_cast<unsigned char *>(&finalData[0]) + i * 4, st[i]);
         }
     } else {
         storeBe64(pad + 56, totalBits);
         transformBlock(kind, st, pad);
-        finalData.resize(32);
-        for (int i = 0; i < 8; ++i) {
+        finalData.resize(static_cast<size_t>(digestBytes));
+        for (int i = 0; i < digestBytes / 4; ++i) {
             storeBe32(reinterpret_cast<unsigned char *>(&finalData[0]) + i * 4, st[i]);
         }
     }

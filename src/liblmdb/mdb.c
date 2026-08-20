@@ -1764,13 +1764,16 @@ char *
 mdb_strerror(int err)
 {
 #ifdef _WIN32
-	/** HACK: pad 4KB on stack over the buf. Return system msgs in buf.
-	 *	This works as long as no function between the call to mdb_strerror
-	 *	and the actual use of the message uses more than 4K of stack.
+	/** Thread-local buffer for FormatMessageA results.
+	 *	Upstream returns a pointer into a stack array (with 4KB padding).
+	 *	That is undefined behavior and triggers -Wreturn-local-addr.
 	 */
 #define MSGSIZE	1024
-#define PADSIZE	4096
-	char buf[MSGSIZE+PADSIZE], *ptr = buf;
+#ifdef _MSC_VER
+	__declspec(thread) static char buf[MSGSIZE];
+#else
+	static __thread char buf[MSGSIZE];
+#endif
 #endif
 	int i;
 	if (!err)
@@ -1802,8 +1805,8 @@ mdb_strerror(int err)
 	buf[0] = 0;
 	FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM |
 		FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL, err, 0, ptr, MSGSIZE, NULL);
-	return ptr;
+		NULL, err, 0, buf, MSGSIZE, NULL);
+	return buf;
 #else
 	if (err < 0)
 		return "Invalid error code";

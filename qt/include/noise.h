@@ -56,14 +56,49 @@ private:
 };
 
 enum class NoisePattern {
-    XX,
-    PSK_XX,
-    IK,
+    XX,  // Noise_XX_25519_*_* — 3 messages, no pre-message keys
+    IK,  // Noise_IK_25519_*_* — 2 messages, initiator knows responder static
+    XK,  // Noise_XK_25519_*_* — 3 messages, initiator knows responder static
+    KK,  // Noise_KK_25519_*_* — 2 messages, both sides know each other's static
+};
+
+enum class NoisePskModifier {
+    None,
+    Psk0,
+    Psk1,
+    Psk2,
+    Psk3,
+};
+
+// Numeric values match qtng::NoiseHash.
+enum class NoiseHash {
+    Sha256 = 0,
+    Sha512 = 1,
+    Blake2s = 2,
+    Blake2b = 3,
 };
 
 enum class NoiseRole {
     Initiator,
     Responder,
+};
+
+struct NoiseConfig
+{
+    NoiseKey localStatic;
+    NoisePattern pattern = NoisePattern::XX;
+    NoiseRole role = NoiseRole::Initiator;
+    QByteArray remoteStaticPublic;
+    QByteArray psk;
+    NoisePskModifier pskModifier = NoisePskModifier::None;
+    QByteArray prologue;
+    AeadAlgorithm cipher = AeadAlgorithm::ChaCha20Poly1305;
+    NoiseHash hash = NoiseHash::Sha256;
+
+    // Empty localPrivateKey generates a static key. N patterns are not supported.
+    // NoiseKey is copied as-is (empty/invalid is left empty).
+    explicit NoiseConfig(const QByteArray &localPrivateKey = QByteArray());
+    explicit NoiseConfig(const NoiseKey &key);
 };
 
 class NoiseHandshakeStatePrivate;
@@ -73,12 +108,7 @@ public:
     NoiseHandshakeState();
     ~NoiseHandshakeState();
 
-    bool initialize(NoisePattern pattern, NoiseRole role,
-                    const NoiseKey &localStatic,
-                    const QByteArray &remoteStaticPublic = QByteArray(),
-                    const QByteArray &psk = QByteArray(),
-                    const QByteArray &prologue = QByteArray(),
-                    AeadAlgorithm cipher = AeadAlgorithm::ChaCha20Poly1305);
+    bool initialize(const NoiseConfig &config);
 
     bool isComplete() const;
     bool writeMessage(const QByteArray &payload, QByteArray *outMessage);
@@ -105,12 +135,7 @@ public:
     NoiseDatagram &operator=(NoiseDatagram &&other) noexcept;
     ~NoiseDatagram();
 
-    bool initialize(NoisePattern pattern, NoiseRole role,
-                    const NoiseKey &localStatic,
-                    const QByteArray &remoteStaticPublic = QByteArray(),
-                    const QByteArray &psk = QByteArray(),
-                    const QByteArray &prologue = QByteArray(),
-                    AeadAlgorithm cipher = AeadAlgorithm::ChaCha20Poly1305);
+    bool initialize(const NoiseConfig &config);
 
     bool writeHandshake(const QByteArray &payload, QByteArray *outMessage);
     bool readHandshake(const QByteArray &message, QByteArray *outPayload);
@@ -136,12 +161,7 @@ public:
     explicit NoiseSocket(QSharedPointer<SocketLike> backend);
     ~NoiseSocket();
 
-    bool initialize(NoisePattern pattern, NoiseRole role,
-                    const NoiseKey &localStatic,
-                    const QByteArray &remoteStaticPublic = QByteArray(),
-                    const QByteArray &psk = QByteArray(),
-                    const QByteArray &prologue = QByteArray(),
-                    AeadAlgorithm cipher = AeadAlgorithm::ChaCha20Poly1305);
+    bool initialize(const NoiseConfig &config);
 
     bool handshake(const QByteArray &payload = QByteArray());
     bool isHandshakeComplete() const;
