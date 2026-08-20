@@ -1,12 +1,12 @@
 #include "qtng/private/quic_tls.h"
 
 #include <cstring>
-#include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <openssl/rsa.h>
 
 #include "qtng/aead.h"
 #include "qtng/md.h"
-#include "qtng/private/crypto_p.h"
+#include "qtng/private/openssl_raii.h"
 #include "qtng/random.h"
 
 using namespace std;
@@ -82,25 +82,22 @@ string handshakeRecord(uint8_t type, const string &body)
 
 bool generateX25519(string *priv, string *pub)
 {
-    EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
+    EvpPkeyCtxPtr pctx(EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr));
     if (!pctx) {
         return false;
     }
-    EVP_PKEY *pkey = nullptr;
-    if (EVP_PKEY_keygen_init(pctx) <= 0 || EVP_PKEY_keygen(pctx, &pkey) <= 0) {
-        EVP_PKEY_CTX_free(pctx);
+    EVP_PKEY *rawPkey = nullptr;
+    if (EVP_PKEY_keygen_init(pctx.get()) <= 0 || EVP_PKEY_keygen(pctx.get(), &rawPkey) <= 0) {
         return false;
     }
-    EVP_PKEY_CTX_free(pctx);
+    EvpPkeyPtr pkey(rawPkey);
     priv->resize(32);
     pub->resize(32);
     size_t privLen = 32, pubLen = 32;
-    bool ok = EVP_PKEY_get_raw_private_key(pkey, reinterpret_cast<unsigned char *>(&(*priv)[0]), &privLen) == 1
+    return EVP_PKEY_get_raw_private_key(pkey.get(), reinterpret_cast<unsigned char *>(&(*priv)[0]), &privLen) == 1
             && privLen == 32
-            && EVP_PKEY_get_raw_public_key(pkey, reinterpret_cast<unsigned char *>(&(*pub)[0]), &pubLen) == 1
+            && EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<unsigned char *>(&(*pub)[0]), &pubLen) == 1
             && pubLen == 32;
-    EVP_PKEY_free(pkey);
-    return ok;
 }
 
 string x25519Shared(const string &priv, const string &peerPub)
@@ -108,24 +105,23 @@ string x25519Shared(const string &priv, const string &peerPub)
     if (priv.size() != 32 || peerPub.size() != 32) {
         return string();
     }
-    EVP_PKEY *ours = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
-                                                   reinterpret_cast<const unsigned char *>(priv.data()), 32);
-    EVP_PKEY *theirs = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr,
-                                                    reinterpret_cast<const unsigned char *>(peerPub.data()), 32);
+    EvpPkeyPtr ours(EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
+                                                   reinterpret_cast<const unsigned char *>(priv.data()), 32));
+    EvpPkeyPtr theirs(EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr,
+                                                    reinterpret_cast<const unsigned char *>(peerPub.data()), 32));
     if (!ours || !theirs) {
-        EVP_PKEY_free(ours);
-        EVP_PKEY_free(theirs);
         return string();
     }
-    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(ours, nullptr);
+    EvpPkeyCtxPtr ctx(EVP_PKEY_CTX_new(ours.get(), nullptr));
+    if (!ctx || EVP_PKEY_derive_init(ctx.get()) <= 0 || EVP_PKEY_derive_set_peer(ctx.get(), theirs.get()) <= 0) {
+        return string();
+    }
     string shared(32, '\0');
     size_t len = 32;
-    bool ok = ctx && EVP_PKEY_derive_init(ctx) > 0 && EVP_PKEY_derive_set_peer(ctx, theirs) > 0
-            && EVP_PKEY_derive(ctx, reinterpret_cast<unsigned char *>(&shared[0]), &len) > 0 && len == 32;
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(ours);
-    EVP_PKEY_free(theirs);
-    return ok ? shared : string();
+    if (EVP_PKEY_derive(ctx.get(), reinterpret_cast<unsigned char *>(&shared[0]), &len) <= 0 || len != 32) {
+        return string();
+    }
+    return shared;
 }
 
 string deriveSecret(const string &secret, const string &label, const string &messages, size_t outLen)
@@ -147,7 +143,7 @@ string hmacSha256(const string &key, const string &data)
 
 string rsaPssSign(EVP_PKEY *pkey, const string &data)
 {
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    EvpMdCtxPtr ctx(EVP_MD_CTX_new());
     if (!ctx) {
         return string();
     }
@@ -155,7 +151,7 @@ string rsaPssSign(EVP_PKEY *pkey, const string &data)
     string sig;
     bool ok = false;
     do {
-        if (EVP_DigestSignInit(ctx, &pctx, EVP_sha256(), nullptr, pkey) != 1) {
+        if (EVP_DigestSignInit(ctx.get(), &pctx, EVP_sha256(), nullptr, pkey) != 1) {
             break;
         }
         if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING) <= 0) {
@@ -165,12 +161,12 @@ string rsaPssSign(EVP_PKEY *pkey, const string &data)
             break;
         }
         size_t sigLen = 0;
-        if (EVP_DigestSign(ctx, nullptr, &sigLen, reinterpret_cast<const unsigned char *>(data.data()), data.size())
+        if (EVP_DigestSign(ctx.get(), nullptr, &sigLen, reinterpret_cast<const unsigned char *>(data.data()), data.size())
             != 1) {
             break;
         }
         sig.resize(sigLen);
-        if (EVP_DigestSign(ctx, reinterpret_cast<unsigned char *>(&sig[0]), &sigLen,
+        if (EVP_DigestSign(ctx.get(), reinterpret_cast<unsigned char *>(&sig[0]), &sigLen,
                            reinterpret_cast<const unsigned char *>(data.data()), data.size())
             != 1) {
             break;
@@ -178,20 +174,19 @@ string rsaPssSign(EVP_PKEY *pkey, const string &data)
         sig.resize(sigLen);
         ok = true;
     } while (false);
-    EVP_MD_CTX_free(ctx);
     return ok ? sig : string();
 }
 
 bool rsaPssVerify(EVP_PKEY *pkey, const string &data, const string &sig)
 {
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    EvpMdCtxPtr ctx(EVP_MD_CTX_new());
     if (!ctx) {
         return false;
     }
     EVP_PKEY_CTX *pctx = nullptr;
     bool ok = false;
     do {
-        if (EVP_DigestVerifyInit(ctx, &pctx, EVP_sha256(), nullptr, pkey) != 1) {
+        if (EVP_DigestVerifyInit(ctx.get(), &pctx, EVP_sha256(), nullptr, pkey) != 1) {
             break;
         }
         if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING) <= 0) {
@@ -200,48 +195,44 @@ bool rsaPssVerify(EVP_PKEY *pkey, const string &data, const string &sig)
         if (EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, RSA_PSS_SALTLEN_DIGEST) <= 0) {
             break;
         }
-        ok = EVP_DigestVerify(ctx, reinterpret_cast<const unsigned char *>(sig.data()), sig.size(),
+        ok = EVP_DigestVerify(ctx.get(), reinterpret_cast<const unsigned char *>(sig.data()), sig.size(),
                               reinterpret_cast<const unsigned char *>(data.data()), data.size())
                 == 1;
     } while (false);
-    EVP_MD_CTX_free(ctx);
     return ok;
 }
 
 string ecdsaSign(EVP_PKEY *pkey, const string &data)
 {
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    EvpMdCtxPtr ctx(EVP_MD_CTX_new());
     if (!ctx) {
         return string();
     }
     size_t sigLen = 0;
     string sig;
-    bool ok = EVP_DigestSignInit(ctx, nullptr, EVP_sha256(), nullptr, pkey) == 1
-            && EVP_DigestSign(ctx, nullptr, &sigLen, reinterpret_cast<const unsigned char *>(data.data()), data.size())
+    bool ok = EVP_DigestSignInit(ctx.get(), nullptr, EVP_sha256(), nullptr, pkey) == 1
+            && EVP_DigestSign(ctx.get(), nullptr, &sigLen, reinterpret_cast<const unsigned char *>(data.data()), data.size())
                     == 1;
     if (ok) {
         sig.resize(sigLen);
-        ok = EVP_DigestSign(ctx, reinterpret_cast<unsigned char *>(&sig[0]), &sigLen,
+        ok = EVP_DigestSign(ctx.get(), reinterpret_cast<unsigned char *>(&sig[0]), &sigLen,
                             reinterpret_cast<const unsigned char *>(data.data()), data.size())
                 == 1;
         sig.resize(sigLen);
     }
-    EVP_MD_CTX_free(ctx);
     return ok ? sig : string();
 }
 
 bool ecdsaVerify(EVP_PKEY *pkey, const string &data, const string &sig)
 {
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    EvpMdCtxPtr ctx(EVP_MD_CTX_new());
     if (!ctx) {
         return false;
     }
-    bool ok = EVP_DigestVerifyInit(ctx, nullptr, EVP_sha256(), nullptr, pkey) == 1
-            && EVP_DigestVerify(ctx, reinterpret_cast<const unsigned char *>(sig.data()), sig.size(),
+    return EVP_DigestVerifyInit(ctx.get(), nullptr, EVP_sha256(), nullptr, pkey) == 1
+            && EVP_DigestVerify(ctx.get(), reinterpret_cast<const unsigned char *>(sig.data()), sig.size(),
                                 reinterpret_cast<const unsigned char *>(data.data()), data.size())
                     == 1;
-    EVP_MD_CTX_free(ctx);
-    return ok;
 }
 
 }  // namespace

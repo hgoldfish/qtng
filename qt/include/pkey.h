@@ -45,7 +45,7 @@ public:
     Algorithm algorithm() const;
     int bits() const;
     bool verify(const QByteArray &data, const QByteArray &hash, MessageDigest::Algorithm hashAlgo);
-    QByteArray encrypt(const QByteArray &data);
+    QByteArray encrypt(const QByteArray &data) const;
     QByteArray digest(MessageDigest::Algorithm algorithm = MessageDigest::Sha256) const;
 public:
     QByteArray rsaPublicEncrypt(const QByteArray &data,
@@ -99,7 +99,7 @@ public:
 public:
     PublicKey publicKey() const;
     QByteArray sign(const QByteArray &data, MessageDigest::Algorithm hashAlgo);
-    QByteArray decrypt(const QByteArray &data);
+    QByteArray decrypt(const QByteArray &data) const;
 public:
     QByteArray rsaPrivateEncrypt(const QByteArray &data, RsaPadding padding = PKCS1_PADDING) const;
     QByteArray rsaPrivateDecrypt(const QByteArray &data,

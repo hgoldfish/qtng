@@ -76,7 +76,7 @@ bool PublicKey::verify(const QByteArray &data, const QByteArray &hash, MessageDi
 {
     return d_ptr->core->verify(toStdString(data), toStdString(hash), static_cast<qtng_core::MessageDigest::Algorithm>(hashAlgo));
 }
-QByteArray PublicKey::encrypt(const QByteArray &data) { return toQByteArray(d_ptr->core->encrypt(toStdString(data))); }
+QByteArray PublicKey::encrypt(const QByteArray &data) const { return toQByteArray(d_ptr->core->encrypt(toStdString(data))); }
 QByteArray PublicKey::digest(MessageDigest::Algorithm algorithm) const
 {
     return toQByteArray(d_ptr->core->digest(static_cast<qtng_core::MessageDigest::Algorithm>(algorithm)));
@@ -110,7 +110,7 @@ QByteArray PrivateKey::sign(const QByteArray &data, MessageDigest::Algorithm has
     return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).sign(toStdString(data),
                                                                   static_cast<qtng_core::MessageDigest::Algorithm>(hashAlgo)));
 }
-QByteArray PrivateKey::decrypt(const QByteArray &data) { return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).decrypt(toStdString(data))); }
+QByteArray PrivateKey::decrypt(const QByteArray &data) const { return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).decrypt(toStdString(data))); }
 QByteArray PrivateKey::rsaPrivateEncrypt(const QByteArray &data, RsaPadding padding) const
 {
     return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).rsaPrivateEncrypt(toStdString(data),

@@ -1,209 +1,123 @@
+#include <algorithm>
+#include <array>
 #include <cstring>
+#include <memory>
 #include <string>
+#include <utility>
 
 #include "qtng/noise.h"
 #include "qtng/md.h"
+#include "qtng/private/openssl_raii.h"
 #include "qtng/utils/logging.h"
 
-extern "C" {
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
-}
-
 using namespace std;
-
-NG_LOGGER("qtng.noise");
 
 namespace qtng {
 
 namespace {
 
+NG_LOGGER("qtng.noise");
+
 const size_t kHashLen = 32;
 const size_t kDhLen = 32;
 const size_t kTagLen = 16;
 const size_t kNonceLen = 12;
+const size_t kWireNonceLen = 8;
 const size_t kMaxFramePayload = 65535;
+const uint64_t kRekeyNonce = ~uint64_t(0);
 
-const char *kProtocolXX = "Noise_XX_25519_ChaChaPoly_SHA256";
-const char *kProtocolPskXX = "NoisePSK_XX_25519_ChaChaPoly_SHA256";
-const char *kProtocolIK = "Noise_IK_25519_ChaChaPoly_SHA256";
-
-void writeNonce(uint8_t nonce[kNonceLen], uint64_t n)
+inline bool transportNonceAllowed(uint64_t n)
 {
-    memset(nonce, 0, 4);
-    for (int i = 0; i < 8; ++i) {
-        nonce[4 + i] = static_cast<uint8_t>((n >> (8 * i)) & 0xff);
-    }
+    return n <= NoiseCipherState::MaxNonce;
 }
 
-string sha256(const string &data)
-{
-    return MessageDigest::digest(data, MessageDigest::Sha256);
-}
+// WireGuard receive-side replay window (RFC 6479): 8192-bit bitmap, 64 redundant
+// bits, reject before the counter can wrap through the window.
+const int kCounterWordBits = 64;
+const int kCounterBitsTotal = 8192;
+const int kCounterWords = kCounterBitsTotal / kCounterWordBits;
+const uint64_t kCounterWindowSize = static_cast<uint64_t>(kCounterBitsTotal - kCounterWordBits);
+const uint64_t kRejectAfterMessages = ~uint64_t(0) - kCounterWindowSize - 1;
 
-bool aeadSeal(const string &key, const uint8_t nonce[kNonceLen], const string &ad, const string &plaintext,
-              string *out)
+struct ReplayCounter
 {
-    if (!out) {
-        return false;
+    uint64_t counter = 0;
+    array<uint64_t, static_cast<size_t>(kCounterWords)> backtrack{};
+
+    void reset()
+    {
+        counter = 0;
+        backtrack.fill(0);
     }
-    out->clear();
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) {
-        return false;
-    }
-    bool ok = false;
-    do {
-        if (EVP_EncryptInit_ex(ctx, EVP_chacha20_poly1305(), nullptr, nullptr, nullptr) != 1) {
-            break;
+
+    bool validate(uint64_t theirCounter)
+    {
+        if (counter >= kRejectAfterMessages + 1 || theirCounter >= kRejectAfterMessages) {
+            return false;
         }
-        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, static_cast<int>(kNonceLen), nullptr) != 1) {
-            break;
+        // Packet nonce is 0-based; WireGuard stores a 1-based counter so 0 means unused.
+        ++theirCounter;
+        if (kCounterWindowSize + theirCounter < counter) {
+            return false;
         }
-        if (EVP_EncryptInit_ex(ctx, nullptr, nullptr, reinterpret_cast<const uint8_t *>(key.data()), nonce) != 1) {
-            break;
-        }
-        int len = 0;
-        if (!ad.empty()) {
-            if (EVP_EncryptUpdate(ctx, nullptr, &len, reinterpret_cast<const uint8_t *>(ad.data()),
-                                  static_cast<int>(ad.size()))
-                != 1) {
-                break;
+        const uint64_t wordBits = static_cast<uint64_t>(kCounterWordBits);
+        const uint64_t index = theirCounter / wordBits;
+        if (theirCounter > counter) {
+            const uint64_t indexCurrent = counter / wordBits;
+            uint64_t top = index - indexCurrent;
+            if (top > static_cast<uint64_t>(kCounterWords)) {
+                top = static_cast<uint64_t>(kCounterWords);
             }
-        }
-        out->resize(plaintext.size() + kTagLen);
-        uint8_t *outPtr = reinterpret_cast<uint8_t *>(&(*out)[0]);
-        int outLen = 0;
-        if (!plaintext.empty()) {
-            if (EVP_EncryptUpdate(ctx, outPtr, &outLen, reinterpret_cast<const uint8_t *>(plaintext.data()),
-                                  static_cast<int>(plaintext.size()))
-                != 1) {
-                break;
+            for (uint64_t i = 1; i <= top; ++i) {
+                backtrack[static_cast<size_t>((i + indexCurrent) & (kCounterWords - 1))] = 0;
             }
+            counter = theirCounter;
         }
-        int finalLen = 0;
-        if (EVP_EncryptFinal_ex(ctx, outPtr + outLen, &finalLen) != 1) {
-            break;
+        const uint64_t word = index & (kCounterWords - 1);
+        const uint64_t bit = uint64_t(1) << (theirCounter % wordBits);
+        if (backtrack[static_cast<size_t>(word)] & bit) {
+            return false;
         }
-        outLen += finalLen;
-        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, static_cast<int>(kTagLen), outPtr + outLen) != 1) {
-            break;
-        }
-        out->resize(static_cast<size_t>(outLen) + kTagLen);
-        ok = true;
-    } while (false);
-    EVP_CIPHER_CTX_free(ctx);
-    if (!ok) {
-        out->clear();
+        backtrack[static_cast<size_t>(word)] |= bit;
+        return true;
     }
-    return ok;
+};
+
+const char *noiseProtocolName(NoisePattern pattern, Aead::Algorithm cipher)
+{
+    const bool gcm = (cipher == Aead::Aes256Gcm);
+    switch (pattern) {
+    case NoisePattern::PSK_XX:
+        return gcm ? "NoisePSK_XX_25519_AESGCM_SHA256" : "NoisePSK_XX_25519_ChaChaPoly_SHA256";
+    case NoisePattern::IK:
+        return gcm ? "Noise_IK_25519_AESGCM_SHA256" : "Noise_IK_25519_ChaChaPoly_SHA256";
+    case NoisePattern::XX:
+    default:
+        return gcm ? "Noise_XX_25519_AESGCM_SHA256" : "Noise_XX_25519_ChaChaPoly_SHA256";
+    }
 }
 
-bool aeadOpen(const string &key, const uint8_t nonce[kNonceLen], const string &ad, const string &ciphertextAndTag,
-              string *out)
+inline bool isNoiseAead(Aead::Algorithm cipher)
 {
-    if (!out || ciphertextAndTag.size() < kTagLen) {
-        return false;
-    }
-    out->clear();
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) {
-        return false;
-    }
-    bool ok = false;
-    do {
-        if (EVP_DecryptInit_ex(ctx, EVP_chacha20_poly1305(), nullptr, nullptr, nullptr) != 1) {
-            break;
-        }
-        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, static_cast<int>(kNonceLen), nullptr) != 1) {
-            break;
-        }
-        const size_t ctLen = ciphertextAndTag.size() - kTagLen;
-        uint8_t tag[kTagLen];
-        memcpy(tag, ciphertextAndTag.data() + ctLen, kTagLen);
-        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, static_cast<int>(kTagLen), tag) != 1) {
-            break;
-        }
-        if (EVP_DecryptInit_ex(ctx, nullptr, nullptr, reinterpret_cast<const uint8_t *>(key.data()), nonce) != 1) {
-            break;
-        }
-        int len = 0;
-        if (!ad.empty()) {
-            if (EVP_DecryptUpdate(ctx, nullptr, &len, reinterpret_cast<const uint8_t *>(ad.data()),
-                                  static_cast<int>(ad.size()))
-                != 1) {
-                break;
-            }
-        }
-        out->resize(ctLen);
-        uint8_t *outPtr = out->empty() ? nullptr : reinterpret_cast<uint8_t *>(&(*out)[0]);
-        int outLen = 0;
-        if (ctLen > 0) {
-            if (EVP_DecryptUpdate(ctx, outPtr, &outLen, reinterpret_cast<const uint8_t *>(ciphertextAndTag.data()),
-                                  static_cast<int>(ctLen))
-                != 1) {
-                break;
-            }
-        }
-        int finalLen = 0;
-        if (EVP_DecryptFinal_ex(ctx, outPtr ? outPtr + outLen : nullptr, &finalLen) != 1) {
-            break;
-        }
-        out->resize(static_cast<size_t>(outLen + finalLen));
-        ok = true;
-    } while (false);
-    EVP_CIPHER_CTX_free(ctx);
-    if (!ok) {
-        out->clear();
-    }
-    return ok;
+    return cipher == Aead::ChaCha20Poly1305 || cipher == Aead::Aes256Gcm;
 }
 
-// RFC 5869 HKDF-Expand (and Extract via HMAC) — works with empty IKM/info on all backends.
-string hkdfExpand(const string &prk, const string &info, size_t outLen)
+// Noise nonce: 4 zero bytes || 64-bit counter. ChaChaPoly is little-endian; AESGCM is big-endian.
+string encodeNonce(Aead::Algorithm algo, uint64_t n)
 {
-    if (prk.empty() || outLen == 0) {
-        return string();
+    string nonce(kNonceLen, '\0');
+    if (algo == Aead::Aes256Gcm) {
+        ngToBigEndian(n, &nonce[4]);
+    } else {
+        ngToLittleEndian(n, &nonce[4]);
     }
-    string out;
-    out.reserve(outLen);
-    string t;
-    uint8_t counter = 1;
-    while (out.size() < outLen) {
-        string blockIn = t;
-        blockIn.append(info);
-        blockIn.push_back(static_cast<char>(counter++));
-        unsigned int mdLen = 0;
-        unsigned char md[EVP_MAX_MD_SIZE];
-        if (!HMAC(EVP_sha256(), prk.data(), static_cast<int>(prk.size()),
-                  reinterpret_cast<const unsigned char *>(blockIn.data()), blockIn.size(), md, &mdLen)) {
-            return string();
-        }
-        t.assign(reinterpret_cast<char *>(md), mdLen);
-        out.append(t);
-    }
-    out.resize(outLen);
-    return out;
-}
-
-string hkdfSha256(const string &ikm, const string &salt, const string &info, size_t outLen)
-{
-    string realSalt = salt;
-    if (realSalt.empty()) {
-        realSalt.assign(kHashLen, '\0');
-    }
-    unsigned int prkLen = 0;
-    unsigned char prk[EVP_MAX_MD_SIZE];
-    if (!HMAC(EVP_sha256(), realSalt.data(), static_cast<int>(realSalt.size()),
-              reinterpret_cast<const unsigned char *>(ikm.data()), ikm.size(), prk, &prkLen)) {
-        return string();
-    }
-    return hkdfExpand(string(reinterpret_cast<char *>(prk), prkLen), info, outLen);
+    return nonce;
 }
 
 bool writeFrame(shared_ptr<SocketLike> sock, const string &payload, string *error)
 {
     if (!sock || payload.size() > kMaxFramePayload) {
+        ngWarning() << "frame too large or null socket";
         if (error) {
             *error = "frame too large or null socket";
         }
@@ -212,12 +126,14 @@ bool writeFrame(shared_ptr<SocketLike> sock, const string &payload, string *erro
     const uint16_t len = static_cast<uint16_t>(payload.size());
     char hdr[2] = {static_cast<char>((len >> 8) & 0xff), static_cast<char>(len & 0xff)};
     if (sock->sendall(hdr, 2) != 2) {
+        ngDebug() << "failed to send frame header";
         if (error) {
             *error = "failed to send frame header";
         }
         return false;
     }
     if (!payload.empty() && sock->sendall(payload) != static_cast<int32_t>(payload.size())) {
+        ngDebug() << "failed to send frame payload";
         if (error) {
             *error = "failed to send frame payload";
         }
@@ -229,6 +145,7 @@ bool writeFrame(shared_ptr<SocketLike> sock, const string &payload, string *erro
 bool readFrame(shared_ptr<SocketLike> sock, string *payload, string *error)
 {
     if (!sock || !payload) {
+        ngWarning() << "null socket or payload";
         if (error) {
             *error = "null socket or payload";
         }
@@ -236,6 +153,7 @@ bool readFrame(shared_ptr<SocketLike> sock, string *payload, string *error)
     }
     char hdr[2];
     if (sock->recvall(hdr, 2) != 2) {
+        ngDebug() << "failed to read frame header";
         if (error) {
             *error = "failed to read frame header";
         }
@@ -245,12 +163,50 @@ bool readFrame(shared_ptr<SocketLike> sock, string *payload, string *error)
             | static_cast<uint16_t>(static_cast<uint8_t>(hdr[1]));
     payload->assign(static_cast<size_t>(len), '\0');
     if (len > 0 && sock->recvall(&(*payload)[0], len) != static_cast<int32_t>(len)) {
+        payload->clear();
+        ngDebug() << "failed to read frame payload";
         if (error) {
             *error = "failed to read frame payload";
         }
-        payload->clear();
         return false;
     }
+    return true;
+}
+
+string packTransport(uint64_t n, const string &ct)
+{
+    string out(kWireNonceLen + ct.size(), '\0');
+    ngToBigEndian(n, &out[0]);
+    if (!ct.empty()) {
+        memcpy(&out[kWireNonceLen], ct.data(), ct.size());
+    }
+    return out;
+}
+
+bool unpackTransport(const string &wire, uint64_t *n, string *ct)
+{
+    if (!n || !ct || wire.size() < kWireNonceLen + kTagLen) {
+        return false;
+    }
+    *n = ngFromBigEndian<uint64_t>(wire.data());
+    *ct = wire.substr(kWireNonceLen);
+    return true;
+}
+
+// Split transport ciphers once hs.isComplete(). Returns true when handshake
+// is still in progress or split succeeded; false only on split failure.
+bool splitIfHandshakeComplete(NoiseHandshakeState &hs, NoiseCipherState *send, NoiseCipherState *recv,
+                              bool &ready, string &error)
+{
+    if (!hs.isComplete()) {
+        return true;
+    }
+    if (!hs.split(send, recv)) {
+        error = hs.errorString();
+        ready = false;
+        return false;
+    }
+    ready = true;
     return true;
 }
 
@@ -259,29 +215,30 @@ bool readFrame(shared_ptr<SocketLike> sock, string *payload, string *error)
 NoiseKey NoiseKey::generate()
 {
     NoiseKey key;
-    EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
+    EvpPkeyCtxPtr pctx(EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr));
     if (!pctx) {
+        ngWarning() << "NoiseKey::generate: EVP_PKEY_CTX_new_id failed";
         return key;
     }
-    EVP_PKEY *pkey = nullptr;
-    if (EVP_PKEY_keygen_init(pctx) <= 0 || EVP_PKEY_keygen(pctx, &pkey) <= 0) {
-        EVP_PKEY_CTX_free(pctx);
+    EVP_PKEY *rawPkey = nullptr;
+    if (EVP_PKEY_keygen_init(pctx.get()) <= 0 || EVP_PKEY_keygen(pctx.get(), &rawPkey) <= 0) {
+        ngWarning() << "NoiseKey::generate: X25519 keygen failed";
         return key;
     }
-    EVP_PKEY_CTX_free(pctx);
+    EvpPkeyPtr pkey(rawPkey);
 
     key.privateKey.resize(kDhLen);
     key.publicKey.resize(kDhLen);
     size_t privLen = kDhLen;
     size_t pubLen = kDhLen;
-    if (EVP_PKEY_get_raw_private_key(pkey, reinterpret_cast<uint8_t *>(&key.privateKey[0]), &privLen) != 1
+    if (EVP_PKEY_get_raw_private_key(pkey.get(), reinterpret_cast<uint8_t *>(&key.privateKey[0]), &privLen) != 1
         || privLen != kDhLen
-        || EVP_PKEY_get_raw_public_key(pkey, reinterpret_cast<uint8_t *>(&key.publicKey[0]), &pubLen) != 1
+        || EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<uint8_t *>(&key.publicKey[0]), &pubLen) != 1
         || pubLen != kDhLen) {
+        ngWarning() << "NoiseKey::generate: failed to export raw keys";
         key.privateKey.clear();
         key.publicKey.clear();
     }
-    EVP_PKEY_free(pkey);
     return key;
 }
 
@@ -289,91 +246,204 @@ NoiseKey NoiseKey::fromPrivateKey(const string &privateKey32)
 {
     NoiseKey key;
     if (privateKey32.size() != kDhLen) {
+        ngWarning() << "NoiseKey::fromPrivateKey: key must be 32 bytes, got" << privateKey32.size();
         return key;
     }
-    EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
-                                                  reinterpret_cast<const uint8_t *>(privateKey32.data()), kDhLen);
+    EvpPkeyPtr pkey(EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
+                                                  reinterpret_cast<const uint8_t *>(privateKey32.data()),
+                                                  kDhLen));
     if (!pkey) {
+        ngWarning() << "NoiseKey::fromPrivateKey: EVP_PKEY_new_raw_private_key failed";
         return key;
     }
     key.privateKey = privateKey32;
     key.publicKey.resize(kDhLen);
     size_t pubLen = kDhLen;
-    if (EVP_PKEY_get_raw_public_key(pkey, reinterpret_cast<uint8_t *>(&key.publicKey[0]), &pubLen) != 1
+    if (EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<uint8_t *>(&key.publicKey[0]), &pubLen) != 1
         || pubLen != kDhLen) {
+        ngWarning() << "NoiseKey::fromPrivateKey: failed to export public key";
         key.privateKey.clear();
         key.publicKey.clear();
     }
-    EVP_PKEY_free(pkey);
     return key;
 }
 
 string NoiseKey::dh(const string &privateKey32, const string &peerPublicKey32)
 {
     if (privateKey32.size() != kDhLen || peerPublicKey32.size() != kDhLen) {
+        ngWarning() << "NoiseKey::dh: keys must be 32 bytes";
         return string();
     }
-    EVP_PKEY *priv = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
-                                                  reinterpret_cast<const uint8_t *>(privateKey32.data()), kDhLen);
-    EVP_PKEY *peer = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr,
-                                                 reinterpret_cast<const uint8_t *>(peerPublicKey32.data()), kDhLen);
+    EvpPkeyPtr priv(EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
+                                                 reinterpret_cast<const uint8_t *>(privateKey32.data()),
+                                                 kDhLen));
+    EvpPkeyPtr peer(EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr,
+                                                reinterpret_cast<const uint8_t *>(peerPublicKey32.data()),
+                                                kDhLen));
     if (!priv || !peer) {
-        EVP_PKEY_free(priv);
-        EVP_PKEY_free(peer);
+        ngWarning() << "NoiseKey::dh: failed to import X25519 keys";
         return string();
     }
     string shared;
-    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(priv, nullptr);
-    if (ctx && EVP_PKEY_derive_init(ctx) > 0 && EVP_PKEY_derive_set_peer(ctx, peer) > 0) {
-        size_t len = kDhLen;
-        shared.resize(kDhLen);
-        if (EVP_PKEY_derive(ctx, reinterpret_cast<uint8_t *>(&shared[0]), &len) <= 0 || len != kDhLen) {
-            shared.clear();
-        }
+    EvpPkeyCtxPtr ctx(EVP_PKEY_CTX_new(priv.get(), nullptr));
+    if (!ctx || EVP_PKEY_derive_init(ctx.get()) <= 0 || EVP_PKEY_derive_set_peer(ctx.get(), peer.get()) <= 0) {
+        ngWarning() << "NoiseKey::dh: derive init failed";
+        return string();
     }
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(priv);
-    EVP_PKEY_free(peer);
+    size_t len = kDhLen;
+    shared.resize(kDhLen);
+    if (EVP_PKEY_derive(ctx.get(), reinterpret_cast<uint8_t *>(&shared[0]), &len) <= 0 || len != kDhLen) {
+        ngWarning() << "NoiseKey::dh: EVP_PKEY_derive failed";
+        return string();
+    }
     return shared;
 }
 
-NoiseCipherState::NoiseCipherState()
-    : m_hasKey(false)
-    , m_lastDecryptOk(false)
-    , m_nonce(0)
-    , m_highestRemoteNonce(0)
-    , m_replayWindow(0)
+class NoiseCipherStatePrivate
+{
+public:
+    explicit NoiseCipherStatePrivate(Aead::Algorithm algo = Aead::ChaCha20Poly1305)
+        : aead(algo)
+        , lastDecryptOk(false)
+        , nonce(0)
+    {
+    }
+
+    NoiseCipherStatePrivate(const NoiseCipherStatePrivate &other)
+        : aead(other.aead.algorithm())
+        , lastDecryptOk(other.lastDecryptOk)
+        , key(other.key)
+        , nonce(other.nonce)
+    {
+        syncAeadKey();
+    }
+
+    NoiseCipherStatePrivate &operator=(const NoiseCipherStatePrivate &other)
+    {
+        if (this != &other) {
+            aead.~Aead();
+            new (&aead) Aead(other.aead.algorithm());
+            lastDecryptOk = other.lastDecryptOk;
+            key = other.key;
+            nonce = other.nonce;
+            syncAeadKey();
+        }
+        return *this;
+    }
+
+    void syncAeadKey()
+    {
+        if (!key.empty() && !aead.setKey(key)) {
+            ngWarning() << "NoiseCipherState: AEAD setKey failed";
+            key.clear();
+        }
+    }
+
+    Aead aead;
+    bool lastDecryptOk;
+    string key;
+    // 64-bit sequential counter; full semantics on NoiseCipherState in noise.h.
+    uint64_t nonce;
+};
+
+NoiseCipherState::NoiseCipherState(Aead::Algorithm algo)
+    : d_ptr(new NoiseCipherStatePrivate(algo))
 {
 }
 
-NoiseCipherState::~NoiseCipherState() {}
+NoiseCipherState::NoiseCipherState(const NoiseCipherState &other)
+    : d_ptr(new NoiseCipherStatePrivate(*other.d_ptr))
+{
+}
+
+NoiseCipherState &NoiseCipherState::operator=(const NoiseCipherState &other)
+{
+    if (this != &other) {
+        *d_ptr = *other.d_ptr;
+    }
+    return *this;
+}
+
+NoiseCipherState::NoiseCipherState(NoiseCipherState &&other)
+    : d_ptr(new NoiseCipherStatePrivate)
+{
+    std::swap(d_ptr, other.d_ptr);
+}
+
+NoiseCipherState &NoiseCipherState::operator=(NoiseCipherState &&other) noexcept
+{
+    std::swap(d_ptr, other.d_ptr);
+    return *this;
+}
+
+NoiseCipherState::~NoiseCipherState()
+{
+    delete d_ptr;
+}
+
+Aead::Algorithm NoiseCipherState::algorithm() const
+{
+    NG_D(const NoiseCipherState);
+    return d->aead.algorithm();
+}
 
 void NoiseCipherState::initializeKey(const string &key32)
 {
-    m_hasKey = (key32.size() == kDhLen);
-    m_key = m_hasKey ? key32 : string();
-    m_nonce = 0;
-    // mixKey() reinitializes the cipher during handshake; the anti-replay
-    // window must reset together with the nonce or the next decrypt(0) is
-    // falsely rejected as a replay of the previous key epoch.
-    m_highestRemoteNonce = 0;
-    m_replayWindow = 0;
+    NG_D(NoiseCipherState);
+    const Aead::Algorithm algo = d->aead.algorithm();
+    d->key = (isNoiseAead(algo) && key32.size() == kDhLen) ? key32 : string();
+    d->nonce = 0;
+    if (!d->key.empty()) {
+        d->syncAeadKey();
+    }
+    if (d->key.empty()) {
+        if (!isNoiseAead(algo)) {
+            ngDebug() << "NoiseCipherState::initializeKey: unsupported AEAD";
+        } else if (key32.size() != kDhLen) {
+            ngWarning() << "NoiseCipherState::initializeKey: key must be 32 bytes, got" << key32.size();
+        }
+    }
+}
+
+bool NoiseCipherState::hasKey() const
+{
+    NG_D(const NoiseCipherState);
+    return !d->key.empty();
+}
+
+uint64_t NoiseCipherState::nonce() const
+{
+    NG_D(const NoiseCipherState);
+    return d->nonce;
+}
+
+void NoiseCipherState::setNonce(uint64_t n)
+{
+    NG_D(NoiseCipherState);
+    if (!transportNonceAllowed(n)) {
+        ngWarning() << "NoiseCipherState::setNonce: nonce " << n << " exceeds MaxNonce (" << MaxNonce << ")";
+        return;
+    }
+    d->nonce = n;
 }
 
 bool NoiseCipherState::rekey()
 {
-    if (!m_hasKey) {
+    NG_D(NoiseCipherState);
+    if (d->key.empty()) {
+        ngWarning() << "NoiseCipherState::rekey: no key";
         return false;
     }
-    uint8_t nonce[kNonceLen];
-    writeNonce(nonce, ~uint64_t(0));
+    const Aead::Algorithm algo = d->aead.algorithm();
     const string zeros(kHashLen, '\0');
     string out;
-    if (!aeadSeal(m_key, nonce, string(), zeros, &out) || out.size() < kHashLen) {
+    if (!d->aead.seal(encodeNonce(algo, kRekeyNonce), string(), zeros, &out) || out.size() < kHashLen) {
+        ngWarning() << "NoiseCipherState::rekey: ENCRYPT(k, 2^64-1) failed";
         return false;
     }
-    m_key = out.substr(0, kHashLen);
-    return true;
+    d->key = out.substr(0, kHashLen);
+    d->syncAeadKey();
+    return !d->key.empty();
 }
 
 string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext)
@@ -384,17 +454,23 @@ string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext
 
 string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext, uint64_t *outNonce)
 {
-    if (!m_hasKey) {
+    NG_D(NoiseCipherState);
+    if (d->key.empty()) {
+        ngDebug() << "NoiseCipherState::encryptWithAd: no key";
         return string();
     }
-    const uint64_t n = m_nonce;
-    uint8_t nonce[kNonceLen];
-    writeNonce(nonce, n);
+    if (!transportNonceAllowed(d->nonce)) {
+        ngWarning() << "NoiseCipherState::encryptWithAd: nonce exhausted";
+        return string();
+    }
+    const uint64_t n = d->nonce;
+    const Aead::Algorithm algo = d->aead.algorithm();
     string out;
-    if (!aeadSeal(m_key, nonce, ad, plaintext, &out)) {
+    if (!d->aead.seal(encodeNonce(algo, n), ad, plaintext, &out)) {
+        ngWarning() << "NoiseCipherState::encryptWithAd: AEAD seal failed n=" << n;
         return string();
     }
-    ++m_nonce;
+    ++d->nonce;
     if (outNonce) {
         *outNonce = n;
     }
@@ -403,401 +479,396 @@ string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext
 
 string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertextAndTag)
 {
-    m_lastDecryptOk = false;
-    if (!m_hasKey || ciphertextAndTag.size() < kTagLen) {
-        return string();
+    NG_D(NoiseCipherState);
+    const string out = decryptWithAd(ad, ciphertextAndTag, d->nonce);
+    if (d->lastDecryptOk) {
+        ++d->nonce;
     }
-    uint8_t nonceBuf[kNonceLen];
-    writeNonce(nonceBuf, m_nonce);
-    string out;
-    if (!aeadOpen(m_key, nonceBuf, ad, ciphertextAndTag, &out)) {
-        return string();
-    }
-    ++m_nonce;
-    m_lastDecryptOk = true;
     return out;
 }
 
 string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertextAndTag, uint64_t nonce)
 {
-    m_lastDecryptOk = false;
-    if (!m_hasKey || ciphertextAndTag.size() < kTagLen) {
+    NG_D(NoiseCipherState);
+    d->lastDecryptOk = false;
+    if (d->key.empty()) {
+        ngDebug() << "NoiseCipherState::decryptWithAd: no key";
         return string();
     }
-    const uint64_t savedHighest = m_highestRemoteNonce;
-    const uint64_t savedWindow = m_replayWindow;
-    if (!acceptIncomingNonce(nonce)) {
+    if (ciphertextAndTag.size() < kTagLen) {
+        ngDebug() << "NoiseCipherState::decryptWithAd: truncated";
         return string();
     }
-    uint8_t nonceBuf[kNonceLen];
-    writeNonce(nonceBuf, nonce);
+    if (!transportNonceAllowed(nonce)) {
+        ngWarning() << "NoiseCipherState::decryptWithAd: nonce " << nonce << " reserved/exhausted";
+        return string();
+    }
+    const Aead::Algorithm algo = d->aead.algorithm();
     string out;
-    if (!aeadOpen(m_key, nonceBuf, ad, ciphertextAndTag, &out)) {
-        m_highestRemoteNonce = savedHighest;
-        m_replayWindow = savedWindow;
+    if (!d->aead.open(encodeNonce(algo, nonce), ad, ciphertextAndTag, &out)) {
+        ngDebug() << "NoiseCipherState::decryptWithAd: AEAD open failed n=" << nonce;
         return string();
     }
-    m_lastDecryptOk = true;
+    d->lastDecryptOk = true;
     return out;
 }
 
-bool NoiseCipherState::acceptIncomingNonce(uint64_t remoteNonce)
+bool NoiseCipherState::lastDecryptOk() const
 {
-    if (remoteNonce > m_highestRemoteNonce) {
-        const uint64_t shift = remoteNonce - m_highestRemoteNonce;
-        if (shift >= 64) {
-            m_replayWindow = 1;
-        } else {
-            m_replayWindow = (m_replayWindow << shift) | 1;
-        }
-        m_highestRemoteNonce = remoteNonce;
-        return true;
-    }
-    const uint64_t bit = m_highestRemoteNonce - remoteNonce;
-    if (bit >= 64) {
-        return false;
-    }
-    const uint64_t mask = uint64_t(1) << bit;
-    if (m_replayWindow & mask) {
-        return false;
-    }
-    m_replayWindow |= mask;
-    return true;
+    NG_D(const NoiseCipherState);
+    return d->lastDecryptOk;
 }
+
+class NoiseHandshakeStatePrivate
+{
+public:
+    NoiseHandshakeStatePrivate()
+        : pattern(NoisePattern::XX)
+        , role(NoiseRole::Initiator)
+        , complete(false)
+        , msgIndex(0)
+    {
+    }
+
+    void mixHash(const string &data);
+    bool mixKey(const string &material);
+    bool mixKeyAndHash(const string &material);
+    string encryptAndHash(const string &plaintext);
+    string decryptAndHash(const string &ciphertextAndTag);
+    string hkdf(const string &chainingKey, const string &inputKeyMaterial, int numOutputs);
+    bool checkRemoteStatic(const string &expectedRs);
+
+    NoisePattern pattern;
+    NoiseRole role;
+    bool complete;
+    int msgIndex;
+    string error;
+    NoiseKey s;
+    NoiseKey e;
+    string rs;
+    string re;
+    string psk;
+    string ck;
+    string h;
+    NoiseCipherState cs;
+};
 
 NoiseHandshakeState::NoiseHandshakeState()
-    : m_pattern(NoisePattern::XX)
-    , m_role(NoiseRole::Initiator)
-    , m_complete(false)
-    , m_msgIndex(0)
+    : d_ptr(new NoiseHandshakeStatePrivate)
 {
 }
 
-NoiseHandshakeState::~NoiseHandshakeState() {}
+NoiseHandshakeState::~NoiseHandshakeState()
+{
+    delete d_ptr;
+}
 
 bool NoiseHandshakeState::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
-                                     const string &remoteStaticPublic, const string &psk, const string &prologue)
+                                     const string &remoteStaticPublic, const string &psk, const string &prologue,
+                                     Aead::Algorithm cipher)
 {
-    m_error.clear();
-    m_complete = false;
-    m_msgIndex = 0;
-    m_pattern = pattern;
-    m_role = role;
-    m_s = localStatic;
-    m_e = NoiseKey();
-    m_rs = remoteStaticPublic;
-    m_re.clear();
-    m_psk = psk;
-    m_cs = NoiseCipherState();
+    NG_D(NoiseHandshakeState);
+    d->error.clear();
+    d->complete = false;
+    d->msgIndex = 0;
+    d->pattern = pattern;
+    d->role = role;
+    d->s = localStatic;
+    d->e = NoiseKey();
+    d->rs = remoteStaticPublic;
+    d->re.clear();
+    d->psk = psk;
+    d->cs = NoiseCipherState(cipher);
 
-    if (!m_s.isValid()) {
-        m_error = "local static key is invalid";
+    if (!isNoiseAead(cipher)) {
+        ngWarning() << "Noise AEAD must be ChaCha20Poly1305 or Aes256Gcm";
+        d->error = "Noise AEAD must be ChaCha20Poly1305 or Aes256Gcm";
         return false;
     }
-    if (!m_rs.empty() && m_rs.size() != kDhLen) {
-        m_error = "remote static public key must be 32 bytes";
+    if (!d->s.isValid()) {
+        ngWarning() << "local static key is invalid";
+        d->error = "local static key is invalid";
+        return false;
+    }
+    if (!d->rs.empty() && d->rs.size() != kDhLen) {
+        ngWarning() << "remote static public key must be 32 bytes";
+        d->error = "remote static public key must be 32 bytes";
         return false;
     }
     if (pattern == NoisePattern::PSK_XX && psk.empty()) {
-        m_error = "PSK_XX requires a non-empty PSK";
+        ngWarning() << "PSK_XX requires a non-empty PSK";
+        d->error = "PSK_XX requires a non-empty PSK";
         return false;
     }
     if (pattern != NoisePattern::PSK_XX && !psk.empty()) {
-        m_error = "only PSK_XX takes a PSK";
+        ngWarning() << "only PSK_XX takes a PSK";
+        d->error = "only PSK_XX takes a PSK";
         return false;
     }
-    if (pattern == NoisePattern::IK && role == NoiseRole::Initiator && m_rs.size() != kDhLen) {
-        m_error = "IK initiator requires remote static public key";
+    if (pattern == NoisePattern::IK && role == NoiseRole::Initiator && d->rs.size() != kDhLen) {
+        ngWarning() << "IK initiator requires remote static public key";
+        d->error = "IK initiator requires remote static public key";
         return false;
     }
 
-    const char *name = kProtocolXX;
-    if (pattern == NoisePattern::PSK_XX) {
-        name = kProtocolPskXX;
-    } else if (pattern == NoisePattern::IK) {
-        name = kProtocolIK;
-    }
-    const string protocolName(name);
+    const string protocolName(noiseProtocolName(pattern, cipher));
     if (protocolName.size() <= kHashLen) {
-        m_h.assign(kHashLen, '\0');
-        memcpy(&m_h[0], protocolName.data(), protocolName.size());
+        d->h.assign(kHashLen, '\0');
+        memcpy(&d->h[0], protocolName.data(), protocolName.size());
     } else {
-        m_h = sha256(protocolName);
+        d->h = MessageDigest::digest(protocolName, MessageDigest::Sha256);
     }
-    m_ck = m_h;
+    d->ck = d->h;
 
     // Noise Initialize always MixHash(prologue), including empty prologue.
-    mixHash(prologue);
+    d->mixHash(prologue);
 
-    if (pattern == NoisePattern::PSK_XX) {
-        mixKeyAndHash(psk);
+    if (pattern == NoisePattern::PSK_XX && !d->mixKeyAndHash(psk)) {
+        return false;
     }
 
     // IK pre-message: <- s
     if (pattern == NoisePattern::IK) {
         if (role == NoiseRole::Initiator) {
-            mixHash(m_rs);
+            d->mixHash(d->rs);
         } else {
-            mixHash(m_s.publicKey);
+            d->mixHash(d->s.publicKey);
         }
     }
     return true;
 }
 
-void NoiseHandshakeState::mixHash(const string &data)
+bool NoiseHandshakeState::isComplete() const
 {
-    m_h = sha256(m_h + data);
-}
-
-void NoiseHandshakeState::mixKey(const string &material)
-{
-    const string outputs = hkdf(m_ck, material, 2);
-    if (outputs.size() != kHashLen * 2) {
-        m_error = "mixKey HKDF failed";
-        return;
-    }
-    m_ck = outputs.substr(0, kHashLen);
-    m_cs.initializeKey(outputs.substr(kHashLen, kHashLen));
-}
-
-void NoiseHandshakeState::mixKeyAndHash(const string &material)
-{
-    mixKey(material);
-    mixHash(material);
-}
-
-string NoiseHandshakeState::encryptAndHash(const string &plaintext)
-{
-    string ciphertext;
-    if (m_cs.hasKey()) {
-        ciphertext = m_cs.encryptWithAd(m_h, plaintext);
-        if (ciphertext.empty()) {
-            m_error = "encryptAndHash failed";
-            return string();
-        }
-    } else {
-        ciphertext = plaintext;
-    }
-    mixHash(ciphertext);
-    return ciphertext;
-}
-
-string NoiseHandshakeState::decryptAndHash(const string &ciphertextAndTag)
-{
-    string plaintext;
-    if (m_cs.hasKey()) {
-        if (ciphertextAndTag.size() < kTagLen) {
-            m_error = "decryptAndHash truncated";
-            return string();
-        }
-        plaintext = m_cs.decryptWithAd(m_h, ciphertextAndTag);
-        if (!m_cs.lastDecryptOk()) {
-            m_error = "decryptAndHash failed";
-            return string();
-        }
-    } else {
-        plaintext = ciphertextAndTag;
-    }
-    mixHash(ciphertextAndTag);
-    return plaintext;
-}
-
-string NoiseHandshakeState::hkdf(const string &chainingKey, const string &inputKeyMaterial, int numOutputs)
-{
-    if (numOutputs < 2 || numOutputs > 3) {
-        return string();
-    }
-    return hkdfSha256(inputKeyMaterial, chainingKey, string(), static_cast<size_t>(numOutputs) * kHashLen);
-}
-
-bool NoiseHandshakeState::checkRemoteStatic(const string &expectedRs)
-{
-    if (!expectedRs.empty() && expectedRs != m_rs) {
-        m_error = "remote static public key mismatch";
-        return false;
-    }
-    return true;
+    NG_D(const NoiseHandshakeState);
+    return d->complete;
 }
 
 bool NoiseHandshakeState::writeMessage(const string &payload, string *outMessage)
 {
-    if (!outMessage || m_complete) {
-        m_error = "handshake already complete or null output";
+    NG_D(NoiseHandshakeState);
+    if (!outMessage) {
+        ngWarning() << "writeMessage requires non-null output";
+        d->error = "writeMessage requires non-null output";
+        return false;
+    }
+    if (d->complete) {
+        ngWarning() << "handshake already complete";
+        d->error = "handshake already complete";
         return false;
     }
     string message;
-    const bool initiator = (m_role == NoiseRole::Initiator);
-    const bool isIk = (m_pattern == NoisePattern::IK);
+    const bool initiator = (d->role == NoiseRole::Initiator);
+    const bool isIk = (d->pattern == NoisePattern::IK);
 
-    if (initiator && m_msgIndex == 0 && !isIk) {
+    if (initiator && d->msgIndex == 0 && !isIk) {
         // XX / PSK_XX: -> e
-        m_e = NoiseKey::generate();
-        if (!m_e.isValid()) {
-            m_error = "failed to generate ephemeral key";
+        d->e = NoiseKey::generate();
+        if (!d->e.isValid()) {
+            ngWarning() << "failed to generate ephemeral key";
+            d->error = "failed to generate ephemeral key";
             return false;
         }
-        message += m_e.publicKey;
-        mixHash(m_e.publicKey);
-        const string &cipherPayload = encryptAndHash(payload);
-        if (!m_error.empty()) {
+        message += d->e.publicKey;
+        d->mixHash(d->e.publicKey);
+        const string &cipherPayload = d->encryptAndHash(payload);
+        if (!d->error.empty()) {
             return false;
         }
         message += cipherPayload;
         *outMessage = message;
-        ++m_msgIndex;
+        ++d->msgIndex;
         return true;
     }
 
-    if (initiator && m_msgIndex == 0 && isIk) {
+    if (initiator && d->msgIndex == 0 && isIk) {
         // IK: -> e, es, s, ss
-        m_e = NoiseKey::generate();
-        if (!m_e.isValid()) {
-            m_error = "failed to generate ephemeral key";
+        d->e = NoiseKey::generate();
+        if (!d->e.isValid()) {
+            ngWarning() << "failed to generate ephemeral key";
+            d->error = "failed to generate ephemeral key";
             return false;
         }
-        message += m_e.publicKey;
-        mixHash(m_e.publicKey);
-        const string &es = NoiseKey::dh(m_e.privateKey, m_rs);
+        message += d->e.publicKey;
+        d->mixHash(d->e.publicKey);
+        const string &es = NoiseKey::dh(d->e.privateKey, d->rs);
         if (es.empty()) {
-            m_error = "es DH failed";
+            ngWarning() << "es DH failed";
+            d->error = "es DH failed";
             return false;
         }
-        mixKey(es);
-        const string &encS = encryptAndHash(m_s.publicKey);
-        if (!m_error.empty() || encS.empty()) {
-            if (m_error.empty()) {
-                m_error = "encrypt static key failed";
-            }
+        if (!d->mixKey(es)) {
+            return false;
+        }
+        const string encS = d->encryptAndHash(d->s.publicKey);
+        if (!d->error.empty()) {
+            return false;
+        }
+        if (encS.empty()) {
+            ngWarning() << "encrypt static key failed";
+            d->error = "encrypt static key failed";
             return false;
         }
         message += encS;
-        const string &ss = NoiseKey::dh(m_s.privateKey, m_rs);
+        const string &ss = NoiseKey::dh(d->s.privateKey, d->rs);
         if (ss.empty()) {
-            m_error = "ss DH failed";
+            ngWarning() << "ss DH failed";
+            d->error = "ss DH failed";
             return false;
         }
-        mixKey(ss);
-        const string &cipherPayload = encryptAndHash(payload);
-        if (!m_error.empty()) {
+        if (!d->mixKey(ss)) {
+            return false;
+        }
+        const string &cipherPayload = d->encryptAndHash(payload);
+        if (!d->error.empty()) {
             return false;
         }
         message += cipherPayload;
         *outMessage = message;
-        ++m_msgIndex;
+        ++d->msgIndex;
         return true;
     }
 
-    if (!initiator && m_msgIndex == 1 && !isIk) {
+    if (!initiator && d->msgIndex == 1 && !isIk) {
         // XX / PSK_XX: -> e, ee, s, es
-        m_e = NoiseKey::generate();
-        if (!m_e.isValid()) {
-            m_error = "failed to generate ephemeral key";
+        d->e = NoiseKey::generate();
+        if (!d->e.isValid()) {
+            ngWarning() << "failed to generate ephemeral key";
+            d->error = "failed to generate ephemeral key";
             return false;
         }
-        message += m_e.publicKey;
-        mixHash(m_e.publicKey);
-        const string &ee = NoiseKey::dh(m_e.privateKey, m_re);
+        message += d->e.publicKey;
+        d->mixHash(d->e.publicKey);
+        const string &ee = NoiseKey::dh(d->e.privateKey, d->re);
         if (ee.empty()) {
-            m_error = "ee DH failed";
+            ngWarning() << "ee DH failed";
+            d->error = "ee DH failed";
             return false;
         }
-        mixKey(ee);
-        const string &encS = encryptAndHash(m_s.publicKey);
-        if (!m_error.empty() || encS.empty()) {
-            if (m_error.empty()) {
-                m_error = "encrypt static key failed";
-            }
+        if (!d->mixKey(ee)) {
+            return false;
+        }
+        const string encS = d->encryptAndHash(d->s.publicKey);
+        if (!d->error.empty()) {
+            return false;
+        }
+        if (encS.empty()) {
+            ngWarning() << "encrypt static key failed";
+            d->error = "encrypt static key failed";
             return false;
         }
         message += encS;
-        const string &es = NoiseKey::dh(m_s.privateKey, m_re);
+        const string &es = NoiseKey::dh(d->s.privateKey, d->re);
         if (es.empty()) {
-            m_error = "es DH failed";
+            ngWarning() << "es DH failed";
+            d->error = "es DH failed";
             return false;
         }
-        mixKey(es);
-        const string &cipherPayload = encryptAndHash(payload);
-        if (!m_error.empty()) {
+        if (!d->mixKey(es)) {
+            return false;
+        }
+        const string &cipherPayload = d->encryptAndHash(payload);
+        if (!d->error.empty()) {
             return false;
         }
         message += cipherPayload;
         *outMessage = message;
-        ++m_msgIndex;
+        ++d->msgIndex;
         return true;
     }
 
-    if (!initiator && m_msgIndex == 1 && isIk) {
+    if (!initiator && d->msgIndex == 1 && isIk) {
         // IK: <- e, ee, se
-        m_e = NoiseKey::generate();
-        if (!m_e.isValid()) {
-            m_error = "failed to generate ephemeral key";
+        d->e = NoiseKey::generate();
+        if (!d->e.isValid()) {
+            ngWarning() << "failed to generate ephemeral key";
+            d->error = "failed to generate ephemeral key";
             return false;
         }
-        message += m_e.publicKey;
-        mixHash(m_e.publicKey);
-        const string &ee = NoiseKey::dh(m_e.privateKey, m_re);
+        message += d->e.publicKey;
+        d->mixHash(d->e.publicKey);
+        const string &ee = NoiseKey::dh(d->e.privateKey, d->re);
         if (ee.empty()) {
-            m_error = "ee DH failed";
+            ngWarning() << "ee DH failed";
+            d->error = "ee DH failed";
             return false;
         }
-        mixKey(ee);
-        const string &se = NoiseKey::dh(m_e.privateKey, m_rs);
+        if (!d->mixKey(ee)) {
+            return false;
+        }
+        const string &se = NoiseKey::dh(d->e.privateKey, d->rs);
         if (se.empty()) {
-            m_error = "se DH failed";
+            ngWarning() << "se DH failed";
+            d->error = "se DH failed";
             return false;
         }
-        mixKey(se);
-        const string &cipherPayload = encryptAndHash(payload);
-        if (!m_error.empty()) {
+        if (!d->mixKey(se)) {
+            return false;
+        }
+        const string &cipherPayload = d->encryptAndHash(payload);
+        if (!d->error.empty()) {
             return false;
         }
         message += cipherPayload;
         *outMessage = message;
-        ++m_msgIndex;
-        m_complete = true;
+        ++d->msgIndex;
+        d->complete = true;
         return true;
     }
 
-    if (initiator && m_msgIndex == 2 && !isIk) {
+    if (initiator && d->msgIndex == 2 && !isIk) {
         // XX / PSK_XX: -> s, se
-        const string &encS = encryptAndHash(m_s.publicKey);
-        if (!m_error.empty() || encS.empty()) {
-            if (m_error.empty()) {
-                m_error = "encrypt static key failed";
-            }
+        const string encS = d->encryptAndHash(d->s.publicKey);
+        if (!d->error.empty()) {
+            return false;
+        }
+        if (encS.empty()) {
+            ngWarning() << "encrypt static key failed";
+            d->error = "encrypt static key failed";
             return false;
         }
         message += encS;
-        const string &se = NoiseKey::dh(m_s.privateKey, m_re);
+        const string &se = NoiseKey::dh(d->s.privateKey, d->re);
         if (se.empty()) {
-            m_error = "se DH failed";
+            ngWarning() << "se DH failed";
+            d->error = "se DH failed";
             return false;
         }
-        mixKey(se);
-        const string &cipherPayload = encryptAndHash(payload);
-        if (!m_error.empty()) {
+        if (!d->mixKey(se)) {
+            return false;
+        }
+        const string &cipherPayload = d->encryptAndHash(payload);
+        if (!d->error.empty()) {
             return false;
         }
         message += cipherPayload;
         *outMessage = message;
-        ++m_msgIndex;
-        m_complete = true;
+        ++d->msgIndex;
+        d->complete = true;
         return true;
     }
 
-    m_error = "writeMessage called at unexpected handshake step";
+    ngWarning() << "writeMessage called at unexpected handshake step";
+    d->error = "writeMessage called at unexpected handshake step";
     return false;
 }
 
 bool NoiseHandshakeState::readMessage(const string &message, string *outPayload)
 {
-    if (!outPayload || m_complete) {
-        m_error = "handshake already complete or null output";
+    NG_D(NoiseHandshakeState);
+    if (!outPayload) {
+        ngWarning() << "readMessage requires non-null output";
+        d->error = "readMessage requires non-null output";
+        return false;
+    }
+    if (d->complete) {
+        ngWarning() << "handshake already complete";
+        d->error = "handshake already complete";
         return false;
     }
     size_t pos = 0;
-    const bool initiator = (m_role == NoiseRole::Initiator);
-    const bool isIk = (m_pattern == NoisePattern::IK);
+    const bool initiator = (d->role == NoiseRole::Initiator);
+    const bool isIk = (d->pattern == NoisePattern::IK);
 
     auto take = [&](size_t n) -> string {
         if (pos + n > message.size()) {
@@ -808,203 +879,246 @@ bool NoiseHandshakeState::readMessage(const string &message, string *outPayload)
         return part;
     };
 
-    if (!initiator && m_msgIndex == 0 && !isIk) {
+    if (!initiator && d->msgIndex == 0 && !isIk) {
         // XX / PSK_XX: <- e
-        m_re = take(kDhLen);
-        if (m_re.size() != kDhLen) {
-            m_error = "missing remote ephemeral";
+        d->re = take(kDhLen);
+        if (d->re.size() != kDhLen) {
+            ngDebug() << "missing remote ephemeral";
+            d->error = "missing remote ephemeral";
             return false;
         }
-        mixHash(m_re);
+        d->mixHash(d->re);
         const string &cipherPayload = message.substr(pos);
-        *outPayload = decryptAndHash(cipherPayload);
-        if (!m_error.empty()) {
+        *outPayload = d->decryptAndHash(cipherPayload);
+        if (!d->error.empty()) {
             return false;
         }
-        ++m_msgIndex;
+        ++d->msgIndex;
         return true;
     }
 
-    if (!initiator && m_msgIndex == 0 && isIk) {
+    if (!initiator && d->msgIndex == 0 && isIk) {
         // IK: <- e, es, s, ss
-        m_re = take(kDhLen);
-        if (m_re.size() != kDhLen) {
-            m_error = "missing remote ephemeral";
+        d->re = take(kDhLen);
+        if (d->re.size() != kDhLen) {
+            ngDebug() << "missing remote ephemeral";
+            d->error = "missing remote ephemeral";
             return false;
         }
-        mixHash(m_re);
-        const string &es = NoiseKey::dh(m_s.privateKey, m_re);
+        d->mixHash(d->re);
+        const string &es = NoiseKey::dh(d->s.privateKey, d->re);
         if (es.empty()) {
-            m_error = "es DH failed";
+            ngWarning() << "es DH failed";
+            d->error = "es DH failed";
             return false;
         }
-        mixKey(es);
+        if (!d->mixKey(es)) {
+            return false;
+        }
         const string encS = take(kDhLen + kTagLen);
         if (encS.size() != kDhLen + kTagLen) {
-            m_error = "missing remote static";
+            ngDebug() << "missing remote static";
+            d->error = "missing remote static";
             return false;
         }
         {
-            const string expectedRs = m_rs;
-            m_rs = decryptAndHash(encS);
-            if (m_rs.size() != kDhLen || !m_error.empty()) {
-                if (m_error.empty()) {
-                    m_error = "decrypt remote static failed";
-                }
+            const string expectedRs = d->rs;
+            d->rs = d->decryptAndHash(encS);
+            if (!d->error.empty()) {
                 return false;
             }
-            if (!checkRemoteStatic(expectedRs)) {
+            if (d->rs.size() != kDhLen) {
+                ngDebug() << "decrypt remote static failed";
+                d->error = "decrypt remote static failed";
+                return false;
+            }
+            if (!d->checkRemoteStatic(expectedRs)) {
                 return false;
             }
         }
-        const string &ss = NoiseKey::dh(m_s.privateKey, m_rs);
+        const string &ss = NoiseKey::dh(d->s.privateKey, d->rs);
         if (ss.empty()) {
-            m_error = "ss DH failed";
+            ngWarning() << "ss DH failed";
+            d->error = "ss DH failed";
             return false;
         }
-        mixKey(ss);
+        if (!d->mixKey(ss)) {
+            return false;
+        }
         const string &cipherPayload = message.substr(pos);
-        *outPayload = decryptAndHash(cipherPayload);
-        if (!m_error.empty()) {
+        *outPayload = d->decryptAndHash(cipherPayload);
+        if (!d->error.empty()) {
             return false;
         }
-        ++m_msgIndex;
+        ++d->msgIndex;
         return true;
     }
 
-    if (initiator && m_msgIndex == 1 && !isIk) {
+    if (initiator && d->msgIndex == 1 && !isIk) {
         // XX / PSK_XX: <- e, ee, s, es
-        m_re = take(kDhLen);
-        if (m_re.size() != kDhLen) {
-            m_error = "missing remote ephemeral";
+        d->re = take(kDhLen);
+        if (d->re.size() != kDhLen) {
+            ngDebug() << "missing remote ephemeral";
+            d->error = "missing remote ephemeral";
             return false;
         }
-        mixHash(m_re);
-        const string &ee = NoiseKey::dh(m_e.privateKey, m_re);
+        d->mixHash(d->re);
+        const string &ee = NoiseKey::dh(d->e.privateKey, d->re);
         if (ee.empty()) {
-            m_error = "ee DH failed";
+            ngWarning() << "ee DH failed";
+            d->error = "ee DH failed";
             return false;
         }
-        mixKey(ee);
+        if (!d->mixKey(ee)) {
+            return false;
+        }
         const string encS = take(kDhLen + kTagLen);
         if (encS.size() != kDhLen + kTagLen) {
-            m_error = "missing remote static";
+            ngDebug() << "missing remote static";
+            d->error = "missing remote static";
             return false;
         }
         {
-            const string expectedRs = m_rs;
-            m_rs = decryptAndHash(encS);
-            if (m_rs.size() != kDhLen || !m_error.empty()) {
-                if (m_error.empty()) {
-                    m_error = "decrypt remote static failed";
-                }
+            const string expectedRs = d->rs;
+            d->rs = d->decryptAndHash(encS);
+            if (!d->error.empty()) {
                 return false;
             }
-            if (!checkRemoteStatic(expectedRs)) {
+            if (d->rs.size() != kDhLen) {
+                ngDebug() << "decrypt remote static failed";
+                d->error = "decrypt remote static failed";
+                return false;
+            }
+            if (!d->checkRemoteStatic(expectedRs)) {
                 return false;
             }
         }
-        const string &es = NoiseKey::dh(m_e.privateKey, m_rs);
+        const string &es = NoiseKey::dh(d->e.privateKey, d->rs);
         if (es.empty()) {
-            m_error = "es DH failed";
+            ngWarning() << "es DH failed";
+            d->error = "es DH failed";
             return false;
         }
-        mixKey(es);
+        if (!d->mixKey(es)) {
+            return false;
+        }
         const string &cipherPayload = message.substr(pos);
-        *outPayload = decryptAndHash(cipherPayload);
-        if (!m_error.empty()) {
+        *outPayload = d->decryptAndHash(cipherPayload);
+        if (!d->error.empty()) {
             return false;
         }
-        ++m_msgIndex;
+        ++d->msgIndex;
         return true;
     }
 
-    if (initiator && m_msgIndex == 1 && isIk) {
+    if (initiator && d->msgIndex == 1 && isIk) {
         // IK: <- e, ee, se
-        m_re = take(kDhLen);
-        if (m_re.size() != kDhLen) {
-            m_error = "missing remote ephemeral";
+        d->re = take(kDhLen);
+        if (d->re.size() != kDhLen) {
+            ngDebug() << "missing remote ephemeral";
+            d->error = "missing remote ephemeral";
             return false;
         }
-        mixHash(m_re);
-        const string &ee = NoiseKey::dh(m_e.privateKey, m_re);
+        d->mixHash(d->re);
+        const string &ee = NoiseKey::dh(d->e.privateKey, d->re);
         if (ee.empty()) {
-            m_error = "ee DH failed";
+            ngWarning() << "ee DH failed";
+            d->error = "ee DH failed";
             return false;
         }
-        mixKey(ee);
-        const string &se = NoiseKey::dh(m_s.privateKey, m_re);
+        if (!d->mixKey(ee)) {
+            return false;
+        }
+        const string &se = NoiseKey::dh(d->s.privateKey, d->re);
         if (se.empty()) {
-            m_error = "se DH failed";
+            ngWarning() << "se DH failed";
+            d->error = "se DH failed";
             return false;
         }
-        mixKey(se);
+        if (!d->mixKey(se)) {
+            return false;
+        }
         const string &cipherPayload = message.substr(pos);
-        *outPayload = decryptAndHash(cipherPayload);
-        if (!m_error.empty()) {
+        *outPayload = d->decryptAndHash(cipherPayload);
+        if (!d->error.empty()) {
             return false;
         }
-        ++m_msgIndex;
-        m_complete = true;
+        ++d->msgIndex;
+        d->complete = true;
         return true;
     }
 
-    if (!initiator && m_msgIndex == 2 && !isIk) {
+    if (!initiator && d->msgIndex == 2 && !isIk) {
         // XX / PSK_XX: <- s, se
         const string encS = take(kDhLen + kTagLen);
         if (encS.size() != kDhLen + kTagLen) {
-            m_error = "missing remote static";
+            ngDebug() << "missing remote static";
+            d->error = "missing remote static";
             return false;
         }
         {
-            const string expectedRs = m_rs;
-            m_rs = decryptAndHash(encS);
-            if (m_rs.size() != kDhLen || !m_error.empty()) {
-                if (m_error.empty()) {
-                    m_error = "decrypt remote static failed";
-                }
+            const string expectedRs = d->rs;
+            d->rs = d->decryptAndHash(encS);
+            if (!d->error.empty()) {
                 return false;
             }
-            if (!checkRemoteStatic(expectedRs)) {
+            if (d->rs.size() != kDhLen) {
+                ngDebug() << "decrypt remote static failed";
+                d->error = "decrypt remote static failed";
+                return false;
+            }
+            if (!d->checkRemoteStatic(expectedRs)) {
                 return false;
             }
         }
-        const string &se = NoiseKey::dh(m_e.privateKey, m_rs);
+        const string &se = NoiseKey::dh(d->e.privateKey, d->rs);
         if (se.empty()) {
-            m_error = "se DH failed";
+            ngWarning() << "se DH failed";
+            d->error = "se DH failed";
             return false;
         }
-        mixKey(se);
+        if (!d->mixKey(se)) {
+            return false;
+        }
         const string &cipherPayload = message.substr(pos);
-        *outPayload = decryptAndHash(cipherPayload);
-        if (!m_error.empty()) {
+        *outPayload = d->decryptAndHash(cipherPayload);
+        if (!d->error.empty()) {
             return false;
         }
-        ++m_msgIndex;
-        m_complete = true;
+        ++d->msgIndex;
+        d->complete = true;
         return true;
     }
 
-    m_error = "readMessage called at unexpected handshake step";
+    ngWarning() << "readMessage called at unexpected handshake step";
+    d->error = "readMessage called at unexpected handshake step";
     return false;
 }
 
 bool NoiseHandshakeState::split(NoiseCipherState *send, NoiseCipherState *recv)
 {
-    if (!m_complete || !send || !recv) {
-        m_error = "handshake not complete";
+    NG_D(NoiseHandshakeState);
+    if (!send || !recv) {
+        ngWarning() << "split requires non-null cipher states";
+        d->error = "split requires non-null cipher states";
         return false;
     }
-    const string outputs = hkdf(m_ck, string(), 2);
+    if (!d->complete) {
+        ngWarning() << "handshake not complete";
+        d->error = "handshake not complete";
+        return false;
+    }
+    const string outputs = d->hkdf(d->ck, string(), 2);
     if (outputs.size() != kHashLen * 2) {
-        m_error = "split HKDF failed";
+        ngWarning() << "split HKDF failed";
+        d->error = "split HKDF failed";
         return false;
     }
-    NoiseCipherState c1;
-    NoiseCipherState c2;
+    NoiseCipherState c1(d->cs.algorithm());
+    NoiseCipherState c2(d->cs.algorithm());
     c1.initializeKey(outputs.substr(0, kHashLen));
     c2.initializeKey(outputs.substr(kHashLen, kHashLen));
-    if (m_role == NoiseRole::Initiator) {
+    if (d->role == NoiseRole::Initiator) {
         *send = std::move(c1);
         *recv = std::move(c2);
     } else {
@@ -1014,388 +1128,423 @@ bool NoiseHandshakeState::split(NoiseCipherState *send, NoiseCipherState *recv)
     return true;
 }
 
-string noiseHmacSha256(const string &key, const string &data)
+string NoiseHandshakeState::remoteStaticPublic() const
 {
-    unsigned int len = 0;
-    unsigned char md[EVP_MAX_MD_SIZE];
-    if (!HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
-              reinterpret_cast<const unsigned char *>(data.data()), data.size(), md, &len)) {
+    NG_D(const NoiseHandshakeState);
+    return d->rs;
+}
+
+string NoiseHandshakeState::handshakeHash() const
+{
+    NG_D(const NoiseHandshakeState);
+    return d->h;
+}
+
+string NoiseHandshakeState::errorString() const
+{
+    NG_D(const NoiseHandshakeState);
+    return d->error;
+}
+
+void NoiseHandshakeStatePrivate::mixHash(const string &data)
+{
+    h = MessageDigest::digest(h + data, MessageDigest::Sha256);
+}
+
+bool NoiseHandshakeStatePrivate::mixKey(const string &material)
+{
+    const string outputs = hkdf(ck, material, 2);
+    if (outputs.size() != kHashLen * 2) {
+        ngWarning() << "mixKey HKDF failed";
+        error = "mixKey HKDF failed";
+        return false;
+    }
+    ck = outputs.substr(0, kHashLen);
+    cs.initializeKey(outputs.substr(kHashLen, kHashLen));
+    return true;
+}
+
+bool NoiseHandshakeStatePrivate::mixKeyAndHash(const string &material)
+{
+    if (!mixKey(material)) {
+        return false;
+    }
+    mixHash(material);
+    return true;
+}
+
+string NoiseHandshakeStatePrivate::encryptAndHash(const string &plaintext)
+{
+    string ciphertext;
+    if (cs.hasKey()) {
+        ciphertext = cs.encryptWithAd(h, plaintext);
+        if (ciphertext.empty()) {
+            ngWarning() << "encryptAndHash failed";
+            error = "encryptAndHash failed";
+            return string();
+        }
+    } else {
+        ciphertext = plaintext;
+    }
+    mixHash(ciphertext);
+    return ciphertext;
+}
+
+string NoiseHandshakeStatePrivate::decryptAndHash(const string &ciphertextAndTag)
+{
+    string plaintext;
+    if (cs.hasKey()) {
+        if (ciphertextAndTag.size() < kTagLen) {
+            ngDebug() << "decryptAndHash truncated";
+            error = "decryptAndHash truncated";
+            return string();
+        }
+        plaintext = cs.decryptWithAd(h, ciphertextAndTag);
+        if (!cs.lastDecryptOk()) {
+            error = "decryptAndHash failed";
+            return string();
+        }
+    } else {
+        plaintext = ciphertextAndTag;
+    }
+    mixHash(ciphertextAndTag);
+    return plaintext;
+}
+
+string NoiseHandshakeStatePrivate::hkdf(const string &chainingKey, const string &inputKeyMaterial, int numOutputs)
+{
+    if (numOutputs < 2 || numOutputs > 3) {
+        ngWarning() << "NoiseHandshakeState::hkdf: invalid numOutputs=" << numOutputs;
         return string();
     }
-    return string(reinterpret_cast<char *>(md), len);
+    return qtng::hkdf(MessageDigest::Sha256, inputKeyMaterial, chainingKey, string(),
+                      static_cast<size_t>(numOutputs) * kHashLen);
 }
 
-string noiseHkdf(const string &secret, const string &salt, const string &info, size_t outLen)
+bool NoiseHandshakeStatePrivate::checkRemoteStatic(const string &expectedRs)
 {
-    return hkdfSha256(secret, salt, info, outLen);
-}
-
-class NoiseStreamPrivate
-{
-public:
-    shared_ptr<SocketLike> backend;
-    NoiseHandshakeState handshake;
-    NoiseCipherState sendCipher;
-    NoiseCipherState recvCipher;
-    NoiseRole role;
-    NoisePattern pattern;
-    bool handshakeDone;
-    string peerPayload;
-    string error;
-    string recvBuf;
-    Socket::SocketError sockError;
-
-    NoiseStreamPrivate()
-        : role(NoiseRole::Initiator)
-        , pattern(NoisePattern::XX)
-        , handshakeDone(false)
-        , sockError(Socket::NoError)
-    {
-    }
-};
-
-NoiseStream::NoiseStream(shared_ptr<SocketLike> backend)
-    : d_ptr(new NoiseStreamPrivate)
-{
-    NG_D(NoiseStream);
-    d->backend = backend;
-}
-
-NoiseStream::~NoiseStream()
-{
-    delete d_ptr;
-}
-
-bool NoiseStream::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
-                             const string &remoteStaticPublic, const string &psk, const string &prologue)
-{
-    NG_D(NoiseStream);
-    d->error.clear();
-    d->handshakeDone = false;
-    d->peerPayload.clear();
-    d->recvBuf.clear();
-    d->role = role;
-    d->pattern = pattern;
-    if (!d->handshake.initialize(pattern, role, localStatic, remoteStaticPublic, psk, prologue)) {
-        d->error = d->handshake.errorString();
+    if (!expectedRs.empty() && expectedRs != rs) {
+        ngWarning() << "remote static public key mismatch";
+        error = "remote static public key mismatch";
         return false;
     }
     return true;
 }
 
-bool NoiseStream::handshake(const string &payload)
+
+class NoiseSocketPrivate
 {
-    NG_D(NoiseStream);
+public:
+    NoiseSocketPrivate()
+        : role(NoiseRole::Initiator)
+        , ready(false)
+        , gotPeerPayload(false)
+    {
+    }
+
+    shared_ptr<SocketLike> backend;
+    NoiseHandshakeState hs;
+    NoiseCipherState send;
+    NoiseCipherState recv;
+    NoiseRole role;
+    bool ready;
+    bool gotPeerPayload;
+    string peerPayload;
+    string error;
+    string recvBuf;
+};
+
+NoiseSocket::NoiseSocket(shared_ptr<SocketLike> backend)
+    : d_ptr(new NoiseSocketPrivate)
+{
+    NG_D(NoiseSocket);
+    d->backend = backend;
+}
+
+NoiseSocket::~NoiseSocket()
+{
+    delete d_ptr;
+}
+
+bool NoiseSocket::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
+                             const string &remoteStaticPublic, const string &psk, const string &prologue,
+                             Aead::Algorithm cipher)
+{
+    NG_D(NoiseSocket);
+    d->error.clear();
+    d->recvBuf.clear();
+    d->peerPayload.clear();
+    d->ready = false;
+    d->gotPeerPayload = false;
+    d->role = role;
+    d->send = NoiseCipherState(cipher);
+    d->recv = NoiseCipherState(cipher);
+    if (!d->hs.initialize(pattern, role, localStatic, remoteStaticPublic, psk, prologue, cipher)) {
+        d->error = d->hs.errorString();
+        return false;
+    }
+    return true;
+}
+
+bool NoiseSocket::handshake(const string &payload)
+{
+    NG_D(NoiseSocket);
     d->error.clear();
     if (!d->backend) {
+        ngWarning() << "no backend socket";
         d->error = "no backend socket";
         return false;
     }
-    if (d->handshakeDone) {
+    if (d->ready) {
         return true;
     }
 
-    auto fail = [&](const string &msg) -> bool {
-        d->error = msg.empty() ? d->handshake.errorString() : msg;
-        return false;
-    };
-
-    if (d->role == NoiseRole::Initiator) {
+    auto sendHandshake = [&](const string &hsPayload) -> bool {
         string msg;
-        if (!d->handshake.writeMessage(payload, &msg)) {
-            return fail(string());
-        }
-        if (!writeFrame(d->backend, msg, &d->error)) {
+        if (!d->hs.writeMessage(hsPayload, &msg)) {
+            d->error = d->hs.errorString();
             return false;
         }
-        string reply;
-        if (!readFrame(d->backend, &reply, &d->error)) {
+        if (!splitIfHandshakeComplete(d->hs, &d->send, &d->recv, d->ready, d->error)) {
             return false;
         }
-        string peerPayload;
-        if (!d->handshake.readMessage(reply, &peerPayload)) {
-            return fail(string());
-        }
-        d->peerPayload = peerPayload;
-        if (d->pattern != NoisePattern::IK) {
-            string msg3;
-            if (!d->handshake.writeMessage(string(), &msg3)) {
-                return fail(string());
-            }
-            if (!writeFrame(d->backend, msg3, &d->error)) {
-                return false;
-            }
-        }
-    } else {
+        return writeFrame(d->backend, msg, &d->error);
+    };
+    auto recvHandshake = [&]() -> bool {
         string msg;
         if (!readFrame(d->backend, &msg, &d->error)) {
             return false;
         }
         string peerPayload;
-        if (!d->handshake.readMessage(msg, &peerPayload)) {
-            return fail(string());
-        }
-        d->peerPayload = peerPayload;
-        string reply;
-        if (!d->handshake.writeMessage(payload, &reply)) {
-            return fail(string());
-        }
-        if (!writeFrame(d->backend, reply, &d->error)) {
+        if (!d->hs.readMessage(msg, &peerPayload)) {
+            d->error = d->hs.errorString();
             return false;
         }
-        if (d->pattern != NoisePattern::IK) {
-            string msg3;
-            if (!readFrame(d->backend, &msg3, &d->error)) {
-                return false;
-            }
-            string ignored;
-            if (!d->handshake.readMessage(msg3, &ignored)) {
-                return fail(string());
-            }
+        if (!d->gotPeerPayload) {
+            d->peerPayload = peerPayload;
+            d->gotPeerPayload = true;
+        }
+        return splitIfHandshakeComplete(d->hs, &d->send, &d->recv, d->ready, d->error);
+    };
+
+    // Length-prefix each handshake message. Initiator writes first; remaining
+    // turns follow ready so XX and IK share one loop.
+    if (d->role == NoiseRole::Initiator && !sendHandshake(payload)) {
+        return false;
+    }
+    bool sentLocalPayload = (d->role == NoiseRole::Initiator);
+    while (!d->ready) {
+        if (!recvHandshake()) {
+            return false;
+        }
+        if (d->ready) {
+            break;
+        }
+        const string outPayload = sentLocalPayload ? string() : payload;
+        sentLocalPayload = true;
+        if (!sendHandshake(outPayload)) {
+            return false;
         }
     }
-
-    if (!d->handshake.isComplete() || !d->handshake.split(&d->sendCipher, &d->recvCipher)) {
-        return fail(string());
-    }
-    d->handshakeDone = true;
-    return true;
+    return d->ready;
 }
 
-bool NoiseStream::isHandshakeComplete() const
+bool NoiseSocket::isHandshakeComplete() const
 {
-    NG_D(const NoiseStream);
-    return d->handshakeDone;
+    NG_D(const NoiseSocket);
+    return d->ready;
 }
 
-string NoiseStream::peerHandshakePayload() const
+string NoiseSocket::peerHandshakePayload() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->peerPayload;
 }
 
-string NoiseStream::remoteStaticPublic() const
+string NoiseSocket::remoteStaticPublic() const
 {
-    NG_D(const NoiseStream);
-    return d->handshake.remoteStaticPublic();
+    NG_D(const NoiseSocket);
+    return d->hs.remoteStaticPublic();
 }
 
-string NoiseStream::handshakeHash() const
+string NoiseSocket::handshakeHash() const
 {
-    NG_D(const NoiseStream);
-    return d->handshake.handshakeHash();
+    NG_D(const NoiseSocket);
+    return d->hs.handshakeHash();
 }
 
-bool NoiseStream::sendMessage(const string &plaintext)
+shared_ptr<SocketLike> NoiseSocket::backend() const
 {
-    NG_D(NoiseStream);
-    d->error.clear();
-    if (!d->handshakeDone) {
-        d->error = "handshake not complete";
-        return false;
-    }
-    const string cipher = d->sendCipher.encryptWithAd(string(), plaintext);
-    if (cipher.empty() && !plaintext.empty()) {
-        d->error = "encrypt failed";
-        return false;
-    }
-    // Empty plaintext still produces a 16-byte tag.
-    if (cipher.size() < kTagLen) {
-        d->error = "encrypt failed";
-        return false;
-    }
-    return writeFrame(d->backend, cipher, &d->error);
-}
-
-string NoiseStream::recvMessage()
-{
-    NG_D(NoiseStream);
-    d->error.clear();
-    if (!d->handshakeDone) {
-        d->error = "handshake not complete";
-        return string();
-    }
-    string frame;
-    if (!readFrame(d->backend, &frame, &d->error)) {
-        return string();
-    }
-    const string plain = d->recvCipher.decryptWithAd(string(), frame);
-    if (!d->recvCipher.lastDecryptOk()) {
-        d->error = "decrypt failed";
-        return string();
-    }
-    return plain;
-}
-
-shared_ptr<SocketLike> NoiseStream::backend() const
-{
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend;
 }
 
-string NoiseStream::errorString() const
+string NoiseSocket::errorString() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     if (!d->error.empty()) {
         return d->error;
+    }
+    if (!d->hs.errorString().empty()) {
+        return d->hs.errorString();
     }
     return d->backend ? d->backend->errorString() : string();
 }
 
-Socket::SocketError NoiseStream::error() const
+Socket::SocketError NoiseSocket::error() const
 {
-    NG_D(const NoiseStream);
-    if (!d->error.empty()) {
+    NG_D(const NoiseSocket);
+    if (!d->error.empty() || !d->hs.errorString().empty()) {
         return Socket::UnknownSocketError;
     }
     return d->backend ? d->backend->error() : Socket::SocketAccessError;
 }
 
-bool NoiseStream::isValid() const
+bool NoiseSocket::isValid() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend && d->backend->isValid();
 }
 
-HostAddress NoiseStream::localAddress() const
+HostAddress NoiseSocket::localAddress() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->localAddress() : HostAddress();
 }
 
-uint16_t NoiseStream::localPort() const
+uint16_t NoiseSocket::localPort() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->localPort() : 0;
 }
 
-HostAddress NoiseStream::peerAddress() const
+HostAddress NoiseSocket::peerAddress() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->peerAddress() : HostAddress();
 }
 
-string NoiseStream::peerName() const
+string NoiseSocket::peerName() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->peerName() : string();
 }
 
-uint16_t NoiseStream::peerPort() const
+uint16_t NoiseSocket::peerPort() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->peerPort() : 0;
 }
 
-intptr_t NoiseStream::fileno() const
+intptr_t NoiseSocket::fileno() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->fileno() : -1;
 }
 
-Socket::SocketType NoiseStream::type() const
+Socket::SocketType NoiseSocket::type() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->type() : Socket::UnknownSocketType;
 }
 
-Socket::SocketState NoiseStream::state() const
+Socket::SocketState NoiseSocket::state() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->state() : Socket::UnconnectedState;
 }
 
-HostAddress::NetworkLayerProtocol NoiseStream::protocol() const
+HostAddress::NetworkLayerProtocol NoiseSocket::protocol() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->protocol() : HostAddress::UnknownNetworkLayerProtocol;
 }
 
-string NoiseStream::localAddressURI() const
+string NoiseSocket::localAddressURI() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? ("noise+" + d->backend->localAddressURI()) : string();
 }
 
-string NoiseStream::peerAddressURI() const
+string NoiseSocket::peerAddressURI() const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? ("noise+" + d->backend->peerAddressURI()) : string();
 }
 
-shared_ptr<SocketLike> NoiseStream::accept()
+shared_ptr<SocketLike> NoiseSocket::accept()
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend ? d->backend->accept() : shared_ptr<SocketLike>();
 }
 
-Socket *NoiseStream::acceptRaw()
+Socket *NoiseSocket::acceptRaw()
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend ? d->backend->acceptRaw() : nullptr;
 }
 
-bool NoiseStream::bind(const HostAddress &address, uint16_t port, Socket::BindMode mode)
+bool NoiseSocket::bind(const HostAddress &address, uint16_t port, Socket::BindMode mode)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend && d->backend->bind(address, port, mode);
 }
 
-bool NoiseStream::bind(uint16_t port, Socket::BindMode mode)
+bool NoiseSocket::bind(uint16_t port, Socket::BindMode mode)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend && d->backend->bind(port, mode);
 }
 
-bool NoiseStream::connect(const HostAddress &addr, uint16_t port)
+bool NoiseSocket::connect(const HostAddress &addr, uint16_t port)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend && d->backend->connect(addr, port);
 }
 
-bool NoiseStream::connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
+bool NoiseSocket::connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend && d->backend->connect(hostName, port, dnsCache);
 }
 
-void NoiseStream::close()
+void NoiseSocket::close()
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     if (d->backend) {
         d->backend->close();
     }
 }
 
-void NoiseStream::abort()
+void NoiseSocket::abort()
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     if (d->backend) {
         d->backend->abort();
     }
 }
 
-bool NoiseStream::listen(int backlog)
+bool NoiseSocket::listen(int backlog)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend && d->backend->listen(backlog);
 }
 
-bool NoiseStream::setOption(Socket::SocketOption option, int value)
+bool NoiseSocket::setOption(Socket::SocketOption option, int value)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend && d->backend->setOption(option, value);
 }
 
-int NoiseStream::option(Socket::SocketOption option) const
+int NoiseSocket::option(Socket::SocketOption option) const
 {
-    NG_D(const NoiseStream);
+    NG_D(const NoiseSocket);
     return d->backend ? d->backend->option(option) : 0;
 }
 
-int32_t NoiseStream::peek(char *data, int32_t size)
+int32_t NoiseSocket::peek(char *data, int32_t size)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     if (!data || size <= 0) {
         return -1;
     }
@@ -1407,21 +1556,31 @@ int32_t NoiseStream::peek(char *data, int32_t size)
     return n;
 }
 
-int32_t NoiseStream::peekRaw(char *data, int32_t size)
+int32_t NoiseSocket::peekRaw(char *data, int32_t size)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     return d->backend ? d->backend->peekRaw(data, size) : -1;
 }
 
-int32_t NoiseStream::recv(char *data, int32_t size)
+int32_t NoiseSocket::recv(char *data, int32_t size)
 {
-    NG_D(NoiseStream);
+    NG_D(NoiseSocket);
     if (!data || size <= 0) {
         return -1;
     }
     if (d->recvBuf.empty()) {
-        const string msg = recvMessage();
-        if (msg.empty() && !d->error.empty()) {
+        string frame;
+        if (!readFrame(d->backend, &frame, &d->error)) {
+            return -1;
+        }
+        if (!d->ready) {
+            ngWarning() << "handshake not complete";
+            d->error = "handshake not complete";
+            return -1;
+        }
+        const string msg = d->recv.decryptWithAd(string(), frame);
+        if (!d->recv.lastDecryptOk()) {
+            d->error = "decrypt failed";
             return -1;
         }
         d->recvBuf = msg;
@@ -1435,7 +1594,7 @@ int32_t NoiseStream::recv(char *data, int32_t size)
     return n;
 }
 
-int32_t NoiseStream::recvall(char *data, int32_t size)
+int32_t NoiseSocket::recvall(char *data, int32_t size)
 {
     if (!data || size <= 0) {
         return -1;
@@ -1454,23 +1613,36 @@ int32_t NoiseStream::recvall(char *data, int32_t size)
     return got;
 }
 
-int32_t NoiseStream::send(const char *data, int32_t size)
+int32_t NoiseSocket::send(const char *data, int32_t size)
 {
     return sendall(data, size);
 }
 
-int32_t NoiseStream::sendall(const char *data, int32_t size)
+int32_t NoiseSocket::sendall(const char *data, int32_t size)
 {
+    NG_D(NoiseSocket);
     if (!data || size < 0) {
         return -1;
     }
-    if (!sendMessage(string(data, static_cast<size_t>(size)))) {
+    d->error.clear();
+    if (!d->ready) {
+        ngWarning() << "handshake not complete";
+        d->error = "handshake not complete";
+        return -1;
+    }
+    const string wire = d->send.encryptWithAd(string(), string(data, static_cast<size_t>(size)));
+    if (wire.size() < kTagLen) {
+        ngWarning() << "encrypt failed";
+        d->error = "encrypt failed";
+        return -1;
+    }
+    if (!writeFrame(d->backend, wire, &d->error)) {
         return -1;
     }
     return size;
 }
 
-string NoiseStream::recv(int32_t size)
+string NoiseSocket::recv(int32_t size)
 {
     if (size <= 0) {
         return string();
@@ -1484,7 +1656,7 @@ string NoiseStream::recv(int32_t size)
     return buf;
 }
 
-string NoiseStream::recvall(int32_t size)
+string NoiseSocket::recvall(int32_t size)
 {
     if (size <= 0) {
         return string();
@@ -1498,19 +1670,297 @@ string NoiseStream::recvall(int32_t size)
     return buf;
 }
 
-int32_t NoiseStream::send(const string &data)
+int32_t NoiseSocket::send(const string &data)
 {
     return send(data.data(), static_cast<int32_t>(data.size()));
 }
 
-int32_t NoiseStream::sendall(const string &data)
+int32_t NoiseSocket::sendall(const string &data)
 {
     return sendall(data.data(), static_cast<int32_t>(data.size()));
 }
 
-shared_ptr<SocketLike> asSocketLike(shared_ptr<NoiseStream> s)
+namespace {
+
+class NoiseSocketLikeImpl : public SocketLike
 {
-    return dynamic_pointer_cast<SocketLike>(s);
+public:
+    explicit NoiseSocketLikeImpl(shared_ptr<NoiseSocket> s)
+        : s(std::move(s))
+    {
+    }
+
+    Socket::SocketError error() const override { return s->error(); }
+    string errorString() const override { return s->errorString(); }
+    bool isValid() const override { return s->isValid(); }
+    HostAddress localAddress() const override { return s->localAddress(); }
+    uint16_t localPort() const override { return s->localPort(); }
+    HostAddress peerAddress() const override { return s->peerAddress(); }
+    string peerName() const override { return s->peerName(); }
+    uint16_t peerPort() const override { return s->peerPort(); }
+    intptr_t fileno() const override { return s->fileno(); }
+    Socket::SocketType type() const override { return s->type(); }
+    Socket::SocketState state() const override { return s->state(); }
+    HostAddress::NetworkLayerProtocol protocol() const override { return s->protocol(); }
+    string localAddressURI() const override { return s->localAddressURI(); }
+    string peerAddressURI() const override { return s->peerAddressURI(); }
+    Socket *acceptRaw() override { return s->acceptRaw(); }
+    shared_ptr<SocketLike> accept() override { return s->accept(); }
+    bool bind(const HostAddress &address, uint16_t port, Socket::BindMode mode) override
+    {
+        return s->bind(address, port, mode);
+    }
+    bool bind(uint16_t port, Socket::BindMode mode) override { return s->bind(port, mode); }
+    bool connect(const HostAddress &addr, uint16_t port) override { return s->connect(addr, port); }
+    bool connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) override
+    {
+        return s->connect(hostName, port, dnsCache);
+    }
+    void close() override { s->close(); }
+    void abort() override { s->abort(); }
+    bool listen(int backlog) override { return s->listen(backlog); }
+    bool setOption(Socket::SocketOption option, int value) override { return s->setOption(option, value); }
+    int option(Socket::SocketOption option) const override { return s->option(option); }
+    int32_t peek(char *data, int32_t size) override { return s->peek(data, size); }
+    int32_t peekRaw(char *data, int32_t size) override { return s->peekRaw(data, size); }
+    int32_t recv(char *data, int32_t size) override { return s->recv(data, size); }
+    int32_t recvall(char *data, int32_t size) override { return s->recvall(data, size); }
+    int32_t send(const char *data, int32_t size) override { return s->send(data, size); }
+    int32_t sendall(const char *data, int32_t size) override { return s->sendall(data, size); }
+    string recv(int32_t size) override { return s->recv(size); }
+    string recvall(int32_t size) override { return s->recvall(size); }
+    int32_t send(const string &data) override { return s->send(data); }
+    int32_t sendall(const string &data) override { return s->sendall(data); }
+
+    shared_ptr<NoiseSocket> s;
+};
+
+}  // namespace
+
+shared_ptr<SocketLike> asSocketLike(shared_ptr<NoiseSocket> s)
+{
+    if (!s) {
+        return shared_ptr<SocketLike>();
+    }
+    return make_shared<NoiseSocketLikeImpl>(std::move(s));
+}
+
+class NoiseDatagramPrivate
+{
+public:
+    NoiseDatagramPrivate()
+        : handshaking(false)
+        , ready(false)
+        , lastDecryptOk(false)
+        , gotPeerPayload(false)
+    {
+    }
+
+    bool finishIfComplete();
+public:
+    NoiseHandshakeState hs;
+    NoiseCipherState send;
+    NoiseCipherState recv;
+    ReplayCounter replay;
+    bool handshaking;
+    bool ready;
+    bool lastDecryptOk;
+    bool gotPeerPayload;
+    string peerPayload;
+    string error;
+};
+
+NoiseDatagram::NoiseDatagram()
+    : d_ptr(new NoiseDatagramPrivate)
+{
+}
+
+NoiseDatagram::NoiseDatagram(NoiseDatagram &&other)
+    : d_ptr(new NoiseDatagramPrivate)
+{
+    std::swap(d_ptr, other.d_ptr);
+}
+
+NoiseDatagram &NoiseDatagram::operator=(NoiseDatagram &&other) noexcept
+{
+    std::swap(d_ptr, other.d_ptr);
+    return *this;
+}
+
+NoiseDatagram::~NoiseDatagram()
+{
+    delete d_ptr;
+}
+
+bool NoiseDatagram::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
+                               const string &remoteStaticPublic, const string &psk, const string &prologue,
+                               Aead::Algorithm cipher)
+{
+    NG_D(NoiseDatagram);
+    d->error.clear();
+    d->peerPayload.clear();
+    d->ready = false;
+    d->handshaking = false;
+    d->lastDecryptOk = false;
+    d->gotPeerPayload = false;
+    d->replay.reset();
+    d->send = NoiseCipherState(cipher);
+    d->recv = NoiseCipherState(cipher);
+    if (!d->hs.initialize(pattern, role, localStatic, remoteStaticPublic, psk, prologue, cipher)) {
+        d->error = d->hs.errorString();
+        return false;
+    }
+    d->handshaking = true;
+    return true;
+}
+
+bool NoiseDatagramPrivate::finishIfComplete()
+{
+    if (!splitIfHandshakeComplete(hs, &send, &recv, ready, error)) {
+        handshaking = false;
+        return false;
+    }
+    if (ready) {
+        replay.reset();
+        handshaking = false;
+    }
+    return true;
+}
+
+bool NoiseDatagram::writeHandshake(const string &payload, string *outMessage)
+{
+    NG_D(NoiseDatagram);
+    d->error.clear();
+    if (!d->handshaking) {
+        ngWarning() << "not handshaking";
+        d->error = "not handshaking";
+        return false;
+    }
+    if (!d->hs.writeMessage(payload, outMessage)) {
+        d->error = d->hs.errorString();
+        return false;
+    }
+    return d->finishIfComplete();
+}
+
+bool NoiseDatagram::readHandshake(const string &message, string *outPayload)
+{
+    NG_D(NoiseDatagram);
+    d->error.clear();
+    if (!d->handshaking) {
+        ngWarning() << "not handshaking";
+        d->error = "not handshaking";
+        return false;
+    }
+    string payload;
+    if (!d->hs.readMessage(message, &payload)) {
+        d->error = d->hs.errorString();
+        return false;
+    }
+    if (!d->gotPeerPayload) {
+        d->peerPayload = payload;
+        d->gotPeerPayload = true;
+    }
+    if (outPayload) {
+        *outPayload = payload;
+    }
+    return d->finishIfComplete();
+}
+
+bool NoiseDatagram::isHandshakeComplete() const
+{
+    NG_D(const NoiseDatagram);
+    return d->ready;
+}
+
+string NoiseDatagram::peerHandshakePayload() const
+{
+    NG_D(const NoiseDatagram);
+    return d->peerPayload;
+}
+
+string NoiseDatagram::remoteStaticPublic() const
+{
+    NG_D(const NoiseDatagram);
+    return d->hs.remoteStaticPublic();
+}
+
+string NoiseDatagram::handshakeHash() const
+{
+    NG_D(const NoiseDatagram);
+    return d->hs.handshakeHash();
+}
+
+string NoiseDatagram::errorString() const
+{
+    NG_D(const NoiseDatagram);
+    return d->error;
+}
+
+string NoiseDatagram::encrypt(const string &plaintext)
+{
+    NG_D(NoiseDatagram);
+    d->error.clear();
+    if (!d->ready) {
+        ngWarning() << "handshake not complete";
+        d->error = "handshake not complete";
+        return string();
+    }
+    if (d->send.nonce() >= kRejectAfterMessages) {
+        ngWarning() << "encrypt: nonce exhausted";
+        d->error = "nonce exhausted";
+        return string();
+    }
+    uint64_t n = 0;
+    const string cipher = d->send.encryptWithAd(string(), plaintext, &n);
+    if (cipher.size() < kTagLen) {
+        ngWarning() << "encrypt failed";
+        d->error = "encrypt failed";
+        return string();
+    }
+    return packTransport(n, cipher);
+}
+
+string NoiseDatagram::decrypt(const string &packet)
+{
+    NG_D(NoiseDatagram);
+    d->error.clear();
+    d->lastDecryptOk = false;
+    if (!d->ready) {
+        ngWarning() << "handshake not complete";
+        d->error = "handshake not complete";
+        return string();
+    }
+    uint64_t n = 0;
+    string ct;
+    if (!unpackTransport(packet, &n, &ct)) {
+        ngDebug() << "truncated datagram";
+        d->error = "truncated datagram";
+        return string();
+    }
+    if (d->replay.counter >= kRejectAfterMessages + 1) {
+        ngWarning() << "decrypt: nonce exhausted";
+        d->error = "nonce exhausted";
+        return string();
+    }
+    const string plain = d->recv.decryptWithAd(string(), ct, n);
+    if (!d->recv.lastDecryptOk()) {
+        d->error = "decrypt failed";
+        return string();
+    }
+    if (!d->replay.validate(n)) {
+        ngDebug() << "replay or stale nonce " << n;
+        d->error = "replay or stale nonce";
+        return string();
+    }
+    d->lastDecryptOk = true;
+    return plain;
+}
+
+bool NoiseDatagram::lastDecryptOk() const
+{
+    NG_D(const NoiseDatagram);
+    return d->lastDecryptOk;
 }
 
 }  // namespace qtng

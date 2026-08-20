@@ -1,3 +1,5 @@
+#include <utility>
+
 #include "bridge/core_access.h"
 #include "bridge/io_bridge.h"
 #include "bridge/stream_bridge.h"
@@ -12,11 +14,16 @@ namespace QTNETWORKNG_NAMESPACE {
 class NoiseCipherStatePrivate
 {
 public:
+    explicit NoiseCipherStatePrivate(qtng_core::Aead::Algorithm algo = qtng_core::Aead::ChaCha20Poly1305)
+        : core(algo)
+    {
+    }
+
     qtng_core::NoiseCipherState core;
 };
 
-NoiseCipherState::NoiseCipherState()
-    : d_ptr(new NoiseCipherStatePrivate)
+NoiseCipherState::NoiseCipherState(AeadAlgorithm algo)
+    : d_ptr(new NoiseCipherStatePrivate(static_cast<qtng_core::Aead::Algorithm>(algo)))
 {
 }
 
@@ -49,6 +56,12 @@ bool NoiseCipherState::hasKey() const
 {
     Q_D(const NoiseCipherState);
     return d->core.hasKey();
+}
+
+AeadAlgorithm NoiseCipherState::algorithm() const
+{
+    Q_D(const NoiseCipherState);
+    return static_cast<AeadAlgorithm>(d->core.algorithm());
 }
 
 quint64 NoiseCipherState::nonce() const
@@ -105,12 +118,6 @@ bool NoiseCipherState::lastDecryptOk() const
     return d->core.lastDecryptOk();
 }
 
-bool NoiseCipherState::acceptIncomingNonce(quint64 remoteNonce)
-{
-    Q_D(NoiseCipherState);
-    return d->core.acceptIncomingNonce(remoteNonce);
-}
-
 NoiseKey NoiseKey::generate()
 {
     const qtng_core::NoiseKey key = qtng_core::NoiseKey::generate();
@@ -152,7 +159,7 @@ NoiseHandshakeState::~NoiseHandshakeState()
 
 bool NoiseHandshakeState::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
                                      const QByteArray &remoteStaticPublic, const QByteArray &psk,
-                                     const QByteArray &prologue)
+                                     const QByteArray &prologue, AeadAlgorithm cipher)
 {
     Q_D(NoiseHandshakeState);
     qtng_core::NoiseKey coreKey;
@@ -160,7 +167,8 @@ bool NoiseHandshakeState::initialize(NoisePattern pattern, NoiseRole role, const
     coreKey.publicKey = toStdString(localStatic.publicKey);
     return d->core.initialize(static_cast<qtng_core::NoisePattern>(pattern),
                               static_cast<qtng_core::NoiseRole>(role), coreKey, toStdString(remoteStaticPublic),
-                              toStdString(psk), toStdString(prologue));
+                              toStdString(psk), toStdString(prologue),
+                              static_cast<qtng_core::Aead::Algorithm>(cipher));
 }
 
 bool NoiseHandshakeState::isComplete() const
@@ -218,307 +226,406 @@ QString NoiseHandshakeState::errorString() const
     return toQString(d->core.errorString());
 }
 
-QByteArray noiseHkdf(const QByteArray &secret, const QByteArray &salt, const QByteArray &info, qsizetype outLen)
-{
-    return toQByteArray(
-            qtng_core::noiseHkdf(toStdString(secret), toStdString(salt), toStdString(info), static_cast<size_t>(outLen)));
-}
-
-QByteArray noiseHmacSha256(const QByteArray &key, const QByteArray &data)
-{
-    return toQByteArray(qtng_core::noiseHmacSha256(toStdString(key), toStdString(data)));
-}
-
-class NoiseStreamPrivate
+class NoiseSocketPrivate
 {
 public:
-    shared_ptr<qtng_core::NoiseStream> core;
+    shared_ptr<qtng_core::NoiseSocket> core;
+
+    static shared_ptr<qtng_core::NoiseSocket> coreOf(NoiseSocket *s)
+    {
+        return s ? s->d_func()->core : shared_ptr<qtng_core::NoiseSocket>();
+    }
 };
 
-NoiseStream::NoiseStream(QSharedPointer<SocketLike> backend)
-    : d_ptr(new NoiseStreamPrivate)
+NoiseSocket::NoiseSocket(QSharedPointer<SocketLike> backend)
+    : d_ptr(new NoiseSocketPrivate)
 {
-    d_ptr->core = make_shared<qtng_core::NoiseStream>(toCoreSocketLike(backend));
+    d_ptr->core = make_shared<qtng_core::NoiseSocket>(toCoreSocketLike(backend));
 }
 
-NoiseStream::~NoiseStream()
+NoiseSocket::~NoiseSocket()
 {
     delete d_ptr;
 }
 
-bool NoiseStream::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
-                             const QByteArray &remoteStaticPublic, const QByteArray &psk, const QByteArray &prologue)
+bool NoiseSocket::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
+                             const QByteArray &remoteStaticPublic, const QByteArray &psk, const QByteArray &prologue,
+                             AeadAlgorithm cipher)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     qtng_core::NoiseKey coreKey;
     coreKey.privateKey = toStdString(localStatic.privateKey);
     coreKey.publicKey = toStdString(localStatic.publicKey);
     return d->core->initialize(static_cast<qtng_core::NoisePattern>(pattern),
                                static_cast<qtng_core::NoiseRole>(role), coreKey, toStdString(remoteStaticPublic),
-                               toStdString(psk), toStdString(prologue));
+                               toStdString(psk), toStdString(prologue),
+                               static_cast<qtng_core::Aead::Algorithm>(cipher));
 }
 
-bool NoiseStream::handshake(const QByteArray &payload)
+bool NoiseSocket::handshake(const QByteArray &payload)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->handshake(toStdString(payload));
 }
 
-bool NoiseStream::isHandshakeComplete() const
+bool NoiseSocket::isHandshakeComplete() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return d->core->isHandshakeComplete();
 }
 
-QByteArray NoiseStream::peerHandshakePayload() const
+QByteArray NoiseSocket::peerHandshakePayload() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQByteArray(d->core->peerHandshakePayload());
 }
 
-QByteArray NoiseStream::remoteStaticPublic() const
+QByteArray NoiseSocket::remoteStaticPublic() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQByteArray(d->core->remoteStaticPublic());
 }
 
-QByteArray NoiseStream::handshakeHash() const
+QByteArray NoiseSocket::handshakeHash() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQByteArray(d->core->handshakeHash());
 }
 
-bool NoiseStream::sendMessage(const QByteArray &plaintext)
+QSharedPointer<SocketLike> NoiseSocket::backend() const
 {
-    Q_D(NoiseStream);
-    return d->core->sendMessage(toStdString(plaintext));
-}
-
-QByteArray NoiseStream::recvMessage()
-{
-    Q_D(NoiseStream);
-    return toQByteArray(d->core->recvMessage());
-}
-
-QSharedPointer<SocketLike> NoiseStream::backend() const
-{
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQtSocketLike(d->core->backend());
 }
 
-QString NoiseStream::errorString() const
+QString NoiseSocket::errorString() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQString(d->core->errorString());
 }
 
-Socket::SocketError NoiseStream::error() const
+Socket::SocketError NoiseSocket::error() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return static_cast<Socket::SocketError>(d->core->error());
 }
 
-bool NoiseStream::isValid() const
+bool NoiseSocket::isValid() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return d->core->isValid();
 }
 
-HostAddress NoiseStream::localAddress() const
+HostAddress NoiseSocket::localAddress() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQtHostAddress(d->core->localAddress());
 }
 
-quint16 NoiseStream::localPort() const
+quint16 NoiseSocket::localPort() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return d->core->localPort();
 }
 
-HostAddress NoiseStream::peerAddress() const
+HostAddress NoiseSocket::peerAddress() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQtHostAddress(d->core->peerAddress());
 }
 
-QString NoiseStream::peerName() const
+QString NoiseSocket::peerName() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQString(d->core->peerName());
 }
 
-quint16 NoiseStream::peerPort() const
+quint16 NoiseSocket::peerPort() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return d->core->peerPort();
 }
 
-qintptr NoiseStream::fileno() const
+qintptr NoiseSocket::fileno() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return static_cast<qintptr>(d->core->fileno());
 }
 
-Socket::SocketType NoiseStream::type() const
+Socket::SocketType NoiseSocket::type() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return static_cast<Socket::SocketType>(d->core->type());
 }
 
-Socket::SocketState NoiseStream::state() const
+Socket::SocketState NoiseSocket::state() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return static_cast<Socket::SocketState>(d->core->state());
 }
 
-HostAddress::NetworkLayerProtocol NoiseStream::protocol() const
+HostAddress::NetworkLayerProtocol NoiseSocket::protocol() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return static_cast<HostAddress::NetworkLayerProtocol>(d->core->protocol());
 }
 
-QString NoiseStream::localAddressURI() const
+QString NoiseSocket::localAddressURI() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQString(d->core->localAddressURI());
 }
 
-QString NoiseStream::peerAddressURI() const
+QString NoiseSocket::peerAddressURI() const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return toQString(d->core->peerAddressURI());
 }
 
-QSharedPointer<SocketLike> NoiseStream::accept()
+QSharedPointer<SocketLike> NoiseSocket::accept()
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return toQtSocketLike(d->core->accept());
 }
 
-Socket *NoiseStream::acceptRaw()
+Socket *NoiseSocket::acceptRaw()
 {
     return nullptr;
 }
 
-bool NoiseStream::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
+bool NoiseSocket::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->bind(toCoreHostAddress(address), port, static_cast<qtng_core::Socket::BindMode>(mode));
 }
 
-bool NoiseStream::bind(quint16 port, Socket::BindMode mode)
+bool NoiseSocket::bind(quint16 port, Socket::BindMode mode)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->bind(port, static_cast<qtng_core::Socket::BindMode>(mode));
 }
 
-bool NoiseStream::connect(const HostAddress &addr, quint16 port)
+bool NoiseSocket::connect(const HostAddress &addr, quint16 port)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->connect(toCoreHostAddress(addr), port);
 }
 
-bool NoiseStream::connect(const QString &hostName, quint16 port, QSharedPointer<SocketDnsCache> dnsCache)
+bool NoiseSocket::connect(const QString &hostName, quint16 port, QSharedPointer<SocketDnsCache> dnsCache)
 {
     Q_UNUSED(dnsCache);
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->connect(toStdString(hostName), port, shared_ptr<qtng_core::SocketDnsCache>());
 }
 
-void NoiseStream::close()
+void NoiseSocket::close()
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     d->core->close();
 }
 
-void NoiseStream::abort()
+void NoiseSocket::abort()
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     d->core->abort();
 }
 
-bool NoiseStream::listen(int backlog)
+bool NoiseSocket::listen(int backlog)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->listen(backlog);
 }
 
-bool NoiseStream::setOption(Socket::SocketOption option, const QVariant &value)
+bool NoiseSocket::setOption(Socket::SocketOption option, const QVariant &value)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->setOption(static_cast<qtng_core::Socket::SocketOption>(option), value.toInt());
 }
 
-QVariant NoiseStream::option(Socket::SocketOption option) const
+QVariant NoiseSocket::option(Socket::SocketOption option) const
 {
-    Q_D(const NoiseStream);
+    Q_D(const NoiseSocket);
     return d->core->option(static_cast<qtng_core::Socket::SocketOption>(option));
 }
 
-qint32 NoiseStream::peek(char *data, qint32 size)
+qint32 NoiseSocket::peek(char *data, qint32 size)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->peek(data, size);
 }
 
-qint32 NoiseStream::peekRaw(char *data, qint32 size)
+qint32 NoiseSocket::peekRaw(char *data, qint32 size)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->peekRaw(data, size);
 }
 
-qint32 NoiseStream::recv(char *data, qint32 size)
+qint32 NoiseSocket::recv(char *data, qint32 size)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->recv(data, size);
 }
 
-qint32 NoiseStream::recvall(char *data, qint32 size)
+qint32 NoiseSocket::recvall(char *data, qint32 size)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->recvall(data, size);
 }
 
-qint32 NoiseStream::send(const char *data, qint32 size)
+qint32 NoiseSocket::send(const char *data, qint32 size)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->send(data, size);
 }
 
-qint32 NoiseStream::sendall(const char *data, qint32 size)
+qint32 NoiseSocket::sendall(const char *data, qint32 size)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->sendall(data, size);
 }
 
-QByteArray NoiseStream::recv(qint32 size)
+QByteArray NoiseSocket::recv(qint32 size)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return toQByteArray(d->core->recv(size));
 }
 
-QByteArray NoiseStream::recvall(qint32 size)
+QByteArray NoiseSocket::recvall(qint32 size)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return toQByteArray(d->core->recvall(size));
 }
 
-qint32 NoiseStream::send(const QByteArray &data)
+qint32 NoiseSocket::send(const QByteArray &data)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->send(toStdString(data));
 }
 
-qint32 NoiseStream::sendall(const QByteArray &data)
+qint32 NoiseSocket::sendall(const QByteArray &data)
 {
-    Q_D(NoiseStream);
+    Q_D(NoiseSocket);
     return d->core->sendall(toStdString(data));
 }
 
-QSharedPointer<SocketLike> asSocketLike(QSharedPointer<NoiseStream> s)
+QSharedPointer<SocketLike> asSocketLike(QSharedPointer<NoiseSocket> s)
 {
-    return qSharedPointerCast<SocketLike>(s);
+    if (!s) {
+        return QSharedPointer<SocketLike>();
+    }
+    return ::qtng_bridge::toQtSocketLike(qtng_core::asSocketLike(NoiseSocketPrivate::coreOf(s.data())));
+}
+
+class NoiseDatagramPrivate
+{
+public:
+    qtng_core::NoiseDatagram core;
+};
+
+NoiseDatagram::NoiseDatagram()
+    : d_ptr(new NoiseDatagramPrivate)
+{
+}
+
+NoiseDatagram::NoiseDatagram(NoiseDatagram &&other)
+    : d_ptr(new NoiseDatagramPrivate)
+{
+    std::swap(d_ptr, other.d_ptr);
+}
+
+NoiseDatagram &NoiseDatagram::operator=(NoiseDatagram &&other) noexcept
+{
+    std::swap(d_ptr, other.d_ptr);
+    return *this;
+}
+
+NoiseDatagram::~NoiseDatagram()
+{
+    delete d_ptr;
+}
+
+bool NoiseDatagram::initialize(NoisePattern pattern, NoiseRole role, const NoiseKey &localStatic,
+                               const QByteArray &remoteStaticPublic, const QByteArray &psk,
+                               const QByteArray &prologue, AeadAlgorithm cipher)
+{
+    Q_D(NoiseDatagram);
+    qtng_core::NoiseKey coreKey;
+    coreKey.privateKey = toStdString(localStatic.privateKey);
+    coreKey.publicKey = toStdString(localStatic.publicKey);
+    return d->core.initialize(static_cast<qtng_core::NoisePattern>(pattern),
+                              static_cast<qtng_core::NoiseRole>(role), coreKey, toStdString(remoteStaticPublic),
+                              toStdString(psk), toStdString(prologue),
+                              static_cast<qtng_core::Aead::Algorithm>(cipher));
+}
+
+bool NoiseDatagram::writeHandshake(const QByteArray &payload, QByteArray *outMessage)
+{
+    Q_D(NoiseDatagram);
+    string coreOut;
+    const bool ok = d->core.writeHandshake(toStdString(payload), &coreOut);
+    if (ok && outMessage) {
+        *outMessage = toQByteArray(coreOut);
+    }
+    return ok;
+}
+
+bool NoiseDatagram::readHandshake(const QByteArray &message, QByteArray *outPayload)
+{
+    Q_D(NoiseDatagram);
+    string coreOut;
+    const bool ok = d->core.readHandshake(toStdString(message), &coreOut);
+    if (ok && outPayload) {
+        *outPayload = toQByteArray(coreOut);
+    }
+    return ok;
+}
+
+bool NoiseDatagram::isHandshakeComplete() const
+{
+    Q_D(const NoiseDatagram);
+    return d->core.isHandshakeComplete();
+}
+
+QByteArray NoiseDatagram::peerHandshakePayload() const
+{
+    Q_D(const NoiseDatagram);
+    return toQByteArray(d->core.peerHandshakePayload());
+}
+
+QByteArray NoiseDatagram::remoteStaticPublic() const
+{
+    Q_D(const NoiseDatagram);
+    return toQByteArray(d->core.remoteStaticPublic());
+}
+
+QByteArray NoiseDatagram::handshakeHash() const
+{
+    Q_D(const NoiseDatagram);
+    return toQByteArray(d->core.handshakeHash());
+}
+
+QString NoiseDatagram::errorString() const
+{
+    Q_D(const NoiseDatagram);
+    return toQString(d->core.errorString());
+}
+
+QByteArray NoiseDatagram::encrypt(const QByteArray &plaintext)
+{
+    Q_D(NoiseDatagram);
+    return toQByteArray(d->core.encrypt(toStdString(plaintext)));
+}
+
+QByteArray NoiseDatagram::decrypt(const QByteArray &packet)
+{
+    Q_D(NoiseDatagram);
+    return toQByteArray(d->core.decrypt(toStdString(packet)));
+}
+
+bool NoiseDatagram::lastDecryptOk() const
+{
+    Q_D(const NoiseDatagram);
+    return d->core.lastDecryptOk();
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

@@ -147,6 +147,18 @@ if(QTNG_HAVE_CRYPTO)
     set_target_properties(qtng_test_certificate PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
     catch_discover_tests(qtng_test_certificate)
 
+    add_executable(qtng_test_pkey
+        test_pkey.cpp
+    )
+    target_link_libraries(qtng_test_pkey PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_pkey PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    if(QTNG_SSL_INCLUDE)
+        target_include_directories(qtng_test_pkey PRIVATE "${QTNG_SSL_INCLUDE}")
+    endif()
+    target_compile_definitions(qtng_test_pkey PRIVATE OPENSSL_SUPPRESS_DEPRECATED)
+    set_target_properties(qtng_test_pkey PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_pkey)
+
     add_executable(qtng_test_noise
         test_noise.cpp
     )

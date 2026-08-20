@@ -2326,6 +2326,33 @@ Clipher
 
 5.3 公钥算法
 ^^^^^^^^^^^^^^
+
+``PublicKey`` / ``PrivateKey`` 提供两层与“加密/解密”相关的 API。
+
+**``encrypt()`` / ``decrypt()``：面向算法的简便接口**
+
+实现常见的*保密*方向：公钥加密、私钥解密。内部通过对象持有的 ``EVP_PKEY_CTX`` 调用 OpenSSL 的 ``EVP_PKEY_encrypt`` / ``EVP_PKEY_decrypt``。对 RSA 密钥，二者是固定填充的快捷方式：始终使用 ``PKCS1_PADDING``（PKCS#1 v1.5 加密块 type 2），分别等价于 ``rsaPublicEncrypt(data, PKCS1_PADDING)`` 与 ``rsaPrivateDecrypt(data, PKCS1_PADDING)``。对其他支持非对称加密的密钥类型，填充与参数由 OpenSSL 默认行为决定。
+
+若只需标准的公钥加密、且不需要选择填充方式，优先使用 ``encrypt()`` / ``decrypt()``。
+
+**``rsaPublicEncrypt`` 等四个 ``rsa*`` 方法：RSA 专用、语义完整**
+
+RSA 在数学上允许四种不同的原始运算（对应旧版 ``RSA_public_encrypt`` / ``RSA_private_decrypt`` / ``RSA_private_encrypt`` / ``RSA_public_decrypt``）。除常规公钥加密、私钥解密外，还存在*反向*运算——私钥“加密”、公钥“解密/恢复”——用于旧协议兼容、无摘要的原始 PKCS#1 块（与高层 ``sign()`` / ``verify()`` 不同），或从私钥运算结果中恢复明文。PKCS#1 对加密（type 2）与签名（type 1）使用不同的填充格式；部分场景还需要 OAEP 或无填充。
+
+因此单独提供 RSA 专用接口：
+
+- ``rsaPublicEncrypt`` / ``rsaPrivateDecrypt``：保密方向。在 ``PKCS1_PADDING`` 下与 ``encrypt()`` / ``decrypt()`` 相同，但可选择 ``PKCS1_OAEP_PADDING``、``NO_PADDING`` 等填充。
+- ``rsaPrivateEncrypt`` / ``rsaPublicDecrypt``：反向方向，分别基于 ``EVP_PKEY_sign`` / ``EVP_PKEY_verify_recover``（不计算摘要）。二者成对使用，不能替代 ``encrypt()`` / ``decrypt()``。
+
+这些方法仅适用于 RSA；对 DSA/EC 密钥调用会失败。
+
+对照一览：
+
+- ``encrypt()`` → 公钥、保密方向，RSA 上固定 ``PKCS1_PADDING``
+- ``decrypt()`` → 私钥、保密方向，RSA 上固定 ``PKCS1_PADDING``
+- ``rsaPublicEncrypt`` / ``rsaPrivateDecrypt`` → 与上同向，填充可配置
+- ``rsaPrivateEncrypt`` / ``rsaPublicDecrypt`` → 反向运算，用于旧版签名/恢复，不是保密加密
+
 5.3.1 PublicKey
 ++++++++++++++++
 加密体系中的核心类，用于管理公钥操作。
@@ -2348,19 +2375,19 @@ Clipher
 
     通过PEM_write_bio_PUBKEY将密钥写入BIO对象
 
-.. method:: std::string encrypt(const std::string &data)
+.. method:: std::string encrypt(const std::string &data) const
 
-    初始化加密上下文（算法自动识别），动态计算输出缓冲区大小（避免固定长度限制），执行加密并返回结果
+    使用对象内的 ``EVP_PKEY_CTX`` 做公钥加密（``EVP_PKEY_encrypt``）。RSA 上固定 ``PKCS1_PADDING``（PKCS#1 v1.5 type 2），与默认的 ``rsaPublicEncrypt`` 语义相同。
 
 .. method:: std::string rsaPublicEncrypt(const std::string &data,RsaPadding padding = PKCS1_PADDING)
     :no-index:
 
-    使用 RSA 公钥加密（``EVP_PKEY_encrypt``）。``PKCS1_PADDING`` 兼容性最好（默认）；``PKCS1_OAEP_PADDING`` 更安全，推荐新协议使用；``NO_PADDING`` 需自行处理填充。
+    使用 RSA 公钥加密（``EVP_PKEY_encrypt``），复用对象内的 ``EVP_PKEY_CTX``。``PKCS1_PADDING`` 兼容性最好（默认）；``PKCS1_OAEP_PADDING`` 更安全，推荐新协议使用；``NO_PADDING`` 需自行处理填充。
 
 .. method:: std::string rsaPublicDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING)
     :no-index:
 
-    使用 RSA 公钥做原始解密/恢复（``EVP_PKEY_verify_recover``），对应私钥侧的 ``rsaPrivateEncrypt``。支持 ``PKCS1_PADDING``（默认）与 ``NO_PADDING``。
+    使用 RSA 公钥做原始解密/恢复（``EVP_PKEY_verify_recover``），复用对象内的 ``EVP_PKEY_CTX``。对应旧版 ``RSA_public_decrypt``，以及私钥侧的 ``rsaPrivateEncrypt``。``PKCS1_PADDING`` 是签名用的 PKCS#1 v1.5 **type 1**（``00 01 FF..00``），不是加密用的 type 2；未设置 ``signature_md``，因此不会封装或剥离 DigestInfo。支持 ``PKCS1_PADDING``（默认）与 ``NO_PADDING``。
     
 
 .. method:: bool verify(const std::string &data, const std::string &hash, MessageDigest::Algorithm hashAlgo)
@@ -2457,19 +2484,19 @@ Clipher
 
     使用私钥对数据进行签名。
 
-.. method:: std::string decrypt(const std::string &data)
+.. method:: std::string decrypt(const std::string &data) const
 
-    使用私钥解密数据。初始化解密上下文：EVP_PKEY_decrypt_init,计算解密后长度：EVP_PKEY_decrypt 两次调用，第一次获取长度，第二次解密数据,返回解密结果：调整 std::string 大小并填充数据。
+    使用私钥解密数据。初始化解密上下文：EVP_PKEY_decrypt_init。RSA 上固定 ``PKCS1_PADDING``，对应 ``encrypt()``。
 
-.. method:: rsaPrivateEncrypt
+.. method:: std::string rsaPrivateEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
     :no-index:
 
-    使用 RSA 私钥做原始加密（``EVP_PKEY_sign``，无摘要），对应公钥侧的 ``rsaPublicDecrypt``。支持 ``PKCS1_PADDING``（默认）与 ``NO_PADDING``。
+    使用 RSA 私钥做原始加密（``EVP_PKEY_sign``，无摘要），复用对象内的 ``EVP_PKEY_CTX``。对应旧版 ``RSA_private_encrypt``，以及公钥侧的 ``rsaPublicDecrypt``。支持 ``PKCS1_PADDING``（默认）与 ``NO_PADDING``。
 
-.. method:: rsaPrivateDecrypt
+.. method:: std::string rsaPrivateDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
     :no-index:
 
-    使用 RSA 私钥解密（``EVP_PKEY_decrypt``）。支持 ``PKCS1_PADDING``（默认）、``PKCS1_OAEP_PADDING`` 与 ``NO_PADDING``。
+    使用 RSA 私钥解密（``EVP_PKEY_decrypt``），复用对象内的 ``EVP_PKEY_CTX``。支持 ``PKCS1_PADDING``（默认）、``PKCS1_OAEP_PADDING`` 与 ``NO_PADDING``。
 
 .. method:: static PrivateKey generate(Algorithm algo, int bits)
 
@@ -2752,34 +2779,62 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 5.6 Noise 协议
 ^^^^^^^^^^^^^^
 
-提供 Noise Protocol Framework 的精简实现，支持 ``Noise_XX_25519_ChaChaPoly_SHA256``、
-``NoisePSK_XX_25519_ChaChaPoly_SHA256`` 与 ``Noise_IK_25519_ChaChaPoly_SHA256``
-（头文件 ``qtng/noise.h``）。
+提供 Noise Protocol Framework 的精简实现，支持 ``XX`` / ``PSK_XX`` / ``IK`` 握手，AEAD 可选
+``ChaCha20-Poly1305``（默认，协议名 ``*_25519_ChaChaPoly_SHA256``）或 ``AES-256-GCM``
+（``*_25519_AESGCM_SHA256``；头文件 ``qtng/noise.h``，经 ``Aead`` 实现）。
 
 * ``NoiseKey`` — X25519 密钥对生成、从私钥导入、DH。
-* ``NoiseCipherState`` — ChaCha20-Poly1305 AEAD，Noise 风格 12 字节 nonce
-  （4 字节零 + 8 字节小端计数器），以及 64 位滑动窗口防重放（``acceptIncomingNonce``）。
-  重载 ``decryptWithAd(ad, ciphertext, nonce)`` 面向多路径乱序投递：仅在 AEAD
-  认证成功后才提交 nonce 窗口，避免伪造包或握手重传永久污染防重放状态。
+* ``NoiseCipherState`` — 通过 ``Aead`` 做 AEAD（``ChaCha20Poly1305`` 或 ``Aes256Gcm``），Noise 风格 12 字节 nonce
+  （4 字节零 + 8 字节计数器：ChaChaPoly 小端，AESGCM 大端）。``split()`` 后 send / recv 各持独立计数器。
+  ``encryptWithAd`` 始终从计数器取号并在成功后自增（无显式 nonce 加密重载）；``outNonce`` 返回所用值供
+  线上包头（``NoiseDatagram`` / WireGuard 式 UDP：发送端单调递增、counter 写入包内）。两参数
+  ``decryptWithAd`` 顺序使用并递增计数器（握手 / ``NoiseSocket``）。重载
+  ``decryptWithAd(ad, ciphertext, nonce)`` 用包内 nonce 解密，
+  **不**推进该计数器（UDP 接收 / 乱序）；本层不做防重放。
+  传输 nonce 范围为 ``0 .. MaxNonce``（``2^64-2``）；``n`` 超过 ``MaxNonce`` 后
+  ``EncryptWithAd`` / ``DecryptWithAd`` 失败。``setNonce(n)`` 仅接受 ``n <= MaxNonce``，
+  超出时忽略并记录 warning。``2^64-1`` 保留给 ``rekey()``
+  （``ENCRYPT(k, 2^64-1, zerolen, zeros)``），不用作传输 nonce。
   ``rekey()`` 按 Noise 规范替换密钥，不重置 nonce。
 * ``NoiseHandshakeState`` — XX / PSK_XX / IK 握手状态机；``initialize()`` 支持
-  prologue（始终 ``MixHash``，含空 prologue）；PSK 按 psk0 做 ``MixKeyAndHash``；
+  prologue（始终 ``MixHash``，含空 prologue）与 ``Aead::Algorithm``（默认 ChaCha20-Poly1305；
+  仅接受 32 字节密钥的 ``ChaCha20Poly1305`` / ``Aes256Gcm``，拒绝 AES-128-GCM）；PSK 按 psk0 做 ``MixKeyAndHash``；
   完成后调用 ``split()`` 得到传输层收发密码状态；``handshakeHash()`` 可用于通道绑定。
   IK 发起方必须提供对端静态公钥；若预先提供了期望的远端静态公钥且握手中解密出的不符，握手失败。
-* ``NoiseStream`` — 在 ``SocketLike`` 之上完成握手，并以 2 字节大端长度前缀帧传输
-  AEAD 密文；``sendMessage`` / ``recvMessage`` 为消息语义，``sendall`` / ``recv`` 在
-  当前帧上提供流式读写。
-* ``noiseHkdf`` / ``noiseHmacSha256`` — HKDF-SHA256 与 HMAC-SHA256 辅助函数（可用于 cookie MAC 等）。
+* ``NoiseDatagram`` — 同一套握手与传输，但是编解码器：调用方自己持有套接字（UDP 等），
+  只把报文字节送进取出。``writeHandshake`` / ``readHandshake`` 处理 Noise 握手消息；
+  完成后 ``encrypt`` / ``decrypt`` 使用 ``[8 字节大端 nonce][密文||tag]``。接收方用包内
+  nonce 做 AEAD（允许乱序到达），再按 WireGuard / RFC 6479 的 8192 位滑动窗口拒绝重放
+  和已滑出窗口的 nonce。未通过认证的包不会改窗口。收发在 WireGuard 的
+  ``REJECT_AFTER_MESSAGES``（``2^64 - 8129``）处停止。
+  本类不调用 ``Socket``、``DatagramLink`` 或任何其它 I/O 类型。会话对象不可拷贝：拷贝会
+  复制 nonce 计数器，导致密钥流重用。可以移动，以便把已完成握手的会话交给另一个对象。
+* ``NoiseSocket`` — 与 ``SslSocket`` 同类：在可靠流（TCP 等）上跑 Noise。握手由
+  ``NoiseHandshakeState`` 完成；传输层用顺序 ``NoiseCipherState``（自增 nonce，线上不传 nonce，
+  不做防重放）。每个 Noise 消息在 backend 上加 2 字节大端长度前缀（传输为 ``密文||tag``，
+  握手为原始 Noise 握手字节）。``send`` / ``sendall`` / ``recv`` / ``recvall`` 为字节流接口。
+  它本身不是 ``SocketLike``；需要 ``SocketLike`` 时用 ``asSocketLike()`` 包装。
 
 .. code-block:: c++
 
     NoiseKey alice = NoiseKey::generate();
     NoiseKey bob = NoiseKey::generate();
-    auto client = make_shared<NoiseStream>(asSocketLike(tcpClient));
-    auto server = make_shared<NoiseStream>(asSocketLike(tcpServer));
+    auto client = make_shared<NoiseSocket>(asSocketLike(tcpClient));
+    auto server = make_shared<NoiseSocket>(asSocketLike(tcpServer));
     client->initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
     server->initialize(NoisePattern::XX, NoiseRole::Responder, bob);
-    // 两端分别调用 handshake() 后即可 sendMessage / recvMessage
+    // 两端分别调用 handshake() 后即可 sendall / recv
+    // 需要 SocketLike 时：asSocketLike(client)
+
+    NoiseDatagram udpClient;
+    NoiseDatagram udpServer;
+    udpClient.initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
+    udpServer.initialize(NoisePattern::XX, NoiseRole::Responder, bob);
+    udpClient.writeHandshake("hello", &packet);
+    udpSocket.sendto(packet, peerAddr, peerPort);  // I/O 由调用方完成
+    packet = udpSocket.recvfrom(65535, &from, &fromPort);
+    udpServer.readHandshake(packet, &payload);
+    // 握手完成后：sendto(udpClient.encrypt(plain), ...)
 
 5.7 AEAD 与 HKDF 辅助接口
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -2787,7 +2842,8 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 头文件 ``qtng/aead.h`` 提供可复用的加密原语（供 QUIC 使用，也可直接给应用调用）：
 
 * ``Aead`` — AES-128-GCM、AES-256-GCM、ChaCha20-Poly1305 的 seal/open（含 AAD）；
-  密文布局为 ``ciphertext || tag``。
+  密文布局为 ``ciphertext || tag``。``NoiseCipherState`` 使用其中的 AES-256-GCM 与
+  ChaCha20-Poly1305（Noise 规范要求 32 字节密钥，不使用 AES-128-GCM）。
 * ``hkdfExtract`` / ``hkdfExpand`` / ``hkdf`` — RFC 5869 HKDF。
 * ``hkdfExpandLabel`` — TLS 1.3 / QUIC 的 ``HKDF-Expand-Label``（带 ``tls13 `` 前缀）。
 * ``aesEcbEncryptBlock`` — 单块 AES-ECB，用于 QUIC header protection mask。

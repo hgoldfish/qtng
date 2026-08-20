@@ -2,10 +2,10 @@
 #define QTNG_CRYPTO_P_H
 
 extern "C" {
-#include <openssl/evp.h>
 #include <openssl/x509.h>
 #include <openssl/err.h>
 }
+#include "qtng/private/openssl_raii.h"
 #include "qtng/md.h"
 #include "qtng/cipher.h"
 #include "qtng/pkey.h"

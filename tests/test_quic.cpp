@@ -157,6 +157,30 @@ TEST_CASE("aead aes-gcm roundtrip", "[quic][aead]")
     REQUIRE(out == plain);
 }
 
+TEST_CASE("aead aes-256-gcm roundtrip", "[aead]")
+{
+    Aead aead(Aead::Aes256Gcm);
+    REQUIRE(aead.isValid());
+    REQUIRE(aead.keySize() == 32);
+    REQUIRE(aead.nonceSize() == 12);
+    REQUIRE(aead.tagSize() == 16);
+    const string key(32, 'k');
+    REQUIRE(aead.setKey(key));
+    const string nonce(12, 'n');
+    string sealed;
+    REQUIRE(aead.seal(nonce, "aad", "hello gcm", &sealed));
+    string out;
+    REQUIRE(aead.open(nonce, "aad", sealed, &out));
+    REQUIRE(out == "hello gcm");
+
+    string emptySealed;
+    REQUIRE(aead.seal(nonce, string(), string(), &emptySealed));
+    REQUIRE(emptySealed.size() == 16);
+    string emptyOut;
+    REQUIRE(aead.open(nonce, string(), emptySealed, &emptyOut));
+    REQUIRE(emptyOut.empty());
+}
+
 TEST_CASE("quic loopback handshake and stream", "[quic]")
 {
     shared_ptr<Coroutine> job(Coroutine::spawn([] {

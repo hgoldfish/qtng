@@ -1,6 +1,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include <openssl/dsa.h>
 #include <openssl/pem.h>
@@ -37,36 +38,30 @@ public:
     string rsaPrivateEncrypt(const string &data, PublicKey::RsaPadding padding) const;
     string rsaPrivateDecrypt(const string &data, PublicKey::RsaPadding padding) const;
     static PrivateKey generate(PublicKey::Algorithm algo, int bits);
-    static bool inline setPkey(PublicKey *key, EVP_PKEY *pkey, bool hasPrivate);
-public:
-    EVP_PKEY_CTX *context;
+    static bool setPkey(PublicKey *key, EVP_PKEY *pkey, bool hasPrivate);
+    static bool adoptRawPkey(PublicKeyPrivate *d, EVP_PKEY *rawPkey, bool hasPrivate);
+
+    EvpPkeyCtxPtr context;
     shared_ptr<EVP_PKEY> pkey;
     bool hasPrivate;
 };
 
 PublicKeyPrivate::PublicKeyPrivate()
-    : context(nullptr)
-    , hasPrivate(false)
+    : hasPrivate(false)
 {
 }
 
 PublicKeyPrivate::PublicKeyPrivate(PublicKeyPrivate *other)
-    : context(nullptr)
-    , hasPrivate(false)
+    : hasPrivate(false)
 {
     if (other->context && other->pkey) {
-        context = EVP_PKEY_CTX_dup(other->context);
+        context.reset(EVP_PKEY_CTX_dup(other->context.get()));
         pkey = other->pkey;
         hasPrivate = other->hasPrivate;
     }
 }
 
-PublicKeyPrivate::~PublicKeyPrivate()
-{
-    if (context) {
-        EVP_PKEY_CTX_free(context);
-    }
-}
+PublicKeyPrivate::~PublicKeyPrivate() = default;
 
 PublicKey::Algorithm PublicKeyPrivate::algorithm() const
 {
@@ -103,65 +98,66 @@ bool openssl_setPkey(PublicKey *key, EVP_PKEY *pkey, bool hasPrivate)
 
 bool PublicKeyPrivate::setPkey(PublicKey *key, EVP_PKEY *pkey, bool hasPrivate)
 {
-    EVP_PKEY_CTX *context = nullptr;
-    context = EVP_PKEY_CTX_new(pkey, nullptr);  // should i free pkey?
+    return adoptRawPkey(key->d_ptr, pkey, hasPrivate);
+}
+
+bool PublicKeyPrivate::adoptRawPkey(PublicKeyPrivate *d, EVP_PKEY *rawPkey, bool hasPrivate)
+{
+    EvpPkeyPtr pkey(rawPkey);
+    EvpPkeyCtxPtr context(EVP_PKEY_CTX_new(pkey.get(), nullptr));
     if (!context) {
-        EVP_PKEY_free(pkey);
         return false;
-    } else {
-        key->d_ptr->context = context;
-        key->d_ptr->pkey.reset(pkey, EVP_PKEY_free);
-        key->d_ptr->hasPrivate = hasPrivate;
-        return true;
     }
+    d->hasPrivate = hasPrivate;
+    d->context = std::move(context);
+    d->pkey = shareEvpPkey(pkey.release());
+    return true;
 }
 
 PrivateKey PublicKeyPrivate::generate(PublicKey::Algorithm algo, int bits)
 {
     PrivateKey key;
-    EVP_PKEY *pkey = nullptr;
 
     if (algo == PrivateKey::Rsa) {
-        EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        EvpPkeyCtxPtr ctx(EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr));
         if (!ctx) {
             return key;
         }
-        if (EVP_PKEY_keygen_init(ctx) <= 0 || EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, bits) <= 0
-            || EVP_PKEY_keygen(ctx, &pkey) <= 0) {
-            EVP_PKEY_CTX_free(ctx);
+        EVP_PKEY *rawPkey = nullptr;
+        if (EVP_PKEY_keygen_init(ctx.get()) <= 0 || EVP_PKEY_CTX_set_rsa_keygen_bits(ctx.get(), bits) <= 0
+            || EVP_PKEY_keygen(ctx.get(), &rawPkey) <= 0) {
             return key;
         }
-        EVP_PKEY_CTX_free(ctx);
+        EvpPkeyPtr pkey(rawPkey);
+        openssl_setPkey(&key, pkey.release(), true);
     } else if (algo == PrivateKey::Dsa) {
-        EVP_PKEY *params = nullptr;
-        EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_DSA, nullptr);
+        EvpPkeyCtxPtr pctx(EVP_PKEY_CTX_new_id(EVP_PKEY_DSA, nullptr));
         if (!pctx) {
             return key;
         }
-        if (EVP_PKEY_paramgen_init(pctx) <= 0 || EVP_PKEY_CTX_set_dsa_paramgen_bits(pctx, bits) <= 0
-            || EVP_PKEY_paramgen(pctx, &params) <= 0) {
-            EVP_PKEY_CTX_free(pctx);
+        EVP_PKEY *rawParams = nullptr;
+        if (EVP_PKEY_paramgen_init(pctx.get()) <= 0 || EVP_PKEY_CTX_set_dsa_paramgen_bits(pctx.get(), bits) <= 0
+            || EVP_PKEY_paramgen(pctx.get(), &rawParams) <= 0) {
             return key;
         }
-        EVP_PKEY_CTX_free(pctx);
+        EvpPkeyPtr params(rawParams);
 
-        EVP_PKEY_CTX *kctx = EVP_PKEY_CTX_new(params, nullptr);
-        EVP_PKEY_free(params);
+        EvpPkeyCtxPtr kctx(EVP_PKEY_CTX_new(params.get(), nullptr));
         if (!kctx) {
             return key;
         }
-        if (EVP_PKEY_keygen_init(kctx) <= 0 || EVP_PKEY_keygen(kctx, &pkey) <= 0) {
-            EVP_PKEY_CTX_free(kctx);
+        EVP_PKEY *rawPkey = nullptr;
+        if (EVP_PKEY_keygen_init(kctx.get()) <= 0 || EVP_PKEY_keygen(kctx.get(), &rawPkey) <= 0) {
             return key;
         }
-        EVP_PKEY_CTX_free(kctx);
+        EvpPkeyPtr pkey(rawPkey);
+        openssl_setPkey(&key, pkey.release(), true);
     } else if (algo == PrivateKey::Ec) {
         return key;
     } else {
         NG_UNREACHABLE();
         return key;
     }
-    openssl_setPkey(&key, pkey, true);
     return key;
 }
 
@@ -177,36 +173,31 @@ string PublicKeyPrivate::sign(const string &data, MessageDigest::Algorithm hashA
         return string();
     }
 
-    EVP_MD_CTX *mctx = EVP_MD_CTX_new();
+    EvpMdCtxPtr mctx(EVP_MD_CTX_new());
     if (!mctx) {
         return string();
     }
-    rvalue = EVP_DigestSignInit(mctx, nullptr, md, nullptr, pkey.get());
+    rvalue = EVP_DigestSignInit(mctx.get(), nullptr, md, nullptr, pkey.get());
     if (!rvalue) {
-        EVP_MD_CTX_free(mctx);
         return string();
     }
-    rvalue = EVP_DigestSignUpdate(mctx, data.data(), static_cast<unsigned int>(data.size()));
+    rvalue = EVP_DigestSignUpdate(mctx.get(), data.data(), static_cast<unsigned int>(data.size()));
     if (!rvalue) {
-        EVP_MD_CTX_free(mctx);
         return string();
     }
     size_t siglen;
-    rvalue = EVP_DigestSignFinal(mctx, nullptr, &siglen);
+    rvalue = EVP_DigestSignFinal(mctx.get(), nullptr, &siglen);
     if (!rvalue) {
-        EVP_MD_CTX_free(mctx);
         return string();
     }
 
     string result;
     result.resize(static_cast<int>(siglen));
-    rvalue = EVP_DigestSignFinal(mctx, reinterpret_cast<unsigned char *>(&result[0]), &siglen);
-    EVP_MD_CTX_free(mctx);
+    rvalue = EVP_DigestSignFinal(mctx.get(), reinterpret_cast<unsigned char *>(&result[0]), &siglen);
     if (!rvalue) {
         return string();
-    } else {
-        return result;
     }
+    return result;
 }
 
 bool PublicKeyPrivate::verify(const string &data, const string &hash, MessageDigest::Algorithm hashAlgo) const
@@ -221,46 +212,42 @@ bool PublicKeyPrivate::verify(const string &data, const string &hash, MessageDig
         return false;
     }
 
-    EVP_MD_CTX *mctx = EVP_MD_CTX_new();
+    EvpMdCtxPtr mctx(EVP_MD_CTX_new());
 
     if (!mctx) {
         return false;
     }
-    rvalue = EVP_DigestVerifyInit(mctx, nullptr, md, nullptr, pkey.get());
+    rvalue = EVP_DigestVerifyInit(mctx.get(), nullptr, md, nullptr, pkey.get());
     if (!rvalue) {
-        EVP_MD_CTX_free(mctx);
         return false;
     }
-    rvalue = EVP_DigestVerifyUpdate(mctx, data.data(), static_cast<unsigned int>(data.size()));
+    rvalue = EVP_DigestVerifyUpdate(mctx.get(), data.data(), static_cast<unsigned int>(data.size()));
     if (!rvalue) {
-        EVP_MD_CTX_free(mctx);
         return false;
     }
-    rvalue = EVP_DigestVerifyFinal(mctx, reinterpret_cast<const unsigned char *>(hash.data()),
+    rvalue = EVP_DigestVerifyFinal(mctx.get(), reinterpret_cast<const unsigned char *>(hash.data()),
                                    static_cast<size_t>(hash.size()));
-    EVP_MD_CTX_free(mctx);
-    if (!rvalue) {
-        return false;
-    } else {
-        return true;
-    }
+    return rvalue != 0;
 }
 
 string PublicKeyPrivate::encrypt(const string &data) const
 {
+    if (algorithm() == PublicKey::Rsa) {
+        return rsaPublicEncrypt(data, PublicKey::PKCS1_PADDING);
+    }
     if (!pkey || !context || data.empty()) {
         return string();
     }
 
-    int rvalue = EVP_PKEY_encrypt_init(context);
+    int rvalue = EVP_PKEY_encrypt_init(context.get());
     if (rvalue) {
         size_t outlen = 0;
-        rvalue = EVP_PKEY_encrypt(context, nullptr, &outlen, reinterpret_cast<const unsigned char *>(data.data()),
+        rvalue = EVP_PKEY_encrypt(context.get(), nullptr, &outlen, reinterpret_cast<const unsigned char *>(data.data()),
                                   static_cast<unsigned int>(data.size()));
         if (rvalue && outlen) {
             string result;
             result.resize(static_cast<int>(outlen));
-            rvalue = EVP_PKEY_encrypt(context, reinterpret_cast<unsigned char *>(&result[0]), &outlen,
+            rvalue = EVP_PKEY_encrypt(context.get(), reinterpret_cast<unsigned char *>(&result[0]), &outlen,
                                       reinterpret_cast<const unsigned char *>(data.data()),
                                       static_cast<unsigned int>(data.size()));
             if (rvalue) {
@@ -275,19 +262,22 @@ string PublicKeyPrivate::encrypt(const string &data) const
 
 string PublicKeyPrivate::decrypt(const string &data) const
 {
+    if (algorithm() == PublicKey::Rsa) {
+        return rsaPrivateDecrypt(data, PublicKey::PKCS1_PADDING);
+    }
     if (!pkey || !context || data.empty() || !hasPrivate) {
         return string();
     }
     int rvalue;
-    rvalue = EVP_PKEY_decrypt_init(context);
+    rvalue = EVP_PKEY_decrypt_init(context.get());
     if (rvalue) {
         size_t outlen;
-        rvalue = EVP_PKEY_decrypt(context, nullptr, &outlen, reinterpret_cast<const unsigned char *>(data.data()),
+        rvalue = EVP_PKEY_decrypt(context.get(), nullptr, &outlen, reinterpret_cast<const unsigned char *>(data.data()),
                                   static_cast<unsigned int>(data.size()));
         if (rvalue && outlen) {
             string result;
             result.resize(static_cast<int>(outlen));
-            rvalue = EVP_PKEY_decrypt(context, reinterpret_cast<unsigned char *>(&result[0]), &outlen,
+            rvalue = EVP_PKEY_decrypt(context.get(), reinterpret_cast<unsigned char *>(&result[0]), &outlen,
                                       reinterpret_cast<const unsigned char *>(data.data()),
                                       static_cast<unsigned int>(data.size()));
             if (rvalue) {
@@ -303,8 +293,8 @@ string PublicKeyPrivate::decrypt(const string &data) const
 bool PublicKeyPrivate::checkValidRsaOperation(const string &data, PublicKey::RsaPadding padding, bool requirePrivate,
                                               bool allowOaep) const
 {
-    if (!pkey || data.empty()) {
-        ngDebug() << "pkey or data is null";
+    if (!pkey || !context || data.empty()) {
+        ngDebug() << "invalid key or data";
         return false;
     }
     if (requirePrivate && !hasPrivate) {
@@ -324,16 +314,14 @@ bool PublicKeyPrivate::checkValidRsaOperation(const string &data, PublicKey::Rsa
     return true;
 }
 
-static string rsaEvpCrypt(EVP_PKEY *pkey, const string &data, PublicKey::RsaPadding padding, bool encrypt)
+static string rsaEvpCrypt(EVP_PKEY_CTX *ctx, const string &data, PublicKey::RsaPadding padding, bool encrypt)
 {
-    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(pkey, nullptr);
     if (!ctx) {
         return string();
     }
 
     int rvalue = encrypt ? EVP_PKEY_encrypt_init(ctx) : EVP_PKEY_decrypt_init(ctx);
     if (rvalue <= 0 || EVP_PKEY_CTX_set_rsa_padding(ctx, static_cast<int>(padding)) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
         return string();
     }
 
@@ -343,7 +331,6 @@ static string rsaEvpCrypt(EVP_PKEY *pkey, const string &data, PublicKey::RsaPadd
     rvalue = encrypt ? EVP_PKEY_encrypt(ctx, nullptr, &outlen, in, inlen)
                      : EVP_PKEY_decrypt(ctx, nullptr, &outlen, in, inlen);
     if (rvalue <= 0 || outlen == 0) {
-        EVP_PKEY_CTX_free(ctx);
         return string();
     }
 
@@ -351,7 +338,6 @@ static string rsaEvpCrypt(EVP_PKEY *pkey, const string &data, PublicKey::RsaPadd
     result.resize(static_cast<int>(outlen));
     rvalue = encrypt ? EVP_PKEY_encrypt(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, inlen)
                      : EVP_PKEY_decrypt(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, inlen);
-    EVP_PKEY_CTX_free(ctx);
     if (rvalue <= 0) {
         return string();
     }
@@ -359,16 +345,14 @@ static string rsaEvpCrypt(EVP_PKEY *pkey, const string &data, PublicKey::RsaPadd
     return result;
 }
 
-static string rsaEvpSignOrRecover(EVP_PKEY *pkey, const string &data, PublicKey::RsaPadding padding, bool sign)
+static string rsaEvpSignOrRecover(EVP_PKEY_CTX *ctx, const string &data, PublicKey::RsaPadding padding, bool sign)
 {
-    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(pkey, nullptr);
     if (!ctx) {
         return string();
     }
 
     int rvalue = sign ? EVP_PKEY_sign_init(ctx) : EVP_PKEY_verify_recover_init(ctx);
     if (rvalue <= 0 || EVP_PKEY_CTX_set_rsa_padding(ctx, static_cast<int>(padding)) <= 0) {
-        EVP_PKEY_CTX_free(ctx);
         return string();
     }
 
@@ -378,7 +362,6 @@ static string rsaEvpSignOrRecover(EVP_PKEY *pkey, const string &data, PublicKey:
     rvalue = sign ? EVP_PKEY_sign(ctx, nullptr, &outlen, in, inlen)
                   : EVP_PKEY_verify_recover(ctx, nullptr, &outlen, in, inlen);
     if (rvalue <= 0 || outlen == 0) {
-        EVP_PKEY_CTX_free(ctx);
         return string();
     }
 
@@ -386,7 +369,6 @@ static string rsaEvpSignOrRecover(EVP_PKEY *pkey, const string &data, PublicKey:
     result.resize(static_cast<int>(outlen));
     rvalue = sign ? EVP_PKEY_sign(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, inlen)
                   : EVP_PKEY_verify_recover(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, inlen);
-    EVP_PKEY_CTX_free(ctx);
     if (rvalue <= 0) {
         return string();
     }
@@ -399,7 +381,7 @@ string PublicKeyPrivate::rsaPublicEncrypt(const string &data, PublicKey::RsaPadd
     if (!checkValidRsaOperation(data, padding, false, true)) {
         return string();
     }
-    const string &result = rsaEvpCrypt(pkey.get(), data, padding, true);
+    const string &result = rsaEvpCrypt(context.get(), data, padding, true);
     if (result.empty()) {
         ngDebug() << "can not public encrypt data.";
     }
@@ -412,7 +394,7 @@ string PublicKeyPrivate::rsaPublicDecrypt(const string &data, PublicKey::RsaPadd
     if (!checkValidRsaOperation(data, padding, false, false)) {
         return string();
     }
-    const string &result = rsaEvpSignOrRecover(pkey.get(), data, padding, false);
+    const string &result = rsaEvpSignOrRecover(context.get(), data, padding, false);
     if (result.empty()) {
         ngDebug() << "can not public decrypt data.";
     }
@@ -425,7 +407,7 @@ string PublicKeyPrivate::rsaPrivateEncrypt(const string &data, PrivateKey::RsaPa
     if (!checkValidRsaOperation(data, padding, true, false)) {
         return string();
     }
-    const string &result = rsaEvpSignOrRecover(pkey.get(), data, padding, true);
+    const string &result = rsaEvpSignOrRecover(context.get(), data, padding, true);
     if (result.empty()) {
         ngDebug() << "can not private encrypt data.";
     }
@@ -437,7 +419,7 @@ string PublicKeyPrivate::rsaPrivateDecrypt(const string &data, PrivateKey::RsaPa
     if (!checkValidRsaOperation(data, padding, true, true)) {
         return string();
     }
-    const string &result = rsaEvpCrypt(pkey.get(), data, padding, false);
+    const string &result = rsaEvpCrypt(context.get(), data, padding, false);
     if (result.empty()) {
         ngDebug() << "can not private decrypt data.";
     }
@@ -597,27 +579,22 @@ PrivateKey PrivateKeyReaderPrivate::read(const string &data)
     }
 
     BIO *bio = BIO_new_mem_buf(data.data(), data.size());
-    EVP_PKEY *pkey = nullptr;
+    EVP_PKEY *rawPkey = nullptr;
     if (!password.empty()) {
         shared_ptr<SimplePasswordCallback> cb = make_shared<SimplePasswordCallback>(password);
-        PEM_read_bio_PrivateKey(bio, &pkey, pem_password_cb, cb.get());
+        PEM_read_bio_PrivateKey(bio, &rawPkey, pem_password_cb, cb.get());
     } else if (callback) {
-        PEM_read_bio_PrivateKey(bio, &pkey, pem_password_cb, callback.get());
+        PEM_read_bio_PrivateKey(bio, &rawPkey, pem_password_cb, callback.get());
     } else {
-        PEM_read_bio_PrivateKey(bio, &pkey, nullptr, nullptr);
+        PEM_read_bio_PrivateKey(bio, &rawPkey, nullptr, nullptr);
     }
-    if (!pkey) {
+    if (!rawPkey) {
         BIO_free(bio);
         return key;
     }
-    EVP_PKEY_CTX *context = nullptr;
-    context = EVP_PKEY_CTX_new(pkey, nullptr);  // should i free pkey?
-    if (!context) {
-        EVP_PKEY_free(pkey);
-    } else {
-        key.d_ptr->hasPrivate = true;
-        key.d_ptr->context = context;
-        key.d_ptr->pkey.reset(pkey, EVP_PKEY_free);
+    if (!PublicKeyPrivate::adoptRawPkey(key.d_ptr, rawPkey, true)) {
+        BIO_free(bio);
+        return key;
     }
     BIO_free(bio);
     return key;
@@ -637,29 +614,25 @@ PublicKey PrivateKeyReaderPrivate::readPublic(const string &data)
     }
 
     BIO *bio = BIO_new_mem_buf(data.data(), data.size());
-    EVP_PKEY *pkey = nullptr;
+    EVP_PKEY *rawPkey = nullptr;
     if (!password.empty()) {
         shared_ptr<SimplePasswordCallback> cb = make_shared<SimplePasswordCallback>(password);
-        PEM_read_bio_PUBKEY(bio, &pkey, pem_password_cb, cb.get());
+        PEM_read_bio_PUBKEY(bio, &rawPkey, pem_password_cb, cb.get());
     } else if (callback) {
-        PEM_read_bio_PUBKEY(bio, &pkey, pem_password_cb, callback.get());
+        PEM_read_bio_PUBKEY(bio, &rawPkey, pem_password_cb, callback.get());
     } else {
-        PEM_read_bio_PUBKEY(bio, &pkey, nullptr, nullptr);
+        PEM_read_bio_PUBKEY(bio, &rawPkey, nullptr, nullptr);
     }
-    if (!pkey) {
+    if (!rawPkey) {
         BIO_free(bio);
         return key;
     }
 
-    EVP_PKEY_CTX *context = nullptr;
-    context = EVP_PKEY_CTX_new(pkey, nullptr);  // should i free pkey?
-    if (!context) {
-        EVP_PKEY_free(pkey);
-    } else {
-        key.d_ptr->context = context;
-        key.d_ptr->pkey.reset(pkey, EVP_PKEY_free);
-        key.d_ptr->hasPrivate = false;
+    if (!PublicKeyPrivate::adoptRawPkey(key.d_ptr, rawPkey, false)) {
+        BIO_free(bio);
+        return key;
     }
+    BIO_free(bio);
     return key;
 }
 
@@ -771,9 +744,9 @@ bool PublicKey::verify(const string &data, const string &hash, MessageDigest::Al
     return d->verify(data, hash, hashAlgo);
 }
 
-string PublicKey::encrypt(const string &data)
+string PublicKey::encrypt(const string &data) const
 {
-    NG_D(PublicKey);
+    NG_D(const PublicKey);
     return d->encrypt(data);
 }
 
@@ -846,9 +819,9 @@ string PrivateKey::sign(const string &data, MessageDigest::Algorithm hashAlgo)
     return d->sign(data, hashAlgo);
 }
 
-string PrivateKey::decrypt(const string &data)
+string PrivateKey::decrypt(const string &data) const
 {
-    NG_D(PublicKey);
+    NG_D(const PublicKey);
     return d->decrypt(data);
 }
 

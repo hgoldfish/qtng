@@ -48,7 +48,7 @@ public:
     Algorithm algorithm() const;
     int bits() const;
     bool verify(const std::string &data, const std::string &hash, MessageDigest::Algorithm hashAlgo);
-    std::string encrypt(const std::string &data);
+    std::string encrypt(const std::string &data) const;
     std::string digest(MessageDigest::Algorithm algorithm = MessageDigest::Sha256) const;
 public:
     std::string rsaPublicEncrypt(const std::string &data,
@@ -102,7 +102,7 @@ public:
 public:
     PublicKey publicKey() const;
     std::string sign(const std::string &data, MessageDigest::Algorithm hashAlgo);
-    std::string decrypt(const std::string &data);
+    std::string decrypt(const std::string &data) const;
 public:
     std::string rsaPrivateEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const;
     std::string rsaPrivateDecrypt(const std::string &data,

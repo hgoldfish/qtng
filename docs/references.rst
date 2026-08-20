@@ -2615,6 +2615,33 @@ Provides symmetric encryption/decryption functionality. Supports multiple algori
 
 5.3 Public Key Algorithms
 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``PublicKey`` and ``PrivateKey`` expose two layers of encryption-related API.
+
+**``encrypt()`` / ``decrypt()`` — algorithm-agnostic convenience**
+
+These implement the usual *confidentiality* direction: encrypt with the public key, decrypt with the private key. They call OpenSSL ``EVP_PKEY_encrypt`` / ``EVP_PKEY_decrypt`` on the object's ``EVP_PKEY_CTX``. For RSA keys they are fixed-padding shortcuts: always ``PKCS1_PADDING`` (PKCS#1 v1.5 encryption block, type 2), equivalent to ``rsaPublicEncrypt(data, PKCS1_PADDING)`` and ``rsaPrivateDecrypt(data, PKCS1_PADDING)`` respectively. For other key types that support asymmetric encryption, padding and parameters follow OpenSSL defaults.
+
+Prefer ``encrypt()`` / ``decrypt()`` when you only need standard public-key encryption and do not need to choose padding.
+
+**``rsaPublicEncrypt`` / ``rsaPrivateDecrypt`` / ``rsaPrivateEncrypt`` / ``rsaPublicDecrypt`` — RSA-specific, full semantics**
+
+RSA supports four distinct raw operations (the legacy ``RSA_public_encrypt``, ``RSA_private_decrypt``, ``RSA_private_encrypt``, and ``RSA_public_decrypt`` family). Besides the normal confidentiality path, RSA also has a *reverse* path—private-key "encrypt" and public-key "decrypt/recover"—used for legacy protocols, raw PKCS#1 v1.5 blocks without a digest (distinct from high-level ``sign()`` / ``verify()``), or recovering data produced by private-key operations. PKCS#1 uses different padding for encryption (type 2) and signing (type 1); some protocols also require OAEP or unpadded blocks.
+
+The ``rsa*`` methods expose that full surface:
+
+- ``rsaPublicEncrypt`` / ``rsaPrivateDecrypt``: confidentiality path. Same as ``encrypt()`` / ``decrypt()`` when padding is ``PKCS1_PADDING``, but padding is selectable (including ``PKCS1_OAEP_PADDING`` and ``NO_PADDING``).
+- ``rsaPrivateEncrypt`` / ``rsaPublicDecrypt``: reverse path via ``EVP_PKEY_sign`` / ``EVP_PKEY_verify_recover`` (no digest). Pair with each other; not interchangeable with ``encrypt()`` / ``decrypt()``.
+
+These methods are RSA-only; calling them on DSA/EC keys fails.
+
+At a glance:
+
+- ``encrypt()`` → public key, confidentiality, fixed ``PKCS1_PADDING`` on RSA
+- ``decrypt()`` → private key, confidentiality, fixed ``PKCS1_PADDING`` on RSA
+- ``rsaPublicEncrypt`` / ``rsaPrivateDecrypt`` → same direction as above, configurable padding
+- ``rsaPrivateEncrypt`` / ``rsaPublicDecrypt`` → reverse direction; legacy signing/recovery, not confidentiality encryption
+
 5.3.1 PublicKey
 ++++++++++++++++
 Core class in the encryption system, used for managing public key operations.
@@ -2635,17 +2662,17 @@ Core class in the encryption system, used for managing public key operations.
 
     Writes the key to BIO object via PEM_write_bio_PUBKEY.
 
-.. method:: std::string encrypt(const std::string &data)
+.. method:: std::string encrypt(const std::string &data) const
 
-    Initializes encryption context (algorithm auto-detected). Dynamically calculates output buffer size (avoids fixed length limitation). Executes encryption and returns result.
+    Public-key encrypt via the object's ``EVP_PKEY_CTX`` (``EVP_PKEY_encrypt``). For RSA this always uses ``PKCS1_PADDING`` (PKCS#1 v1.5 type 2), matching default ``rsaPublicEncrypt``.
 
 .. method:: std::string rsaPublicEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING)
 
-    Encrypt with an RSA public key (``EVP_PKEY_encrypt``). ``PKCS1_PADDING`` has the best compatibility (default); ``PKCS1_OAEP_PADDING`` is preferred for new protocols; ``NO_PADDING`` requires manual padding.
+    Encrypt with an RSA public key (``EVP_PKEY_encrypt``), reusing the object's ``EVP_PKEY_CTX``. ``PKCS1_PADDING`` has the best compatibility (default); ``PKCS1_OAEP_PADDING`` is preferred for new protocols; ``NO_PADDING`` requires manual padding.
 
 .. method:: std::string rsaPublicDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING)
 
-    Raw public-key decrypt/recover (``EVP_PKEY_verify_recover``), matching ``rsaPrivateEncrypt`` on the private side. Supports ``PKCS1_PADDING`` (default) and ``NO_PADDING``.
+    Raw public-key decrypt/recover (``EVP_PKEY_verify_recover``), reusing the object's ``EVP_PKEY_CTX``. Equivalent to legacy ``RSA_public_decrypt`` and matching ``rsaPrivateEncrypt`` on the private side. ``PKCS1_PADDING`` is PKCS#1 v1.5 **type 1** (signature block ``00 01 FF..00``), not encryption type 2; ``signature_md`` is not set, so DigestInfo is neither wrapped nor stripped. Supports ``PKCS1_PADDING`` (default) and ``NO_PADDING``.
 
 .. method:: bool verify(const std::string &data, const std::string &hash, MessageDigest::Algorithm hashAlgo)
 
@@ -2739,17 +2766,17 @@ Encapsulates private key operations including key generation, signing, decryptio
 
     Signs data using private key.
 
-.. method:: std::string decrypt(const std::string &data)
+.. method:: std::string decrypt(const std::string &data) const
 
-    Decrypts data using private key. Initializes decryption context: EVP_PKEY_decrypt_init. Calculates decrypted length: Calls EVP_PKEY_decrypt twice (first to get length, second to decrypt data). Returns decrypted result: Resizes std::string and fills data.
+    Decrypts with the private key (``EVP_PKEY_decrypt``). For RSA this always uses ``PKCS1_PADDING``, matching ``encrypt()``.
 
-.. method:: rsaPrivateEncrypt
+.. method:: std::string rsaPrivateEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
 
-    Raw private-key encrypt (``EVP_PKEY_sign`` without digest), matching ``rsaPublicDecrypt`` on the public side. Supports ``PKCS1_PADDING`` (default) and ``NO_PADDING``.
+    Raw private-key encrypt (``EVP_PKEY_sign`` without digest), reusing the object's ``EVP_PKEY_CTX``. Equivalent to legacy ``RSA_private_encrypt`` and matching ``rsaPublicDecrypt`` on the public side. Supports ``PKCS1_PADDING`` (default) and ``NO_PADDING``.
 
-.. method:: rsaPrivateDecrypt
+.. method:: std::string rsaPrivateDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
 
-    Decrypt with an RSA private key (``EVP_PKEY_decrypt``). Supports ``PKCS1_PADDING`` (default), ``PKCS1_OAEP_PADDING``, and ``NO_PADDING``.
+    Decrypt with an RSA private key (``EVP_PKEY_decrypt``), reusing the object's ``EVP_PKEY_CTX``. Supports ``PKCS1_PADDING`` (default), ``PKCS1_OAEP_PADDING``, and ``NO_PADDING``.
 
 .. method:: static PrivateKey generate(Algorithm algo, int bits)
 
@@ -3026,40 +3053,75 @@ Encryption cipher suite used in SSL/TLS connections. Contains detailed informati
 5.6 Noise Protocol
 ^^^^^^^^^^^^^^^^^^
 
-Minimal Noise Protocol Framework support for ``Noise_XX_25519_ChaChaPoly_SHA256``,
-``NoisePSK_XX_25519_ChaChaPoly_SHA256``, and ``Noise_IK_25519_ChaChaPoly_SHA256``
-(header ``qtng/noise.h``).
+Minimal Noise Protocol Framework support for ``XX`` / ``PSK_XX`` / ``IK``, with AEAD
+``ChaCha20-Poly1305`` (default, protocol names ``*_25519_ChaChaPoly_SHA256``) or
+``AES-256-GCM`` (``*_25519_AESGCM_SHA256``; header ``qtng/noise.h``, implemented via ``Aead``).
 
 * ``NoiseKey`` — X25519 keypair generation, private-key import, and DH.
-* ``NoiseCipherState`` — ChaCha20-Poly1305 AEAD with a Noise-style 12-byte nonce
-  (4 zero bytes + 8-byte little-endian counter), plus a 64-bit sliding-window
-  anti-replay helper (``acceptIncomingNonce``). The overload
-  ``decryptWithAd(ad, ciphertext, nonce)`` is intended for multipath / reordered
-  delivery: the nonce window is committed only after AEAD authentication succeeds,
-  so forged or handshake-retransmit blobs cannot permanently poison the window.
-  ``rekey()`` replaces the key per the Noise specification without resetting the nonce.
+* ``NoiseCipherState`` — AEAD via ``Aead`` (``ChaCha20Poly1305`` or ``Aes256Gcm``) with a
+  Noise-style 12-byte nonce (4 zero bytes + 8-byte counter: little-endian for ChaChaPoly,
+  big-endian for AESGCM). After ``split()``, send and recv each keep a separate counter.
+  ``encryptWithAd`` always takes the counter and increments on success (no explicit-nonce
+  encrypt overload); ``outNonce`` returns the value for on-wire headers (``NoiseDatagram`` /
+  WireGuard-style UDP: sender monotonic, counter in packet). Sequential two-arg
+  ``decryptWithAd`` uses and increments the counter (handshake / ``NoiseSocket``). The
+  overload ``decryptWithAd(ad, ciphertext, nonce)`` opens with a caller-supplied packet
+  nonce and does **not** advance that counter (UDP receive / reordering); replay filtering
+  is not done here. Transport nonces are ``0 .. MaxNonce``
+  (``2^64-2``); ``EncryptWithAd`` / ``DecryptWithAd`` fail once ``n`` exceeds
+  ``MaxNonce``. ``setNonce(n)`` accepts only ``n <= MaxNonce``; larger values are
+  ignored with a warning. ``2^64-1`` is reserved for ``rekey()``
+  (``ENCRYPT(k, 2^64-1, zerolen, zeros)``) and is never used as a transport nonce.
+  ``rekey()`` replaces the key without resetting the nonce.
 * ``NoiseHandshakeState`` — XX / PSK_XX / IK handshake state machine;
-  ``initialize()`` accepts a prologue (always ``MixHash``'d, including empty);
-  PSK uses ``MixKeyAndHash`` as psk0; call ``split()`` after completion to obtain
+  ``initialize()`` accepts a prologue (always ``MixHash``'d, including empty) and
+  ``Aead::Algorithm`` (default ChaCha20-Poly1305; only 32-byte-key ``ChaCha20Poly1305`` /
+  ``Aes256Gcm`` are accepted, AES-128-GCM is rejected); PSK uses ``MixKeyAndHash`` as psk0;
+  call ``split()`` after completion to obtain
   transport send/recv cipher states; ``handshakeHash()`` is available for channel
   binding. IK initiators must supply the remote static public key; if an expected
   remote static was provided and the decrypted key differs, the handshake fails.
-* ``NoiseStream`` — runs the handshake over a ``SocketLike`` and carries AEAD
-  ciphertext in 2-byte big-endian length-prefixed frames; ``sendMessage`` /
-  ``recvMessage`` are message-oriented, while ``sendall`` / ``recv`` provide
-  stream-style access over the current frame.
-* ``noiseHkdf`` / ``noiseHmacSha256`` — HKDF-SHA256 and HMAC-SHA256 helpers for
-  cookie MACs and similar uses.
+* ``NoiseDatagram`` — the same handshake and transport as a codec: the caller
+  owns the socket (UDP or otherwise) and passes packet bytes in and out.
+  ``writeHandshake`` / ``readHandshake`` consume and produce Noise handshake
+  messages; after completion, ``encrypt`` / ``decrypt`` use
+  ``[8-byte big-endian nonce][ciphertext||tag]``. The receiver uses the packet
+  nonce for AEAD (packets may arrive reordered), then a WireGuard / RFC 6479
+  8192-bit sliding window rejects replays and nonces that have slid out of the
+  window. Unauthenticated packets do not update the window. Send and receive
+  stop at WireGuard's ``REJECT_AFTER_MESSAGES`` (``2^64 - 8129``).
+  This class does not call ``Socket``, ``DatagramLink``, or any other I/O type.
+  The session is not copyable: a copy would duplicate nonce counters and reuse the
+  keystream. It is movable so a completed handshake can be handed to another object.
+* ``NoiseSocket`` — analogous to ``SslSocket``: Noise over a reliable stream
+  (TCP, ...). Handshake uses ``NoiseHandshakeState``; transport uses sequential
+  ``NoiseCipherState`` (implicit incrementing nonce, no on-wire nonce or replay
+  window). Each Noise message is length-prefixed on the backend (2-byte
+  big-endian length + ``ciphertext||tag`` for transport, raw handshake bytes
+  for handshake). ``send`` / ``sendall`` / ``recv`` / ``recvall`` are the
+  byte-stream API. It is not a ``SocketLike``; wrap with ``asSocketLike()`` when
+  one is required.
 
 .. code-block:: c++
 
     NoiseKey alice = NoiseKey::generate();
     NoiseKey bob = NoiseKey::generate();
-    auto client = make_shared<NoiseStream>(asSocketLike(tcpClient));
-    auto server = make_shared<NoiseStream>(asSocketLike(tcpServer));
+    auto client = make_shared<NoiseSocket>(asSocketLike(tcpClient));
+    auto server = make_shared<NoiseSocket>(asSocketLike(tcpServer));
     client->initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
     server->initialize(NoisePattern::XX, NoiseRole::Responder, bob);
-    // call handshake() on both sides, then sendMessage / recvMessage
+    // call handshake() on both sides, then sendall / recv
+    // wrap with asSocketLike(client) when a SocketLike is required
+
+    NoiseDatagram udpClient;
+    NoiseDatagram udpServer;
+    udpClient.initialize(NoisePattern::XX, NoiseRole::Initiator, alice);
+    udpServer.initialize(NoisePattern::XX, NoiseRole::Responder, bob);
+    udpClient.writeHandshake("hello", &packet);
+    udpSocket.sendto(packet, peerAddr, peerPort);  // caller owns I/O
+    packet = udpSocket.recvfrom(65535, &from, &fromPort);
+    udpServer.readHandshake(packet, &payload);
+    // after handshake: sendto(udpClient.encrypt(plain), ...)
 
 5.7 AEAD and HKDF helpers
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -3068,7 +3130,8 @@ Header ``qtng/aead.h`` provides reusable primitives used by QUIC (and available 
 applications):
 
 * ``Aead`` — AES-128-GCM, AES-256-GCM, and ChaCha20-Poly1305 seal/open with AAD;
-  ciphertext layout is ``ciphertext || tag``.
+  ciphertext layout is ``ciphertext || tag``. ``NoiseCipherState`` uses AES-256-GCM
+  and ChaCha20-Poly1305 (Noise requires a 32-byte key, so AES-128-GCM is not used).
 * ``hkdfExtract`` / ``hkdfExpand`` / ``hkdf`` — RFC 5869 HKDF.
 * ``hkdfExpandLabel`` — TLS 1.3 / QUIC ``HKDF-Expand-Label`` (``tls13 `` prefix).
 * ``aesEcbEncryptBlock`` — single-block AES-ECB for QUIC header-protection masks.
