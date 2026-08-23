@@ -27,7 +27,6 @@ public:
     static void msleep(quint32 msecs);
     static void sleep(float secs) { msleep(static_cast<quint32>(secs * 1000)); }
     static Coroutine *spawn(std::function<void()> f);
-    static void preferLibev();
 protected:
     virtual void cleanup() override;
 private:
@@ -60,6 +59,22 @@ private:
 
 // useful for qt application.
 int startQtLoop();
+
+// Event loop backends. The built-in values are fixed: Ev=1, Qt=2. Third-party backends
+// (io_uring, gtk, kqueue, ...) register under values >= 100 via qtng_core::registerEventLoop().
+enum class EventLoopType {
+    Ev = 1,
+    Qt = 2,
+};
+
+// Select the event loop backend created on each thread. Call once at the very beginning of
+// main(), before any coroutine/network API is used; replaces qtnetworkng 1.0's preferLibev().
+// Without an explicit call the default backend is used (Qt on the GUI thread, libev/Win elsewhere).
+void useEventloop(EventLoopType type);
+
+// Select the Qt event loop backend explicitly (equivalent to useEventloop(EventLoopType::Qt)).
+// Call at the very beginning of main(), before any coroutine/network API is used.
+void useQtEventloop();
 
 QTNETWORKNG_NAMESPACE_END
 

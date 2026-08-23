@@ -17,6 +17,14 @@ Qt5/Qt6 可选兼容层
 * **PUBLIC**：``qt/include`` 与 Qt5/6::Core
 * **PRIVATE**：``qtng`` 核心（**不会**向消费者传播核心头文件路径）
 
+兼容层支持 **Qt 5.6 及以上**（Qt 5.x 系列）与 Qt 6。
+
+通过 ``add_subdirectory`` 引入时，兼容层会把选定的 Qt 主版本号 ``QTNG_QT_VERSION_MAJOR``
+（值为 ``5`` 或 ``6``）经 ``PARENT_SCOPE`` 导出给父工程；父工程可直接据此选择自己的 Qt 组件，
+无需重复探测::
+
+    find_package(Qt${QTNG_QT_VERSION_MAJOR}Core CONFIG REQUIRED)
+
 最小示例
 --------
 
@@ -43,14 +51,43 @@ Include 隔离验证：``qt/examples/include_isolation/`` 尝试 ``#include <qtn
 Qt 事件循环
 -----------
 
-在 Qt GUI 或 ``QCoreApplication`` 进程中，请在协程/网络 API 之前调用 ``qtng::startQtLoop()``。
-它通过 ``currentLoop()->set()`` 注入 Qt 版 ``EventLoopCoroutine`` 并运行 ``QCoreApplication::exec()``。
+在 GUI 线程（拥有 ``QCoreApplication`` 的线程）上，协程默认使用 **Qt 后端**事件循环：I/O 就绪用
+``QSocketNotifier`` 监视，定时器用 ``QObject::startTimer()``，因此 ``QCoreApplication::exec()`` 驱动
+所有已派生的协程。该设计复刻自 qtnetworkng 1.0，不再在 Qt 事件循环之外单独跑 libev/Win 循环。
 
-若明确要使用 libev/Win 后端而非 Qt 集成，可调用 ``qtng::preferLibev()``。
+Qt 后端事件循环由 binding 注册的工厂在首次使用协程时懒创建，无需先调用
+``startQtLoop()`` 协程即可运行。调用 ``qtng::startQtLoop()`` 在它之上运行
+``QCoreApplication::exec()``::
+
+    int main(int argc, char **argv)
+    {
+        QCoreApplication app(argc, argv);
+        qtng::Coroutine::spawn([]() { /* 协程工作，由 Qt 事件循环驱动 */ });
+        return qtng::startQtLoop();
+    }
+
+若当前 core 循环**不是** Qt 后端——例如协程先在非 GUI 线程被使用（该线程保持默认的
+libev/Win 循环），或调用了 ``useEventloop(EventLoopType::Ev)`` 在 GUI 线程强制 libev——
+``startQtLoop()`` 返回 ``-1``。
+
+选择事件循环后端
+----------------
+
+每个线程创建何种事件循环由 qtng 决定，可用两个公开 API 控制：
+
+* ``qtng::useEventloop(qtng::EventLoopType)`` —— 显式选择后端。在 ``main()`` 的最前面、
+  任何协程/网络 API 之前调用一次。内置类型为 ``EventLoopType::Ev``（1）与
+  ``EventLoopType::Qt``（2）；第三方后端（io_uring、gtk、kqueue 等）经
+  ``qtng_core::registerEventLoop()`` 以 ≥100 的值注册。
+* ``qtng::useQtEventloop()`` —— 等价于 ``useEventloop(EventLoopType::Qt)`` 的简写。
+
+不显式调用时使用默认后端：GUI 线程为 Qt 后端，其余线程为 libev/Win。
+``useEventloop(EventLoopType::Ev)`` 即使在 GUI 线程也强制使用 libev（即旧版
+qtnetworkng 1.0 的 ``preferLibev()``）。
 
 ``waitThread(QThread *)`` 与 ``waitProcess(QProcess *)`` 在协程中等待 Qt 对象结束，而不会阻塞事件循环：
 
-* 若当前事件循环是 Qt 后端（已调用 ``startQtLoop()``），则监视 ``QThread::finished`` / ``QProcess::finished`` 信号，调用方协程在事件上 yield。
+* 若当前事件循环是 Qt 后端，则监视 ``QThread::finished`` / ``QProcess::finished`` 信号，调用方协程在事件上 yield。
 * 否则（libev/Win 后端，或尚未启动 Qt 事件循环），改在工作线程上执行 ``QThread::wait()`` 或 ``waitpid`` / ``WaitForSingleObject``。没有 Qt 事件循环时 ``QProcess`` 状态不会更新，因此不能只连接信号。
 
 Include 隔离

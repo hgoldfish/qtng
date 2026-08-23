@@ -21,6 +21,7 @@ class CoroutineException
 public:
     explicit CoroutineException();
     CoroutineException(CoroutineException &);
+    CoroutineException(CoroutineException &&);
     virtual ~CoroutineException();
     virtual void raise();
     virtual QString what() const;

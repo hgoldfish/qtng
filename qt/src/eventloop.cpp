@@ -3,6 +3,8 @@
 #include <QtCore/qmetaobject.h>
 #include <QtCore/qatomic.h>
 
+#include <string>
+
 #include "bridge/core_access.h"
 #include "eventloop.h"
 #include "private/eventloop_p.h"
@@ -88,13 +90,7 @@ public:
         , trackedCore(coreEl)
     {
         registerQtWrapper(coreEl, this);
-        if (coreEl->isEv()) {
-            setObjectName(QString::fromUtf8("libev_eventloop_coroutine"));
-        } else if (coreEl->isWin()) {
-            setObjectName(QString::fromUtf8("win_eventloop_coroutine"));
-        } else {
-            setObjectName(QString::fromUtf8("qt_eventloop_coroutine"));
-        }
+        setObjectName(QString::fromStdString(coreEl->objectName()));
     }
     ~EventLoopCoroutineWrapper() override
     {
@@ -106,12 +102,6 @@ public:
 private:
     qtng_core::EventLoopCoroutine *trackedCore;
 };
-
-namespace {
-
-QAtomicInteger<int> preferLibevFlag(0);
-
-}  // namespace
 
 // ---- Functors ----
 
@@ -303,6 +293,11 @@ void CurrentLoopStorage::clean()
     }
 }
 
+QSharedPointer<EventLoopCoroutine> wrapCoreLoop(qtng_core::EventLoopCoroutine *core)
+{
+    return QSharedPointer<EventLoopCoroutine>(new EventLoopCoroutineWrapper(core));
+}
+
 ScopedIoWatcher::ScopedIoWatcher(EventLoopCoroutine::EventType event, qintptr fd)
     : event(event)
     , fd(fd)
@@ -326,24 +321,6 @@ ScopedIoWatcher::~ScopedIoWatcher()
         EventLoopCoroutine::get()->removeWatcher(watcherId);
     }
 }
-
-#if QTNETWOKRNG_USE_EV
-EvEventLoopCoroutine::EvEventLoopCoroutine()
-    : EventLoopCoroutine(new ForwardingEventLoopPrivate(this, qtng_core::EventLoopCoroutine::get()))
-{
-    setObjectName(QString::fromUtf8("libev_eventloop_coroutine"));
-}
-#endif
-
-#if QTNETWORKNG_USE_WIN
-WinEventLoopCoroutine::WinEventLoopCoroutine()
-    : EventLoopCoroutine(new ForwardingEventLoopPrivate(this, qtng_core::EventLoopCoroutine::get()))
-{
-    setObjectName(QString::fromUtf8("win_eventloop_coroutine"));
-}
-#endif
-
-// QtEventLoopCoroutine is implemented in eventloop_qt.cpp
 
 // ---- Coroutine ----
 
@@ -417,29 +394,58 @@ void Coroutine::kill(CoroutineException *e, quint32 msecs)
         delete e;
         return;
     }
+    // The core machinery raises the exception inside the coroutine's stack. Qt-side code
+    // (e.g. lafrpc) catches qtng::CoroutineException / CoroutineExitException, so the
+    // exception must be raised with the Qt type. These adapters are qtng_core subclasses so
+    // the core can still classify them (e.g. Initialized-state exit cancels the start), but
+    // raise() re-throws the corresponding Qt type.
+    struct QtExitException : qtng_core::CoroutineExitException
+    {
+        void raise() override
+        {
+            QTNETWORKNG_NAMESPACE::CoroutineExitException qtEx;
+            throw qtEx;
+        }
+    };
+    struct QtTimeoutException : qtng_core::TimeoutException
+    {
+        void raise() override
+        {
+            QTNETWORKNG_NAMESPACE::TimeoutException qtEx;
+            throw qtEx;
+        }
+    };
+    struct QtInterruptedException : qtng_core::CoroutineInterruptedException
+    {
+        void raise() override
+        {
+            QTNETWORKNG_NAMESPACE::CoroutineInterruptedException qtEx;
+            throw qtEx;
+        }
+    };
+    struct Holder : qtng_core::CoroutineException
+    {
+        explicit Holder(QTNETWORKNG_NAMESPACE::CoroutineException *q)
+            : q(q)
+        {
+        }
+        ~Holder() override { delete q; }
+        void raise() override { q->raise(); }
+        std::string what() const override { return toStdString(q->what()); }
+        qtng_core::CoroutineException *clone() const override { return new Holder(q->clone()); }
+        QTNETWORKNG_NAMESPACE::CoroutineException *q;
+    };
     qtng_core::CoroutineException *coreEx = nullptr;
     if (!e || dynamic_cast<CoroutineExitException *>(e)) {
-        coreEx = new qtng_core::CoroutineExitException();
+        coreEx = new QtExitException();
         delete e;
     } else if (dynamic_cast<TimeoutException *>(e)) {
-        coreEx = new qtng_core::TimeoutException();
+        coreEx = new QtTimeoutException();
         delete e;
     } else if (dynamic_cast<CoroutineInterruptedException *>(e)) {
-        coreEx = new qtng_core::CoroutineInterruptedException();
+        coreEx = new QtInterruptedException();
         delete e;
     } else {
-        struct Holder : qtng_core::CoroutineException
-        {
-            explicit Holder(QTNETWORKNG_NAMESPACE::CoroutineException *q)
-                : q(q)
-            {
-            }
-            ~Holder() override { delete q; }
-            void raise() override { q->raise(); }
-            std::string what() const override { return toStdString(q->what()); }
-            qtng_core::CoroutineException *clone() const override { return new Holder(q->clone()); }
-            QTNETWORKNG_NAMESPACE::CoroutineException *q;
-        };
         coreEx = new Holder(e);
     }
     cc->kill(coreEx, msecs);
@@ -490,11 +496,6 @@ Coroutine *Coroutine::spawn(std::function<void()> f)
     Coroutine *c = new Helper(std::move(f));
     c->start();
     return c;
-}
-
-void Coroutine::preferLibev()
-{
-    preferLibevFlag.storeRelease(1);
 }
 
 // ---- Timeout ----

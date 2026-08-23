@@ -2,12 +2,6 @@
 #include "pool.h"
 #include "private/eventloop_p.h"
 
-#ifndef QTNG_NO_EV
-class EvEventLoopCoroutine;
-#endif
-
-class QtEventLoopCoroutine;
-
 using namespace std;
 using namespace QTNETWORKNG_NAMESPACE;
 using namespace qtng_bridge;
@@ -119,7 +113,11 @@ void EvEventLoopThread::createEventLoop()
 
 void QtEventLoopThread::createEventLoop()
 {
-    eventLoop = QSharedPointer<EventLoopCoroutine>(new QtEventLoopCoroutine());
+    // This thread is driven by the Qt event loop backend explicitly (the core factory only hands
+    // out the Qt backend on the GUI thread). Pin the core loop in the core thread-local storage
+    // first (it is the single ownership source), then wrap it for the qt API layer.
+    qtng_core::currentLoop()->set(std::shared_ptr<qtng_core::EventLoopCoroutine>(new qtng_core::QtEventLoopCoroutine()));
+    eventLoop = wrapCoreLoop(qtng_core::currentLoop()->get().get());
     currentLoop()->set(eventLoop);
 }
 

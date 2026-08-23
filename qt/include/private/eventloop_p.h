@@ -3,6 +3,10 @@
 
 #include "../eventloop.h"
 
+namespace qtng_core {
+class EventLoopCoroutine;
+}
+
 QTNETWORKNG_NAMESPACE_BEGIN
 
 class Functor
@@ -82,9 +86,6 @@ public:
     int exitCode();
     bool runUntil(BaseCoroutine *coroutine);
     bool yield();
-    bool isQt() const { return objectName() == QString::fromUtf8("qt_eventloop_coroutine"); }
-    bool isEv() const { return objectName() == QString::fromUtf8("libev_eventloop_coroutine"); }
-    bool isWin() const { return objectName() == QString::fromUtf8("win_eventloop_coroutine"); }
 public:
     static EventLoopCoroutine *get();
 protected:
@@ -147,27 +148,8 @@ private:
 
 CurrentLoopStorage *currentLoop();
 
-#if QTNETWOKRNG_USE_EV
-class EvEventLoopCoroutine : public EventLoopCoroutine
-{
-public:
-    EvEventLoopCoroutine();
-};
-#endif
-
-#if QTNETWORKNG_USE_WIN
-class WinEventLoopCoroutine : public EventLoopCoroutine
-{
-public:
-    WinEventLoopCoroutine();
-};
-#endif
-
-class QtEventLoopCoroutine : public EventLoopCoroutine
-{
-public:
-    QtEventLoopCoroutine();
-};
+// internal: create the qt EventLoopCoroutine view wrapping the given core loop.
+QSharedPointer<EventLoopCoroutine> wrapCoreLoop(qtng_core::EventLoopCoroutine *core);
 
 QTNETWORKNG_NAMESPACE_END
 

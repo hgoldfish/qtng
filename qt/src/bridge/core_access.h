@@ -34,6 +34,7 @@
 #include "qtng/socket_server.h"
 #include "qtng/websocket.h"
 #include "qtng/lmdb.h"
+#include "qtng/random.h"
 #include "qtng/gzip.h"
 #include "qtng/private/eventloop_p.h"
 #include "qtng/private/coroutine_p.h"
@@ -44,9 +45,19 @@
 #include "qtng/private/network_interface_p.h"
 #include "qtng/private/kademlia_p.h"
 
+// The Qt-backed core event loop backend. Declared here with the qtng->qtng_core macro active so
+// qt/src translation units can name it (e.g. for dynamic_cast-based backend checks) without
+// re-including core headers later.
+namespace qtng_core {
+class QtEventLoopCoroutine : public EventLoopCoroutine
+{
+public:
+    QtEventLoopCoroutine();
+};
+}  // namespace qtng_core
+
 #ifndef QTNG_NO_CRYPTO
 #  include "qtng/ssl.h"
-#  include "qtng/random.h"
 #  include "qtng/md.h"
 #  include "qtng/cipher.h"
 #  include "qtng/pkey.h"
@@ -109,7 +120,6 @@
 #undef QTNG_UTILS_STRING_UTILS_H
 #undef QTNG_UTILS_THREAD_LOCAL_H
 #undef QTNG_UTILS_SHARED_MUTEX_COMPAT_H
-#undef QTNG_UTILS_RANDOM_H
 #undef QTNG_UTILS_PUNYCODE_H
 #undef QTNG_UTILS_MIME_H
 

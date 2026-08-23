@@ -9,6 +9,13 @@
 #include "qtng/private/coroutine_p.h"
 #include "qtng/utils/logging.h"
 
+#include <cstdlib>
+#include <typeinfo>
+#if defined(__GLIBCXX__)
+#  include <cxxabi.h>
+extern "C" std::type_info *__cxa_current_exception_type();
+#endif
+
 using namespace std;
 
 NG_LOGGER("qtng.fcontext");
@@ -74,7 +81,17 @@ extern "C" void run_stub(intptr_t data)
         coroutine->state = BaseCoroutine::Stopped;
         coroutine->q_ptr->finished.callback(coroutine->q_ptr);
     } catch (...) {
-        ngWarning() << "coroutine throw a unhandled exception.";
+        const char *tname = __cxa_current_exception_type() ? __cxa_current_exception_type()->name() : "unknown";
+        const std::string &coroutineName = coroutine->q_ptr->objectName();
+#if defined(__GLIBCXX__)
+        int status = 0;
+        char *demangled = abi::__cxa_demangle(tname, nullptr, nullptr, &status);
+        ngWarning() << "coroutine throw a unhandled exception:" << (demangled ? demangled : tname)
+                    << "coroutine:" << coroutineName;
+        free(demangled);
+#else
+        ngWarning() << "coroutine throw a unhandled exception:" << tname << "coroutine:" << coroutineName;
+#endif
         coroutine->state = BaseCoroutine::Stopped;
         coroutine->q_ptr->finished.callback(coroutine->q_ptr);
         //        throw; // cause undefined behaviors

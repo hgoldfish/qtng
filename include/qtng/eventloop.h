@@ -57,6 +57,33 @@ private:
     int timeoutId;
 };
 
+class EventLoopCoroutine;
+
+// Event loop backends. The built-in values are fixed: Ev=1, Qt=2. Third-party backends
+// (io_uring, gtk, kqueue, ...) register under values >= 100 via registerEventLoop().
+enum class EventLoopType {
+    Ev = 1,
+    Qt = 2,
+    Gtk = 3,
+    IOUring = 4,
+    IOCP = 5,
+    UserDefined = 100,
+};
+
+// A factory that creates the thread's event loop for a registered backend. Returning nullptr
+// falls back to the default libev/Win backend.
+using EventLoopFactory = std::function<std::shared_ptr<EventLoopCoroutine>()>;
+
+// Select the event loop backend created on each thread. Call once at the very beginning of
+// main(), before any coroutine/network API is used; replaces qtnetworkng 1.0's preferLibev().
+// Without an explicit call the default backend is used (Qt on the GUI thread when the qt
+// binding is linked, libev/Win elsewhere).
+void useEventloop(EventLoopType type);
+
+// Register a factory for a custom event loop backend (type >= 100). Built-in backends
+// (Ev, Qt) are registered by qtng itself.
+void registerEventLoop(EventLoopType type, EventLoopFactory factory);
+
 }  // namespace qtng
 
 #endif  // QTNG_EVENTLOOP_H

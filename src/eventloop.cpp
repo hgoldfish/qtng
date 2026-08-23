@@ -1,4 +1,6 @@
+#include <atomic>
 #include <cstdint>
+#include <map>
 #include <memory>
 
 #include "qtng/eventloop.h"
@@ -90,7 +92,6 @@ EventLoopCoroutinePrivate::~EventLoopCoroutinePrivate() { }
 EventLoopCoroutine::EventLoopCoroutine(EventLoopCoroutinePrivate *d, size_t stackSize)
     : BaseCoroutine(BaseCoroutine::current(), stackSize)
     , dd_ptr(d)
-    , m_backend(Backend::Ev)
 {
 }
 
@@ -174,27 +175,91 @@ bool EventLoopCoroutine::yield()
     return BaseCoroutine::yield();
 }
 
+namespace {
+
+EventLoopFactory &defaultEventLoopFactoryInstance()
+{
+    // Function-local static: std::function's default constructor is not constexpr in C++11, so a
+    // namespace-scope factory would be dynamically initialized in an unspecified order relative to
+    // the Qt binding's auto-registration. Initializing on first use avoids that ordering trap.
+    static EventLoopFactory factory;
+    return factory;
+}
+
+std::map<int, EventLoopFactory> &eventLoopFactoriesInstance()
+{
+    static std::map<int, EventLoopFactory> factories;
+    return factories;
+}
+
+std::atomic<int> &preferredEventLoopTypeInstance()
+{
+    // 0 == not specified; otherwise a qtng::EventLoopType value.
+    static std::atomic<int> type(0);
+    return type;
+}
+
+}  // namespace
+
+void setEventLoopFactory(EventLoopFactory factory)
+{
+    defaultEventLoopFactoryInstance() = std::move(factory);
+}
+
+void useEventloop(EventLoopType type)
+{
+    preferredEventLoopTypeInstance().store(static_cast<int>(type), std::memory_order_relaxed);
+}
+
+void registerEventLoop(EventLoopType type, EventLoopFactory factory)
+{
+    eventLoopFactoriesInstance()[static_cast<int>(type)] = std::move(factory);
+}
+
 shared_ptr<EventLoopCoroutine> CurrentLoopStorage::getOrCreate()
 {
     shared_ptr<EventLoopCoroutine> eventLoop;
     if (storage.hasLocalData()) {
         eventLoop = storage.localData();
+        if (eventLoop) {
+            return eventLoop;
+        }
     }
-    if (!eventLoop) {
+
+    // An explicit useEventloop() call wins over the default factory: look up the registered
+    // factory for the requested type first (a nullptr result falls back to the default backend,
+    // e.g. when a Qt loop is requested from a non-GUI thread).
+    EventLoopFactory factory;
+    const int preferredType = preferredEventLoopTypeInstance().load(std::memory_order_relaxed);
+    if (preferredType != 0) {
+        const std::map<int, EventLoopFactory> &factories = eventLoopFactoriesInstance();
+        const std::map<int, EventLoopFactory>::const_iterator it = factories.find(preferredType);
+        if (it != factories.end()) {
+            factory = it->second;
+        }
+    } else {
+        factory = defaultEventLoopFactoryInstance();
+    }
+
+    if (factory) {
+        eventLoop = factory();
+        if (eventLoop) {
+            storage.setLocalData(eventLoop);
+            return eventLoop;
+        }
+    }
+
 #if defined(QTNG_USE_EV)
-        eventLoop = make_shared<EvEventLoopCoroutine>();
-        eventLoop->setObjectName("libev_eventloop_coroutine");
-        eventLoop->setBackend(EventLoopCoroutine::Backend::Ev);
-        storage.setLocalData(eventLoop);
+    eventLoop = make_shared<EvEventLoopCoroutine>();
+    eventLoop->setObjectName("libev_eventloop_coroutine");
+    storage.setLocalData(eventLoop);
 #elif defined(QTNG_USE_WIN)
-        eventLoop = make_shared<WinEventLoopCoroutine>();
-        eventLoop->setObjectName("win_eventloop_coroutine");
-        eventLoop->setBackend(EventLoopCoroutine::Backend::Win);
-        storage.setLocalData(eventLoop);
+    eventLoop = make_shared<WinEventLoopCoroutine>();
+    eventLoop->setObjectName("win_eventloop_coroutine");
+    storage.setLocalData(eventLoop);
 #else
 #  error "No event loop backend configured"
 #endif
-    }
     return eventLoop;
 }
 

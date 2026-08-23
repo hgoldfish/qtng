@@ -484,25 +484,6 @@ T ThreadPool::call(std::function<T()> func)
     return *result;
 }
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 7, 0)
-
-namespace detail {
-    class SetEventHelper: public QObject
-    {
-        Q_OBJECT
-    public:
-        SetEventHelper(QSharedPointer<Event> event)
-            : event(event) {}
-    public slots:
-        void set() { event->set(); }
-    private:
-        QSharedPointer<Event> event;
-    };
-}
-
-#endif
-
-
 QTNETWORKNG_NAMESPACE_END
 
 #endif  // QTNG_COROUTINE_UTILS_H

@@ -328,6 +328,10 @@ public:
 
     void call(std::function<void()> func);
 
+    // Dispatch asynchronously: returns an Event immediately, set once the task completes; exceptions on
+    // worker threads are only logged, never rethrown to the caller.
+    std::shared_ptr<Event> spawn(const std::function<void()> &func);
+
 private:
     template<typename T, typename Func, typename... ARGS>
     T apply_dispatch(Func func, detail::NormalType, ARGS... args);

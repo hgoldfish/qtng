@@ -65,10 +65,6 @@ public:
         Write = 2,
         ReadWrite = 3,
     };
-    enum class Backend {
-        Ev,
-        Win,
-    };
 public:
     virtual ~EventLoopCoroutine() override;
     virtual void run() override;
@@ -85,10 +81,6 @@ public:
     int exitCode();
     bool runUntil(BaseCoroutine *coroutine);
     bool yield();
-    Backend backend() const { return m_backend; }
-    void setBackend(Backend backend) { m_backend = backend; }
-    bool isEv() const { return m_backend == Backend::Ev; }
-    bool isWin() const { return m_backend == Backend::Win; }
 public:
     static EventLoopCoroutine *get();
 protected:
@@ -98,7 +90,6 @@ protected:
     friend class EventLoopCoroutinePrivate;
 private:
     EventLoopCoroutinePrivate * const dd_ptr;
-    Backend m_backend;
     NG_DECLARE_PRIVATE_D(dd_ptr, EventLoopCoroutine)
 };
 
@@ -152,6 +143,11 @@ private:
 };
 
 CurrentLoopStorage *currentLoop();
+
+// The default factory used when useEventloop() was not called. The Qt binding registers a
+// Qt-backed factory here so the GUI thread gets a Qt event loop automatically (see
+// qt/src/eventloop_qt.cpp). Returning nullptr falls back to the default libev/Win backend.
+void setEventLoopFactory(EventLoopFactory factory);
 
 #if QTNG_USE_EV
 class EvEventLoopCoroutine : public EventLoopCoroutine

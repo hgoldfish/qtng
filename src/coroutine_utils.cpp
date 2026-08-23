@@ -4,6 +4,7 @@
 #include <cassert>
 #include <condition_variable>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -20,6 +21,7 @@
 #endif
 
 #include "qtng/coroutine_utils.h"
+#include "qtng/coroutine.h"
 #include "qtng/private/coroutine_utils_p.h"
 #include "qtng/eventloop.h"
 #include "qtng/utils/logging.h"
@@ -450,11 +452,13 @@ class ThreadPoolWorkItem
 public:
     ThreadPoolWorkItem()
         : done(make_shared<Event>())
+        , error(make_shared<exception_ptr>())
     {
     }
     function<void()> makeResult;
     shared_ptr<Event> done;
     weak_ptr<EventLoopCoroutine> eventloop;
+    shared_ptr<exception_ptr> error;
 };
 
 class ThreadPool::WorkThread : public NgThread
@@ -481,14 +485,18 @@ void ThreadPool::WorkThread::call(function<void()> func)
     ThreadPoolWorkItem item;
     item.makeResult = std::move(func);
     item.eventloop = currentLoop()->get();
-    // Keep a shared_ptr copy: push_back(std::move(item)) empties item.done.
+    // Keep shared_ptr copies: push_back(std::move(item)) empties item fields.
     shared_ptr<Event> done = item.done;
+    shared_ptr<exception_ptr> error = item.error;
     {
         lock_guard<mutex> lock(queueMutex);
         queue.push_back(std::move(item));
     }
     hasWork.notify_all();
     done->tryWait();
+    if (error && *error) {
+        rethrow_exception(*error);
+    }
 }
 
 void ThreadPool::WorkThread::kill()
@@ -517,7 +525,13 @@ void ThreadPool::WorkThread::run()
         if (item.eventloop.expired()) {
             return;
         }
-        item.makeResult();
+        try {
+            item.makeResult();
+        } catch (...) {
+            if (item.error) {
+                *item.error = current_exception();
+            }
+        }
         if (auto loop = item.eventloop.lock()) {
             loop->callLaterThreadSafe(0, new MarkDoneFunctor(item.done));
         }
@@ -577,6 +591,22 @@ void ThreadPool::call(function<void()> func)
         }
         throw;
     }
+}
+
+shared_ptr<Event> ThreadPool::spawn(const function<void()> &func)
+{
+    shared_ptr<Event> done = make_shared<Event>();
+    Coroutine::spawn([this, done, func]() {
+        try {
+            call(func);
+        } catch (const exception &e) {
+            ngWarning() << "thread pool task threw std::exception: " << e.what();
+        } catch (...) {
+            ngWarning() << "thread pool task threw an unknown exception";
+        }
+        done->set();
+    });
+    return done;
 }
 
 }  // namespace qtng

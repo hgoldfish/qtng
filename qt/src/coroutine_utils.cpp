@@ -84,8 +84,11 @@ namespace {
 
 bool qtEventLoopIsRunning()
 {
-    const QSharedPointer<EventLoopCoroutine> loop = currentLoop()->get();
-    return loop && loop->isQt();
+    // The current thread's core loop is Qt-backed if and only if a Qt event loop (the one driven
+    // by startQtLoop()) is scheduling coroutines here. Use the non-creating accessor: this
+    // predicate must not allocate an event loop just to answer "is it running?".
+    const std::shared_ptr<qtng_core::EventLoopCoroutine> core = qtng_core::currentLoop()->get();
+    return core && dynamic_cast<qtng_core::QtEventLoopCoroutine *>(core.get()) != nullptr;
 }
 
 struct DisconnectGuard {
@@ -166,8 +169,10 @@ bool waitProcess(QProcess *process)
         return true;
     }
     QSharedPointer<ThreadEvent> event = QSharedPointer<ThreadEvent>::create();
+    // static_cast disambiguates finished(int, ExitStatus) from finished(int); it works on every Qt the
+    // binding supports, so QOverload (Qt 5.7+) is not needed here.
     DisconnectGuard guard{
-        QObject::connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+        QObject::connect(process, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished),
                          [event](int, QProcess::ExitStatus) { event->set(); }),
         QObject::connect(process, &QProcess::destroyed, [event] { event->set(); }),
     };
@@ -262,6 +267,23 @@ bool CoroutineGroup::killall(bool join)
             coroutine->kill();
         }
         done = true;
+    }
+    if (join) {
+        // kill() only schedules a deferred KillCoroutineFunctor, so we must wait until the coroutine
+        // actually finishes; otherwise the coroutine object may be destroyed before the kill timer fires,
+        // leading to dangling-pointer crashes (e.g. when CoroutineGroup's QSet releases still-running
+        // coroutines on destruction).
+        for (const QSharedPointer<Coroutine> &coroutine : copy) {
+            if (coroutine.data() == Coroutine::current()) {
+                continue;
+            }
+            if (coroutine->isRunning()) {
+                try {
+                    coroutine->join();
+                } catch (CoroutineException &) {
+                }
+            }
+        }
     }
     return done;
 }

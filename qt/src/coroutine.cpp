@@ -2,6 +2,7 @@
 
 #include "bridge/core_access.h"
 #include "coroutine.h"
+#include "eventloop.h"
 #include "private/coroutine_p.h"
 
 using namespace std;
@@ -54,8 +55,28 @@ public:
     ~CoreCoroutineAdapter() override { unregisterQtWrapper(this); }
     void run() override
     {
-        if (wrapper) {
+        if (!wrapper) {
+            return;
+        }
+        // The Qt coroutine body may raise qtng (Qt-side) coroutine exceptions (e.g. from
+        // Coroutine::kill). If the body does not handle them, translate them back into core
+        // exceptions here so the core run_stub can classify them (otherwise the kill path is
+        // reported as an "unhandled exception"). Qt-side code that catches the exception itself
+        // (e.g. lafrpc's handlePacket) never reaches this point.
+        try {
             wrapper->run();
+        } catch (QTNETWORKNG_NAMESPACE::CoroutineExitException &) {
+            qtng_core::CoroutineExitException exitEx;
+            throw exitEx;
+        } catch (QTNETWORKNG_NAMESPACE::TimeoutException &) {
+            qtng_core::TimeoutException timeoutEx;
+            throw timeoutEx;
+        } catch (QTNETWORKNG_NAMESPACE::CoroutineInterruptedException &) {
+            qtng_core::CoroutineInterruptedException interruptedEx;
+            throw interruptedEx;
+        } catch (QTNETWORKNG_NAMESPACE::CoroutineException &) {
+            qtng_core::CoroutineException baseEx;
+            throw baseEx;
         }
     }
     void applyState(qtng_core::BaseCoroutine::State state) { setState(state); }
@@ -67,6 +88,7 @@ public:
 
 CoroutineException::CoroutineException() = default;
 CoroutineException::CoroutineException(CoroutineException &) = default;
+CoroutineException::CoroutineException(CoroutineException &&) = default;
 CoroutineException::~CoroutineException() = default;
 
 void CoroutineException::raise()
