@@ -239,3 +239,19 @@ PublicKey PrivateKeyReader::readPublic(const QString &filePath)
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE
+
+#include "bridge/pkey_access.h"
+
+namespace qtng_bridge {
+
+QTNETWORKNG_NAMESPACE::PrivateKey toQtPrivateKey(const qtng_core::PrivateKey &key)
+{
+    return QTNETWORKNG_NAMESPACE::PublicKeyPrivate::privateFromCore(make_shared<qtng_core::PrivateKey>(key));
+}
+
+const qtng_core::PrivateKey &privateKeyCoreOf(const QTNETWORKNG_NAMESPACE::PrivateKey &key)
+{
+    return QTNETWORKNG_NAMESPACE::PublicKeyPrivate::privateCoreOf(key);
+}
+
+}  // namespace qtng_bridge

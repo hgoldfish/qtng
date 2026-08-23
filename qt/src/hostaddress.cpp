@@ -14,6 +14,14 @@ class HostAddressPrivate : public QSharedData
 {
 public:
     qtng_core::HostAddress core;
+
+    static qtng_core::HostAddress coreOf(const HostAddress &addr) { return addr.d->core; }
+    static HostAddress fromCore(const qtng_core::HostAddress &coreAddr)
+    {
+        HostAddress result;
+        result.d->core = coreAddr;
+        return result;
+    }
 };
 
 HostAddress::HostAddress()
@@ -222,6 +230,20 @@ void freeWinSock() { qtng_core::freeWinSock(); }
 #endif
 
 }  // namespace QTNETWORKNG_NAMESPACE
+
+namespace qtng_bridge {
+
+qtng_core::HostAddress toCoreAddress(const HostAddress &addr)
+{
+    return HostAddressPrivate::coreOf(addr);
+}
+
+HostAddress toQtAddress(const qtng_core::HostAddress &addr)
+{
+    return HostAddressPrivate::fromCore(addr);
+}
+
+}  // namespace qtng_bridge
 
 #ifndef QT_NO_DEBUG_STREAM
 QT_BEGIN_NAMESPACE

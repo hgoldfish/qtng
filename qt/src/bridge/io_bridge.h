@@ -149,9 +149,6 @@ public:
 QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> asSocketLike(QSharedPointer<QTNETWORKNG_NAMESPACE::Socket> s);
 QSharedPointer<QTNETWORKNG_NAMESPACE::Socket> convertSocketLikeToSocket(QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> socket);
 
-qtng_core::HostAddress toCoreHostAddress(const QTNETWORKNG_NAMESPACE::HostAddress &addr);
-QTNETWORKNG_NAMESPACE::HostAddress toQtHostAddress(const qtng_core::HostAddress &addr);
-
 }  // namespace qtng_bridge
 
 #endif  // QTNG_QT_BRIDGE_IO_BRIDGE_H

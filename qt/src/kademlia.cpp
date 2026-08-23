@@ -1,6 +1,7 @@
 #include <cstring>
 
 #include "bridge/core_access.h"
+#include "bridge/hostaddress_access.h"
 #include "kademlia.h"
 
 using namespace std;
@@ -17,51 +18,17 @@ struct NodeIdCoreBridge
 
 namespace {
 
-class SocketPrivate
-{
-public:
-    static qtng_core::HostAddress toCoreAddress(const HostAddress &addr)
-    {
-        if (addr.isNull()) {
-            return qtng_core::HostAddress();
-        }
-        if (addr.protocol() == HostAddress::IPv4Protocol) {
-            return qtng_core::HostAddress(addr.toIPv4Address());
-        }
-        const IPv6Address v6 = addr.toIPv6Address();
-        qtng_core::HostAddress result(v6.c);
-        result.setScopeId(toStdString(addr.scopeId()));
-        return result;
-    }
-
-    static HostAddress toQtAddress(const qtng_core::HostAddress &addr)
-    {
-        if (addr.isNull()) {
-            return HostAddress();
-        }
-        if (addr.protocol() == qtng_core::HostAddress::IPv4Protocol) {
-            return HostAddress(addr.toIPv4Address());
-        }
-        const qtng_core::IPv6Address v6 = addr.toIPv6Address();
-        IPv6Address qv6;
-        memcpy(qv6.c, v6.c, 16);
-        HostAddress result(qv6);
-        result.setScopeId(toQString(addr.scopeId()));
-        return result;
-    }
-};
-
 qtng_core::NodeId toCoreNodeId(const NodeId &id);
 NodeId fromCoreNodeId(const qtng_core::NodeId &id);
 
 qtng_core::DhtEndpoint toCoreEndpoint(const DhtEndpoint &ep)
 {
-    return qtng_core::DhtEndpoint(SocketPrivate::toCoreAddress(ep.address), ep.port);
+    return qtng_core::DhtEndpoint(toCoreAddress(ep.address), ep.port);
 }
 
 DhtEndpoint fromCoreEndpoint(const qtng_core::DhtEndpoint &ep)
 {
-    return DhtEndpoint(SocketPrivate::toQtAddress(ep.address), ep.port);
+    return DhtEndpoint(toQtAddress(ep.address), ep.port);
 }
 
 qtng_core::DhtNodeInfo toCoreNodeInfo(const DhtNodeInfo &info)
@@ -76,12 +43,12 @@ DhtNodeInfo fromCoreNodeInfo(const qtng_core::DhtNodeInfo &info)
 
 qtng_core::DhtPeer toCorePeer(const DhtPeer &peer)
 {
-    return qtng_core::DhtPeer(SocketPrivate::toCoreAddress(peer.address), peer.port);
+    return qtng_core::DhtPeer(toCoreAddress(peer.address), peer.port);
 }
 
 DhtPeer fromCorePeer(const qtng_core::DhtPeer &peer)
 {
-    return DhtPeer(SocketPrivate::toQtAddress(peer.address), peer.port);
+    return DhtPeer(toQtAddress(peer.address), peer.port);
 }
 
 QList<DhtNodeInfo> fromCoreNodeList(const vector<qtng_core::DhtNodeInfo> &nodes)

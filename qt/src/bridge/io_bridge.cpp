@@ -1,5 +1,3 @@
-#include <cstring>
-
 #include "bridge/io_bridge.h"
 #include "bridge/stream_bridge.h"
 #include "bridge/socket_access.h"
@@ -10,40 +8,9 @@ namespace qtng_bridge {
 
 using QTNETWORKNG_NAMESPACE::FileLike;
 using QTNETWORKNG_NAMESPACE::HostAddress;
-using QTNETWORKNG_NAMESPACE::IPv6Address;
 using QTNETWORKNG_NAMESPACE::Socket;
 using QTNETWORKNG_NAMESPACE::SocketLike;
 using QTNETWORKNG_NAMESPACE::SocketDnsCache;
-
-qtng_core::HostAddress toCoreHostAddress(const HostAddress &addr)
-{
-    if (addr.isNull()) {
-        return qtng_core::HostAddress();
-    }
-    if (addr.protocol() == HostAddress::IPv4Protocol) {
-        return qtng_core::HostAddress(addr.toIPv4Address());
-    }
-    const IPv6Address v6 = addr.toIPv6Address();
-    qtng_core::HostAddress result(v6.c);
-    result.setScopeId(toStdString(addr.scopeId()));
-    return result;
-}
-
-HostAddress toQtHostAddress(const qtng_core::HostAddress &addr)
-{
-    if (addr.isNull()) {
-        return HostAddress();
-    }
-    if (addr.protocol() == qtng_core::HostAddress::IPv4Protocol) {
-        return HostAddress(addr.toIPv4Address());
-    }
-    const qtng_core::IPv6Address v6 = addr.toIPv6Address();
-    IPv6Address qv6;
-    memcpy(qv6.c, v6.c, 16);
-    HostAddress result(qv6);
-    result.setScopeId(toQString(addr.scopeId()));
-    return result;
-}
 
 QtSocketLikeAdapter::QtSocketLikeAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> qt)
     : qt(std::move(qt))
@@ -57,9 +24,9 @@ qtng_core::Socket::SocketError QtSocketLikeAdapter::error() const
 
 string QtSocketLikeAdapter::errorString() const { return toStdString(qt->errorString()); }
 bool QtSocketLikeAdapter::isValid() const { return qt->isValid(); }
-qtng_core::HostAddress QtSocketLikeAdapter::localAddress() const { return toCoreHostAddress(qt->localAddress()); }
+qtng_core::HostAddress QtSocketLikeAdapter::localAddress() const { return toCoreAddress(qt->localAddress()); }
 uint16_t QtSocketLikeAdapter::localPort() const { return qt->localPort(); }
-qtng_core::HostAddress QtSocketLikeAdapter::peerAddress() const { return toCoreHostAddress(qt->peerAddress()); }
+qtng_core::HostAddress QtSocketLikeAdapter::peerAddress() const { return toCoreAddress(qt->peerAddress()); }
 string QtSocketLikeAdapter::peerName() const { return toStdString(qt->peerName()); }
 uint16_t QtSocketLikeAdapter::peerPort() const { return qt->peerPort(); }
 intptr_t QtSocketLikeAdapter::fileno() const { return static_cast<intptr_t>(qt->fileno()); }
@@ -90,7 +57,7 @@ shared_ptr<qtng_core::SocketLike> QtSocketLikeAdapter::accept()
 
 bool QtSocketLikeAdapter::bind(const qtng_core::HostAddress &address, uint16_t port, qtng_core::Socket::BindMode mode)
 {
-    return qt->bind(toQtHostAddress(address), port, static_cast<Socket::BindMode>(static_cast<int>(mode)));
+    return qt->bind(toQtAddress(address), port, static_cast<Socket::BindMode>(static_cast<int>(mode)));
 }
 
 bool QtSocketLikeAdapter::bind(uint16_t port, qtng_core::Socket::BindMode mode)
@@ -100,7 +67,7 @@ bool QtSocketLikeAdapter::bind(uint16_t port, qtng_core::Socket::BindMode mode)
 
 bool QtSocketLikeAdapter::connect(const qtng_core::HostAddress &addr, uint16_t port)
 {
-    return qt->connect(toQtHostAddress(addr), port);
+    return qt->connect(toQtAddress(addr), port);
 }
 
 bool QtSocketLikeAdapter::connect(const string &hostName, uint16_t port, shared_ptr<qtng_core::SocketDnsCache> dnsCache)
@@ -142,9 +109,9 @@ Socket::SocketError CoreSocketLikeWrapper::error() const
 }
 QString CoreSocketLikeWrapper::errorString() const { return toQString(core->errorString()); }
 bool CoreSocketLikeWrapper::isValid() const { return core->isValid(); }
-HostAddress CoreSocketLikeWrapper::localAddress() const { return toQtHostAddress(core->localAddress()); }
+HostAddress CoreSocketLikeWrapper::localAddress() const { return toQtAddress(core->localAddress()); }
 quint16 CoreSocketLikeWrapper::localPort() const { return core->localPort(); }
-HostAddress CoreSocketLikeWrapper::peerAddress() const { return toQtHostAddress(core->peerAddress()); }
+HostAddress CoreSocketLikeWrapper::peerAddress() const { return toQtAddress(core->peerAddress()); }
 QString CoreSocketLikeWrapper::peerName() const { return toQString(core->peerName()); }
 quint16 CoreSocketLikeWrapper::peerPort() const { return core->peerPort(); }
 qintptr CoreSocketLikeWrapper::fileno() const { return static_cast<qintptr>(core->fileno()); }
@@ -172,7 +139,7 @@ Socket *CoreSocketLikeWrapper::acceptRaw()
 
 bool CoreSocketLikeWrapper::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
 {
-    return core->bind(toCoreHostAddress(address), port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+    return core->bind(toCoreAddress(address), port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
 }
 bool CoreSocketLikeWrapper::bind(quint16 port, Socket::BindMode mode)
 {
@@ -180,7 +147,7 @@ bool CoreSocketLikeWrapper::bind(quint16 port, Socket::BindMode mode)
 }
 bool CoreSocketLikeWrapper::connect(const HostAddress &addr, quint16 port)
 {
-    return core->connect(toCoreHostAddress(addr), port);
+    return core->connect(toCoreAddress(addr), port);
 }
 bool CoreSocketLikeWrapper::connect(const QString &hostName, quint16 port, QSharedPointer<SocketDnsCache> dnsCache)
 {

@@ -87,6 +87,7 @@ public:
     qint32 sendall(const QByteArray &data);
 
     virtual bool filter(char *data, qint32 *len, HostAddress *addr, quint16 *port);
+    void setFilter(std::function<bool(char *, qint32 *, HostAddress *, quint16 *)> callback);
     qint32 udpSend(const char *data, qint32 size, const HostAddress &addr, quint16 port);
     qint32 udpSend(const QByteArray &packet, const HostAddress &addr, quint16 port)
     {

@@ -112,10 +112,30 @@ void BaseStreamServer::serverClose()
     }
 }
 
+class ServingStateGuard
+{
+public:
+    ServingStateGuard(QSharedPointer<Event> started, QSharedPointer<Event> stopped)
+        : started(started)
+        , stopped(stopped)
+    {
+        this->started->set();
+        this->stopped->clear();
+    }
+    ~ServingStateGuard()
+    {
+        started->clear();
+        stopped->set();
+    }
+
+private:
+    QSharedPointer<Event> started;
+    QSharedPointer<Event> stopped;
+};
+
 void BaseStreamServerPrivate::serveForever()
 {
-    started->set();
-    stopped->clear();
+    ServingStateGuard servingStateGuard(started, stopped);
     while (true) {
         QSharedPointer<SocketLike> request = q_ptr->getRequest();
         if (!request) {
@@ -143,8 +163,6 @@ void BaseStreamServerPrivate::serveForever()
         }
     }
     q_ptr->serverClose();
-    started->clear();
-    stopped->set();
 }
 
 bool BaseStreamServer::serveForever()

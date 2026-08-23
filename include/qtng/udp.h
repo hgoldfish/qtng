@@ -89,6 +89,7 @@ public:
     std::int32_t sendall(const std::string &data);
 
     virtual bool filter(char *data, std::int32_t *len, HostAddress *addr, std::uint16_t *port);
+    void setFilter(std::function<bool(char *, std::int32_t *, HostAddress *, std::uint16_t *)> callback);
     std::int32_t udpSend(const char *data, std::int32_t size, const HostAddress &addr, std::uint16_t port);
     std::int32_t udpSend(const std::string &packet, const HostAddress &addr, std::uint16_t port)
     {

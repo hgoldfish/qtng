@@ -3,6 +3,8 @@
 #include <unordered_set>
 
 #include "bridge/core_access.h"
+#include "bridge/hostaddress_access.h"
+#include "bridge/qt_socket_bridge.h"
 #include "socket.h"
 #include "network_interface.h"
 
@@ -11,56 +13,6 @@ using namespace QTNETWORKNG_NAMESPACE;
 using namespace qtng_bridge;
 
 namespace QTNETWORKNG_NAMESPACE {
-
-namespace {
-
-qtng_core::HostAddress toCoreAddress(const HostAddress &addr)
-{
-    if (addr.isNull()) {
-        return qtng_core::HostAddress();
-    }
-    if (addr.protocol() == HostAddress::IPv4Protocol) {
-        return qtng_core::HostAddress(addr.toIPv4Address());
-    }
-    const IPv6Address v6 = addr.toIPv6Address();
-    qtng_core::HostAddress result(v6.c);
-    result.setScopeId(toStdString(addr.scopeId()));
-    return result;
-}
-
-HostAddress toQtAddress(const qtng_core::HostAddress &addr)
-{
-    if (addr.isNull()) {
-        return HostAddress();
-    }
-    if (addr.protocol() == qtng_core::HostAddress::IPv4Protocol) {
-        return HostAddress(addr.toIPv4Address());
-    }
-    const qtng_core::IPv6Address v6 = addr.toIPv6Address();
-    IPv6Address qv6;
-    memcpy(qv6.c, v6.c, 16);
-    HostAddress result(qv6);
-    result.setScopeId(toQString(addr.scopeId()));
-    return result;
-}
-
-qtng_core::NetworkInterface toCoreInterface(const NetworkInterface &iface)
-{
-    if (!iface.isValid()) {
-        return qtng_core::NetworkInterface();
-    }
-    return qtng_core::NetworkInterface::interfaceFromIndex(iface.index());
-}
-
-NetworkInterface toQtInterface(const qtng_core::NetworkInterface &iface)
-{
-    if (!iface.isValid()) {
-        return NetworkInterface();
-    }
-    return NetworkInterface::interfaceFromIndex(iface.index());
-}
-
-}  // namespace
 
 class SocketPrivate
 {
@@ -554,6 +506,18 @@ std::shared_ptr<qtng_core::SocketDnsCache> dnsCacheCoreOf(QTNETWORKNG_NAMESPACE:
         return std::shared_ptr<qtng_core::SocketDnsCache>();
     }
     return QTNETWORKNG_NAMESPACE::SocketDnsCachePrivate::coreOf(cache);
+}
+
+QSharedPointer<QTNETWORKNG_NAMESPACE::SocketDnsCache>
+dnsCacheFromCore(const std::shared_ptr<qtng_core::SocketDnsCache> &core)
+{
+    if (!core) {
+        return QSharedPointer<QTNETWORKNG_NAMESPACE::SocketDnsCache>();
+    }
+    QSharedPointer<QTNETWORKNG_NAMESPACE::SocketDnsCache> cache =
+            QSharedPointer<QTNETWORKNG_NAMESPACE::SocketDnsCache>::create();
+    QTNETWORKNG_NAMESPACE::SocketDnsCachePrivate::coreOf(cache.data()) = core;
+    return cache;
 }
 
 }  // namespace qtng_bridge

@@ -324,8 +324,14 @@ UserDataType *BaseRequestHandler::userData() const
 }
 
 class Socks5RequestHandlerPrivate;
+class QtSocks5RequestHandlerCoreBridge;
+
 class Socks5RequestHandler : public BaseRequestHandler
 {
+public:
+    Socks5RequestHandler();
+    virtual ~Socks5RequestHandler();
+    friend class QtSocks5RequestHandlerCoreBridge;
 protected:
     virtual void handle() override;
 protected:
@@ -342,6 +348,8 @@ protected:
 private:
     bool handshake();
     bool parseAddress(QString *hostName, HostAddress *addr, quint16 *port);
+protected:
+    QtSocks5RequestHandlerCoreBridge * const coreBridge;
 };
 
 QTNETWORKNG_NAMESPACE_END

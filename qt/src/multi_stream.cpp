@@ -1,7 +1,7 @@
 #include "bridge/core_access.h"
 #include "bridge/socket_access.h"
 #include "bridge/ssl_access.h"
-#include "bridge/qt_socket_bridge.h"
+#include "bridge/stream_bridge.h"
 #include "multi_stream.h"
 #include "udp.h"
 
@@ -252,7 +252,7 @@ quint32 MultiStreamMaster::sendingQueueSize() const
 
 QSharedPointer<SocketLike> MultiStreamMaster::connection() const
 {
-    return fromCoreSocketLike(d_ptr->core->connection());
+    return toQtSocketLike(d_ptr->core->connection());
 }
 
 MultiStreamSlave::MultiStreamSlave(MultiStreamMaster *master, MultiStreamPole pole, quint32 streamNumber,
@@ -400,7 +400,7 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<MultiStreamSlave> slave)
     if (!slave || !slave->d_ptr->core) {
         return QSharedPointer<SocketLike>();
     }
-    return fromCoreSocketLike(qtng_core::asSocketLike(slave->d_ptr->core));
+    return toQtSocketLike(qtng_core::asSocketLike(slave->d_ptr->core));
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

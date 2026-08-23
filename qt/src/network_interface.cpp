@@ -1,6 +1,8 @@
 #include <QtCore/qdebug.h>
 
 #include "bridge/core_access.h"
+#include "bridge/hostaddress_access.h"
+#include "bridge/qt_socket_bridge.h"
 #include "network_interface.h"
 #include "hostaddress.h"
 
@@ -23,42 +25,19 @@ public:
 class NetworkInterfacePrivate : public QSharedData
 {
 public:
+    static NetworkInterface fromCore(const qtng_core::NetworkInterface &iface)
+    {
+        NetworkInterface result;
+        result.d->core = iface;
+        return result;
+    }
+
+    static qtng_core::NetworkInterface coreOf(const NetworkInterface &iface) { return iface.d->core; }
+
     qtng_core::NetworkInterface core;
 };
 
 namespace {
-
-qtng_core::HostAddress toCoreAddress(const HostAddress &addr)
-{
-    if (addr.isNull()) {
-        return qtng_core::HostAddress();
-    }
-    if (addr.protocol() == HostAddress::IPv4Protocol) {
-        return qtng_core::HostAddress(addr.toIPv4Address());
-    }
-    const IPv6Address v6 = addr.toIPv6Address();
-    qtng_core::HostAddress result(v6.c);
-    result.setScopeId(toStdString(addr.scopeId()));
-    return result;
-}
-
-HostAddress toQtAddress(const qtng_core::HostAddress &addr)
-{
-    if (addr.isNull()) {
-        return HostAddress();
-    }
-    if (addr.protocol() == qtng_core::HostAddress::IPv4Protocol) {
-        return HostAddress(addr.toIPv4Address());
-    }
-    const qtng_core::IPv6Address v6 = addr.toIPv6Address();
-    IPv6Address qv6;
-    for (int i = 0; i < 16; ++i) {
-        qv6.c[i] = v6.c[i];
-    }
-    HostAddress result(qv6);
-    result.setScopeId(toQString(addr.scopeId()));
-    return result;
-}
 
 NetworkAddressEntry toQtNetworkAddressEntry(const qtng_core::NetworkAddressEntry &entry)
 {
@@ -75,14 +54,6 @@ NetworkAddressEntry toQtNetworkAddressEntry(const qtng_core::NetworkAddressEntry
     }
 #endif
     return result;
-}
-
-NetworkInterface toQtNetworkInterface(const qtng_core::NetworkInterface &iface)
-{
-    if (!iface.isValid()) {
-        return NetworkInterface();
-    }
-    return NetworkInterface::interfaceFromName(toQString(iface.name()));
 }
 
 }  // namespace
@@ -273,12 +244,12 @@ int NetworkInterface::interfaceIndexFromName(const QString &name)
 
 NetworkInterface NetworkInterface::interfaceFromName(const QString &name)
 {
-    return toQtNetworkInterface(qtng_core::NetworkInterface::interfaceFromName(toStdString(name)));
+    return toQtInterface(qtng_core::NetworkInterface::interfaceFromName(toStdString(name)));
 }
 
 NetworkInterface NetworkInterface::interfaceFromIndex(int index)
 {
-    return toQtNetworkInterface(qtng_core::NetworkInterface::interfaceFromIndex(index));
+    return toQtInterface(qtng_core::NetworkInterface::interfaceFromIndex(index));
 }
 
 QString NetworkInterface::interfaceNameFromIndex(int index)
@@ -291,7 +262,7 @@ QList<NetworkInterface> NetworkInterface::allInterfaces()
     const vector<qtng_core::NetworkInterface> ifaces = qtng_core::NetworkInterface::allInterfaces();
     QList<NetworkInterface> result;
     for (const qtng_core::NetworkInterface &iface : ifaces) {
-        result.append(toQtNetworkInterface(iface));
+        result.append(toQtInterface(iface));
     }
     return result;
 }
@@ -332,3 +303,17 @@ QDebug operator<<(QDebug debug, const NetworkInterface &networkInterface)
 #endif
 
 }  // namespace QTNETWORKNG_NAMESPACE
+
+namespace qtng_bridge {
+
+qtng_core::NetworkInterface toCoreInterface(const QTNETWORKNG_NAMESPACE::NetworkInterface &iface)
+{
+    return QTNETWORKNG_NAMESPACE::NetworkInterfacePrivate::coreOf(iface);
+}
+
+QTNETWORKNG_NAMESPACE::NetworkInterface toQtInterface(const qtng_core::NetworkInterface &iface)
+{
+    return QTNETWORKNG_NAMESPACE::NetworkInterfacePrivate::fromCore(iface);
+}
+
+}  // namespace qtng_bridge

@@ -125,6 +125,7 @@ public:
     static QList<HostAddress> allAddresses();
 private:
     friend class QNetworkInterfacePrivate;
+    friend class NetworkInterfacePrivate;
     QSharedDataPointer<NetworkInterfacePrivate> d;
 };
 

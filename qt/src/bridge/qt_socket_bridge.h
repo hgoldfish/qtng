@@ -6,23 +6,11 @@
 
 namespace qtng_bridge {
 
-inline qtng_core::NetworkInterface toCoreInterface(const QTNETWORKNG_NAMESPACE::NetworkInterface &iface)
-{
-    if (!iface.isValid()) {
-        return qtng_core::NetworkInterface();
-    }
-    return qtng_core::NetworkInterface::interfaceFromIndex(iface.index());
-}
+// Implemented in qt/src/network_interface.cpp, where the binding NetworkInterface keeps the
+// core instance directly, so conversion is a shallow copy.
 
-inline QTNETWORKNG_NAMESPACE::NetworkInterface toQtInterface(const qtng_core::NetworkInterface &iface)
-{
-    if (!iface.isValid()) {
-        return QTNETWORKNG_NAMESPACE::NetworkInterface();
-    }
-    return QTNETWORKNG_NAMESPACE::NetworkInterface::interfaceFromIndex(iface.index());
-}
-
-QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> fromCoreSocketLike(const std::shared_ptr<qtng_core::SocketLike> &socket);
+qtng_core::NetworkInterface toCoreInterface(const QTNETWORKNG_NAMESPACE::NetworkInterface &iface);
+QTNETWORKNG_NAMESPACE::NetworkInterface toQtInterface(const qtng_core::NetworkInterface &iface);
 
 }  // namespace qtng_bridge
 

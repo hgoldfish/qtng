@@ -25,6 +25,18 @@ class DataChannelPrivate
 {
 public:
     shared_ptr<qtng_core::DataChannel> core;
+
+    // Wrap a core VirtualChannel (returned by makeChannel/takeChannel) into a Qt
+    // VirtualChannel wrapper. The wrapper holds the core channel in d_ptr->core.
+    static QSharedPointer<VirtualChannel> wrapVirtualChannel(shared_ptr<qtng_core::VirtualChannel> coreChannel)
+    {
+        if (!coreChannel) {
+            return QSharedPointer<VirtualChannel>();
+        }
+        QSharedPointer<VirtualChannel> channel(new VirtualChannel(nullptr, PositivePole, 0));
+        ::qtng_bridge::DataChannelPrivateBridge::priv(channel.data())->core = coreChannel;
+        return channel;
+    }
 };
 
 static shared_ptr<qtng_core::DataChannel> &coreOf(DataChannel *channel)
@@ -153,18 +165,17 @@ void DataChannel::abort()
 
 QSharedPointer<VirtualChannel> DataChannel::makeChannel()
 {
-    return QSharedPointer<VirtualChannel>();
+    return DataChannelPrivate::wrapVirtualChannel(coreOf(this)->makeChannel());
 }
 
 QSharedPointer<VirtualChannel> DataChannel::takeChannel()
 {
-    return QSharedPointer<VirtualChannel>();
+    return DataChannelPrivate::wrapVirtualChannel(coreOf(this)->takeChannel());
 }
 
 QSharedPointer<VirtualChannel> DataChannel::takeChannel(quint32 channelNumber)
 {
-    Q_UNUSED(channelNumber);
-    return QSharedPointer<VirtualChannel>();
+    return DataChannelPrivate::wrapVirtualChannel(coreOf(this)->takeChannel(channelNumber));
 }
 
 class SocketChannelPrivate : public DataChannelPrivate

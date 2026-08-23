@@ -6,43 +6,12 @@
 #include <QtCore/qdatetime.h>
 
 #include "bridge/core_access.h"
+#include "bridge/hostaddress_access.h"
 #include "hostaddress.h"
 #include "socket_utils.h"
 #include "io_utils.h"
 
 namespace qtng_bridge {
-
-inline qtng_core::HostAddress toCoreAddress(const QTNETWORKNG_NAMESPACE::HostAddress &addr)
-{
-    if (addr.isNull()) {
-        return qtng_core::HostAddress();
-    }
-    if (addr.protocol() == QTNETWORKNG_NAMESPACE::HostAddress::IPv4Protocol) {
-        return qtng_core::HostAddress(addr.toIPv4Address());
-    }
-    const QTNETWORKNG_NAMESPACE::IPv6Address v6 = addr.toIPv6Address();
-    qtng_core::HostAddress result(v6.c);
-    result.setScopeId(toStdString(addr.scopeId()));
-    return result;
-}
-
-inline QTNETWORKNG_NAMESPACE::HostAddress toQtAddress(const qtng_core::HostAddress &addr)
-{
-    if (addr.isNull()) {
-        return QTNETWORKNG_NAMESPACE::HostAddress();
-    }
-    if (addr.protocol() == qtng_core::HostAddress::IPv4Protocol) {
-        return QTNETWORKNG_NAMESPACE::HostAddress(addr.toIPv4Address());
-    }
-    const qtng_core::IPv6Address v6 = addr.toIPv6Address();
-    QTNETWORKNG_NAMESPACE::IPv6Address qv6;
-    for (int i = 0; i < 16; ++i) {
-        qv6.c[i] = v6.c[i];
-    }
-    QTNETWORKNG_NAMESPACE::HostAddress result(qv6);
-    result.setScopeId(toQString(addr.scopeId()));
-    return result;
-}
 
 class CoreSocketLikeAdapter;
 class QtBackedCoreSocketLike;

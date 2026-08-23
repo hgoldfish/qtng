@@ -210,8 +210,11 @@ std::shared_ptr<qtng_core::SocketLike> toCoreSocketLike(const QSharedPointer<QTN
         return special;
     }
     if (QSharedPointer<QTNETWORKNG_NAMESPACE::Socket> asSocket =
-                ::qtng_bridge::convertSocketLikeToSocket(socket)) {
-        return qtng_core::asSocketLike(::qtng_bridge::socketCoreOf(asSocket.data()));
+                qSharedPointerDynamicCast<QTNETWORKNG_NAMESPACE::Socket>(socket)) {
+        std::shared_ptr<qtng_core::Socket> coreSocket = ::qtng_bridge::socketCoreOf(asSocket.data());
+        if (coreSocket) {
+            return qtng_core::asSocketLike(coreSocket);
+        }
     }
     return std::make_shared<QtBackedCoreSocketLike>(socket);
 }

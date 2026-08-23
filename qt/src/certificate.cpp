@@ -1,7 +1,9 @@
 #include <QtCore/qdatetime.h>
 #include <QtCore/qsharedpointer.h>
+#include "bridge/cert_access.h"
 #include "bridge/core_access.h"
 #include "bridge/io_bridge.h"
+#include "bridge/stream_bridge.h"
 #include "certificate.h"
 #include "pkey.h"
 
@@ -15,6 +17,18 @@ class CertificatePrivate : public QSharedData
 {
 public:
     qtng_core::Certificate core;
+
+    static Certificate fromCore(const qtng_core::Certificate &cert)
+    {
+        Certificate result;
+        result.d->core = cert;
+        return result;
+    }
+
+    static const qtng_core::Certificate &coreOf(const Certificate &cert)
+    {
+        return cert.d->core;
+    }
 };
 
 Certificate::Certificate() : d(new CertificatePrivate) {}
@@ -30,8 +44,8 @@ QByteArray Certificate::digest(MessageDigest::Algorithm algorithm) const
 {
     return toQByteArray(d->core.digest(static_cast<qtng_core::MessageDigest::Algorithm>(algorithm)));
 }
-QDateTime Certificate::effectiveDate() const { return QDateTime::fromSecsSinceEpoch(d->core.effectiveDate().toSecsSinceEpoch()); }
-QDateTime Certificate::expiryDate() const { return QDateTime::fromSecsSinceEpoch(d->core.expiryDate().toSecsSinceEpoch()); }
+QDateTime Certificate::effectiveDate() const { return toQDateTime(d->core.effectiveDate()); }
+QDateTime Certificate::expiryDate() const { return toQDateTime(d->core.expiryDate()); }
 PublicKey Certificate::publicKey() const
 {
     const qtng_core::PublicKey pk = d->core.publicKey();
@@ -50,4 +64,23 @@ QByteArray Certificate::save(Ssl::EncodingFormat format) const
     return toQByteArray(d->core.save(static_cast<qtng_core::Ssl::EncodingFormat>(format)));
 }
 
+uint qHash(const Certificate &key, uint seed)
+{
+    return qHash(key.digest(), seed);
+}
+
 }  // namespace QTNETWORKNG_NAMESPACE
+
+namespace qtng_bridge {
+
+QTNETWORKNG_NAMESPACE::Certificate toQtCertificate(const qtng_core::Certificate &cert)
+{
+    return QTNETWORKNG_NAMESPACE::CertificatePrivate::fromCore(cert);
+}
+
+const qtng_core::Certificate &certificateCoreOf(const QTNETWORKNG_NAMESPACE::Certificate &cert)
+{
+    return QTNETWORKNG_NAMESPACE::CertificatePrivate::coreOf(cert);
+}
+
+}  // namespace qtng_bridge

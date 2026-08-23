@@ -54,8 +54,8 @@ public:
         if (!qt) {
             return false;
         }
-        HostAddress qtAddr;
-        quint16 qtPort = 0;
+        HostAddress qtAddr = addr ? toQtAddress(*addr) : HostAddress();
+        quint16 qtPort = port ? *port : 0;
         const bool ok = qt->filter(data, len, &qtAddr, &qtPort);
         if (addr) {
             *addr = toCoreAddress(qtAddr);
@@ -95,8 +95,8 @@ public:
         if (!qt) {
             return false;
         }
-        HostAddress qtAddr;
-        quint16 qtPort = 0;
+        HostAddress qtAddr = addr ? toQtAddress(*addr) : HostAddress();
+        quint16 qtPort = port ? *port : 0;
         const bool ok = qt->filter(data, len, &qtAddr, &qtPort);
         if (addr) {
             *addr = toCoreAddress(qtAddr);
@@ -146,13 +146,26 @@ public:
         return new KcpSocket(adopt(adopted));
     }
 
-    static shared_ptr<qtng_core::KcpSocket> sharedCore(KcpSocket *socket)
+    // Wrap a core socket whose lifetime is owned elsewhere (e.g. shared_ptr held by the
+    // underlying SocketLike). The wrapper must NOT take ownership, or the core gets freed
+    // while the real owner still references it (use-after-free / double free).
+    static KcpSocket *fromShared(qtng_core::KcpSocket *shared)
+    {
+        KcpSocketPrivate *d = new KcpSocketPrivate(shared);
+        d->ownsCore = false;
+        return new KcpSocket(d);
+    }
+
+    // Return a shared_ptr aliasing the core socket while keeping the Qt wrapper alive.
+    // The aliasing shared_ptr captures the QSharedPointer by value (sharing its control
+    // block), otherwise the Qt wrapper is freed as soon as the caller's QSharedPointer
+    // drops out of scope and the core is destroyed under us.
+    static shared_ptr<qtng_core::KcpSocket> sharedCore(QSharedPointer<KcpSocket> socket)
     {
         if (!socket) {
             return shared_ptr<qtng_core::KcpSocket>();
         }
-        QSharedPointer<KcpSocket> holder(socket, [](KcpSocket *) {});
-        return shared_ptr<qtng_core::KcpSocket>(socket->d_ptr->core, [holder](qtng_core::KcpSocket *) {});
+        return shared_ptr<qtng_core::KcpSocket>(socket->d_ptr->core, [socket](qtng_core::KcpSocket *) {});
     }
 
     ~KcpSocketPrivate()
@@ -164,6 +177,7 @@ public:
 
     qtng_core::KcpSocket *core;
     bool ownsCore = true;
+    std::function<bool(char *, qint32 *, HostAddress *, quint16 *)> filterCallback;
 };
 
 KcpSocket::KcpSocket(HostAddress::NetworkLayerProtocol protocol)
@@ -459,11 +473,15 @@ qint32 KcpSocket::sendall(const QByteArray &data)
 
 bool KcpSocket::filter(char *data, qint32 *len, HostAddress *addr, quint16 *port)
 {
-    Q_UNUSED(data);
-    Q_UNUSED(len);
-    Q_UNUSED(addr);
-    Q_UNUSED(port);
+    if (d_ptr->filterCallback) {
+        return d_ptr->filterCallback(data, len, addr, port);
+    }
     return false;
+}
+
+void KcpSocket::setFilter(std::function<bool(char *, qint32 *, HostAddress *, quint16 *)> callback)
+{
+    d_ptr->filterCallback = std::move(callback);
 }
 
 qint32 KcpSocket::udpSend(const char *data, qint32 size, const HostAddress &addr, quint16 port)
@@ -546,13 +564,22 @@ public:
         return new UtpSocket(adopt(adopted));
     }
 
-    static shared_ptr<qtng_core::UtpSocket> sharedCore(UtpSocket *socket)
+    // Non-owning variant for cores whose lifetime is shared (see KcpSocketPrivate::fromShared).
+    static UtpSocket *fromShared(qtng_core::UtpSocket *shared)
+    {
+        UtpSocketPrivate *d = new UtpSocketPrivate(shared);
+        d->ownsCore = false;
+        return new UtpSocket(d);
+    }
+
+    // See KcpSocketPrivate::sharedCore: keep the Qt wrapper alive via the captured
+    // QSharedPointer so the aliased core outlives the caller's local reference.
+    static shared_ptr<qtng_core::UtpSocket> sharedCore(QSharedPointer<UtpSocket> socket)
     {
         if (!socket) {
             return shared_ptr<qtng_core::UtpSocket>();
         }
-        QSharedPointer<UtpSocket> holder(socket, [](UtpSocket *) {});
-        return shared_ptr<qtng_core::UtpSocket>(socket->d_ptr->core, [holder](qtng_core::UtpSocket *) {});
+        return shared_ptr<qtng_core::UtpSocket>(socket->d_ptr->core, [socket](qtng_core::UtpSocket *) {});
     }
 
     ~UtpSocketPrivate()
@@ -812,7 +839,7 @@ public:
     QString peerAddressURI() const override { return toQString(core->peerAddressURI()); }
     QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> accept() override
     {
-        return fromCoreSocketLike(core->accept());
+        return toQtSocketLike(core->accept());
     }
     QTNETWORKNG_NAMESPACE::Socket *acceptRaw() override { return nullptr; }
     bool bind(const QTNETWORKNG_NAMESPACE::HostAddress &address, quint16 port,
@@ -947,21 +974,13 @@ std::shared_ptr<qtng_core::SocketLike> kcpOrUtpToCoreSocketLike(
 {
     if (QSharedPointer<QTNETWORKNG_NAMESPACE::KcpSocket> kcp =
                 socket.dynamicCast<QTNETWORKNG_NAMESPACE::KcpSocket>()) {
-        return qtng_core::asSocketLike(QTNETWORKNG_NAMESPACE::KcpSocketPrivate::sharedCore(kcp.data()));
+        return qtng_core::asSocketLike(QTNETWORKNG_NAMESPACE::KcpSocketPrivate::sharedCore(kcp));
     }
     if (QSharedPointer<QTNETWORKNG_NAMESPACE::UtpSocket> utp =
                 socket.dynamicCast<QTNETWORKNG_NAMESPACE::UtpSocket>()) {
-        return qtng_core::asSocketLike(QTNETWORKNG_NAMESPACE::UtpSocketPrivate::sharedCore(utp.data()));
+        return qtng_core::asSocketLike(QTNETWORKNG_NAMESPACE::UtpSocketPrivate::sharedCore(utp));
     }
     return std::shared_ptr<qtng_core::SocketLike>();
-}
-
-QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> fromCoreSocketLike(const std::shared_ptr<qtng_core::SocketLike> &socket)
-{
-    if (!socket) {
-        return QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike>();
-    }
-    return QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike>(new CoreSocketLikeAdapter(socket));
 }
 
 }  // namespace qtng_bridge
@@ -973,7 +992,7 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<KcpSocket> s)
     if (!s) {
         return QSharedPointer<SocketLike>();
     }
-    return ::qtng_bridge::fromCoreSocketLike(qtng_core::asSocketLike(KcpSocketPrivate::sharedCore(s.data())));
+    return ::qtng_bridge::toQtSocketLike(qtng_core::asSocketLike(KcpSocketPrivate::sharedCore(s)));
 }
 
 QSharedPointer<KcpSocket> convertSocketLikeToKcpSocket(QSharedPointer<SocketLike> socket)
@@ -983,7 +1002,7 @@ QSharedPointer<KcpSocket> convertSocketLikeToKcpSocket(QSharedPointer<SocketLike
     if (!core) {
         return QSharedPointer<KcpSocket>();
     }
-    return QSharedPointer<KcpSocket>(KcpSocketPrivate::fromAdopted(core.get()));
+    return QSharedPointer<KcpSocket>(KcpSocketPrivate::fromShared(core.get()));
 }
 
 QSharedPointer<SocketLike> asSocketLike(QSharedPointer<UtpSocket> s)
@@ -991,7 +1010,7 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<UtpSocket> s)
     if (!s) {
         return QSharedPointer<SocketLike>();
     }
-    return ::qtng_bridge::fromCoreSocketLike(qtng_core::asSocketLike(UtpSocketPrivate::sharedCore(s.data())));
+    return ::qtng_bridge::toQtSocketLike(qtng_core::asSocketLike(UtpSocketPrivate::sharedCore(s)));
 }
 
 QSharedPointer<UtpSocket> convertSocketLikeToUtpSocket(QSharedPointer<SocketLike> socket)
@@ -1001,7 +1020,7 @@ QSharedPointer<UtpSocket> convertSocketLikeToUtpSocket(QSharedPointer<SocketLike
     if (!core) {
         return QSharedPointer<UtpSocket>();
     }
-    return QSharedPointer<UtpSocket>(UtpSocketPrivate::fromAdopted(core.get()));
+    return QSharedPointer<UtpSocket>(UtpSocketPrivate::fromShared(core.get()));
 }
 
 KcpSocketLikeHelper::KcpSocketLikeHelper(QSharedPointer<SocketLike> socket)
@@ -1060,8 +1079,11 @@ void KcpSocketLikeHelper::setTearDownTime(float secs)
 bool KcpSocketLikeHelper::setFilter(std::function<bool(char *, qint32 *, HostAddress *, quint16 *)> callback)
 {
     QSharedPointer<KcpSocket> kcp = convertSocketLikeToKcpSocket(socket);
-    Q_UNUSED(callback);
-    return kcp != nullptr;
+    if (kcp) {
+        kcp->setFilter(std::move(callback));
+        return true;
+    }
+    return false;
 }
 
 qint32 KcpSocketLikeHelper::udpSend(const char *data, qint32 size, const HostAddress &addr, quint16 port)
