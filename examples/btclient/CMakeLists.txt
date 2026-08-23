@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
+# This example needs the BitTorrent download stack.
+set(QTNG_WITH_BT ON CACHE BOOL "Build BitTorrent download stack (TorrentSession)" FORCE)
+
 find_package(Qt5 COMPONENTS Widgets QUIET)
 if(Qt5_FOUND)
     set(BTCLIENT_QT_LIB Qt5::Widgets)

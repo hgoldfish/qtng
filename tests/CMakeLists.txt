@@ -36,7 +36,7 @@ set(QTNG_TEST_SUPPORT_SRC
     ${CMAKE_SOURCE_DIR}/src/utils/string_utils.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/punycode.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/datetime.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/random.cpp
+    ${CMAKE_SOURCE_DIR}/src/random.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/url.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/mime.cpp
     ${CMAKE_SOURCE_DIR}/src/hostaddress.cpp
@@ -48,12 +48,22 @@ target_include_directories(qtng_test_support
     PUBLIC "${CMAKE_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_SOURCE_DIR}"
 )
+if(QTNG_HAVE_CRYPTO AND QTNG_SSL_INCLUDE)
+    target_include_directories(qtng_test_support PRIVATE "${QTNG_SSL_INCLUDE}")
+endif()
 set_target_properties(qtng_test_support PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_link_libraries(qtng_test_support PUBLIC ws2_32)
 elseif(UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     target_link_libraries(qtng_test_support PUBLIC pthread)
+endif()
+if(QTNG_HAVE_CRYPTO)
+    target_link_libraries(qtng_test_support PUBLIC ${QTNG_SSL_LIBRARIES})
+else()
+    # qtng_test_support is built standalone (does not link qtng) and compiles
+    # src/random.cpp, whose OpenSSL path must be compiled out when crypto is off.
+    target_compile_definitions(qtng_test_support PUBLIC QTNG_NO_CRYPTO)
 endif()
 
 add_executable(qtng_tests
@@ -119,6 +129,14 @@ target_include_directories(qtng_test_msgpack PRIVATE "${CMAKE_SOURCE_DIR}/includ
 set_target_properties(qtng_test_msgpack PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
 catch_discover_tests(qtng_test_msgpack)
+
+add_executable(qtng_test_replay_counter
+    test_replay_counter.cpp
+)
+target_link_libraries(qtng_test_replay_counter PRIVATE Catch2::Catch2WithMain)
+target_include_directories(qtng_test_replay_counter PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_replay_counter PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+catch_discover_tests(qtng_test_replay_counter)
 
 add_executable(qtng_test_multi_stream
     test_multi_stream.cpp
@@ -186,14 +204,16 @@ set_target_properties(qtng_test_kademlia PROPERTIES CXX_STANDARD 17 CXX_STANDARD
 
 catch_discover_tests(qtng_test_kademlia)
 
-add_executable(qtng_test_bt
-    test_bt.cpp
-)
-target_link_libraries(qtng_test_bt PRIVATE qtng Catch2::Catch2WithMain)
-target_include_directories(qtng_test_bt PRIVATE "${CMAKE_SOURCE_DIR}/include")
-set_target_properties(qtng_test_bt PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+if(QTNG_WITH_BT)
+    add_executable(qtng_test_bt
+        test_bt.cpp
+    )
+    target_link_libraries(qtng_test_bt PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_bt PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    set_target_properties(qtng_test_bt PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 
-catch_discover_tests(qtng_test_bt)
+    catch_discover_tests(qtng_test_bt)
+endif()
 
 add_executable(qtng_test_utp
     test_utp.cpp

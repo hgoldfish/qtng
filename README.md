@@ -124,11 +124,12 @@ Dependencies
   * Install system OpenSSL development packages (e.g. `libssl-dev` on Debian/Ubuntu)
   * If neither is available (or `-DQTNG_DISABLE_CRYPTO=ON`), the build continues with `QTNG_NO_CRYPTO`: TLS/SSL, Noise, AEAD, and QUIC are omitted; `MessageDigest` (MD5/SHA-1/SHA-224/SHA-256) still works via a software fallback
 
-Optional protocol toggles (default **ON**; turn off incomplete stacks when needed):
+Optional protocol toggles (default **OFF**; enable incomplete/optional stacks when needed):
 
-* `-DQTNG_WITH_HTTP2=OFF` — skip HTTP/2 + HPACK
-* `-DQTNG_WITH_QUIC=OFF` — skip QUICv1 transport MVP (also forced off without crypto)
-* `-DQTNG_WITH_HTTP3=OFF` — skip HTTP/3 stub (also forced off without QUIC)
+* `-DQTNG_WITH_HTTP2=ON` — build HTTP/2 + HPACK
+* `-DQTNG_WITH_QUIC=ON` — build QUICv1 transport MVP (forced off without crypto)
+* `-DQTNG_WITH_HTTP3=ON` — build HTTP/3 stub (forced off without QUIC)
+* `-DQTNG_WITH_BT=ON` — build BitTorrent download stack (`TorrentSession` / `qtng/bt.h`; bencode and DHT remain available)
 
 Optional test-only dependency:
 

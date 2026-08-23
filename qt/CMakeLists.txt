@@ -151,8 +151,12 @@ set(QTNG_QT_SOURCES
 add_library(qtnetworkng STATIC
     ${QTNG_QT_PUBLIC_HEADERS}
     ${QTNG_QT_SOURCES}
-    ${QTNG_QT_DIR}/src/eventloop_qt_p.h
+    ${QTNG_QT_DIR}/src/bridge/eventloop_qt_core_p.h
 )
+
+# coroutine_utils.h contains no Q_OBJECT class, so AUTOMOC has nothing to mocc there and would
+# only emit a spurious "No relevant classes found" note. Skip AUTOMOC for this header.
+set_property(SOURCE ${QTNG_QT_DIR}/include/coroutine_utils.h PROPERTY SKIP_AUTOMOC TRUE)
 
 target_include_directories(qtnetworkng
     PUBLIC
@@ -175,6 +179,11 @@ target_link_libraries(qtnetworkng
 
 target_compile_features(qtnetworkng PUBLIC cxx_std_${QTNG_QT_CXX_STANDARD})
 
-if(NOT CMAKE_SOURCE_DIR STREQUAL QTNG_ROOT)
+# Only propagate the Qt major version back through PARENT_SCOPE when qt/ is pulled in via
+# add_subdirectory (CMAKE_CURRENT_SOURCE_DIR == CMAKE_CURRENT_LIST_DIR). When included, those
+# variables already live in the caller's scope, and PARENT_SCOPE would warn about missing scope
+# (e.g. when qt/examples is built as a top-level project).
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_LIST_DIR)
     set(HAS_QTNETWORKNG ON PARENT_SCOPE)
+    set(QTNG_QT_VERSION_MAJOR ${QTNG_QT_VERSION_MAJOR} PARENT_SCOPE)
 endif()

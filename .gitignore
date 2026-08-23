@@ -16,9 +16,11 @@ website/
 /cmake-build-*/
 /out/
 /*.o
+*.gch
 
 /docs/_build/
 /examples/*/build/
+/qt/examples/*/build/
 /examples/*/dist/
 /examples/*/.build-in-docker/
 /examples/*/.build-winxp/

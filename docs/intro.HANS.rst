@@ -26,7 +26,7 @@ qtng是基于协程的网络编程工具包，类似 boost::asio，并借鉴 Pyt
 
 qtng已在Linux、Android、Windows、MacOS和OpenBSD平台测试通过，支持gcc、clang、mingw32、msvc编译器。
 
-构建qtng需要 C++11 编译器和 zlib。TLS/加密为可选：可通过已初始化的 ``3rdparty/libressl`` git 子模块使用内置 LibreSSL，或使用系统 OpenSSL 1.1.1 或更高版本。若两者皆无（或 ``-DQTNG_DISABLE_CRYPTO=ON``），库仍可构建并定义 ``QTNG_NO_CRYPTO``：不包含 TLS/SSL、Noise、AEAD、QUIC；``MessageDigest`` 仍通过软件实现提供 MD5/SHA-1/SHA-224/SHA-256。不完善协议可用 ``-DQTNG_WITH_HTTP2=OFF``、``-DQTNG_WITH_QUIC=OFF``、``-DQTNG_WITH_HTTP3=OFF`` 关闭（默认均为 ON；无加密时也会强制关闭 QUIC/HTTP3）。内置单元测试需要 C++17 以及本机安装的 Catch2 v3（或更高版本），且默认不编译。Catch2 不会被自动下载，安装方式见下文"构建并运行测试"。可选的 µTP 互通测试需要 ``3rdparty/libutp``（``git submodule update --init 3rdparty/libutp``）；子模块未初始化时自动跳过。
+构建qtng需要 C++11 编译器和 zlib。TLS/加密为可选：可通过已初始化的 ``3rdparty/libressl`` git 子模块使用内置 LibreSSL，或使用系统 OpenSSL 1.1.1 或更高版本。若两者皆无（或 ``-DQTNG_DISABLE_CRYPTO=ON``），库仍可构建并定义 ``QTNG_NO_CRYPTO``：不包含 TLS/SSL、Noise、AEAD、QUIC；``MessageDigest`` 仍通过软件实现提供 MD5/SHA-1/SHA-224/SHA-256。可选协议模块默认关闭，需要时用 ``-DQTNG_WITH_HTTP2=ON``、``-DQTNG_WITH_QUIC=ON``、``-DQTNG_WITH_HTTP3=ON``、``-DQTNG_WITH_BT=ON`` 打开（无加密时也会强制关闭 QUIC/HTTP3；HTTP3 依赖 QUIC）。内置单元测试需要 C++17 以及本机安装的 Catch2 v3（或更高版本），且默认不编译。Catch2 不会被自动下载，安装方式见下文"构建并运行测试"。可选的 µTP 互通测试需要 ``3rdparty/libutp``（``git submodule update --init 3rdparty/libutp``）；子模块未初始化时自动跳过。
 
 协程实现采用boost::context汇编代码，同时支持原生posix ``ucontext``和windows ``fiber`` API，已在ARM、ARM64、x86、amd64架构成功运行测试。
 
@@ -176,8 +176,10 @@ Qt GUI 集成说明（可选 ``qt/`` 兼容层）
 --------------------------------------
 
 **qtng 核心库**不依赖 Qt。Qt5/Qt6 应用可 ``include(qt/CMakeLists.txt)`` 并链接 ``qtnetworkng``，
-获得 ``QString``/``QByteArray`` API 以及 ``startQtLoop()``、``qAwait()`` 等。在
-``QCoreApplication`` 进程中请在协程/网络 API 之前调用 ``startQtLoop()``。详见 :doc:`qt_integration`。
+获得 ``QString``/``QByteArray`` API 以及 ``startQtLoop()``、``qAwait()`` 等。在 GUI 线程上协程默认
+使用 Qt 后端事件循环（复刻自 qtnetworkng 1.0），调用 ``startQtLoop()`` 即可运行应用。
+``qtng::useEventloop()`` / ``qtng::useQtEventloop()`` 可显式选择后端。详见
+:doc:`qt_integration`。
 
 
 Socket与SslSocket

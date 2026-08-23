@@ -8,10 +8,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(GNUInstallDirs)
 include(CheckFunctionExists)
 
-# Incomplete protocol modules: on by default, may be turned off explicitly.
-option(QTNG_WITH_HTTP2 "Build HTTP/2 client support (still incomplete)" ON)
-option(QTNG_WITH_QUIC "Build QUICv1 transport MVP (still incomplete)" ON)
-option(QTNG_WITH_HTTP3 "Build HTTP/3 support (stub / still incomplete)" ON)
+# Optional protocol modules: off by default; enable with -DQTNG_WITH_*=ON.
+option(QTNG_WITH_HTTP2 "Build HTTP/2 client support (still incomplete)" OFF)
+option(QTNG_WITH_QUIC "Build QUICv1 transport MVP (still incomplete)" OFF)
+option(QTNG_WITH_HTTP3 "Build HTTP/3 support (stub / still incomplete)" OFF)
+option(QTNG_WITH_BT "Build BitTorrent download stack (TorrentSession)" OFF)
 # Force-disable TLS even when LibreSSL/OpenSSL is present (also used for CI/no-crypto builds).
 option(QTNG_DISABLE_CRYPTO "Force-disable the crypto/TLS module" OFF)
 
@@ -81,7 +82,7 @@ if(QTNG_WITH_HTTP3 AND NOT QTNG_WITH_QUIC)
 endif()
 
 message(STATUS "qtng features: CRYPTO=${QTNG_HAVE_CRYPTO} HTTP2=${QTNG_WITH_HTTP2} "
-               "QUIC=${QTNG_WITH_QUIC} HTTP3=${QTNG_WITH_HTTP3}")
+               "QUIC=${QTNG_WITH_QUIC} HTTP3=${QTNG_WITH_HTTP3} BT=${QTNG_WITH_BT}")
 
 find_package(ZLIB REQUIRED)
 
@@ -90,7 +91,6 @@ set(UTILS_SRC
     src/utils/string_utils.cpp
     src/utils/punycode.cpp
     src/utils/datetime.cpp
-    src/utils/random.cpp
     src/utils/url.cpp
     src/utils/mime.cpp
 )
@@ -123,7 +123,6 @@ set(QTNG_SRC
     src/mqtt.cpp
     src/bencode.cpp
     src/kademlia.cpp
-    src/bt.cpp
     src/udp.cpp
     src/kcp.cpp
     src/kcp/ikcp.c
@@ -169,7 +168,6 @@ set(QTNG_PUBLIC_INCLUDE
     include/qtng/msgpack.h
     include/qtng/bencode.h
     include/qtng/kademlia.h
-    include/qtng/bt.h
     include/qtng/data_channel.h
     include/qtng/multi_stream.h
     include/qtng/udp.h
@@ -188,7 +186,6 @@ set(QTNG_PRIVATE_INCLUDE
     include/qtng/private/kcp.h
     include/qtng/private/utp.h
     include/qtng/private/kademlia_p.h
-    include/qtng/private/bt_p.h
     include/qtng/private/http_p.h
     include/qtng/private/hostaddress_p.h
     include/qtng/private/network_interface_p.h
@@ -219,7 +216,6 @@ set(QTNG_CRYPTO_INCLUDE
     include/qtng/qtcrypto.h
     include/qtng/crypto.h
     include/qtng/ssl.h
-    include/qtng/random.h
     include/qtng/cipher.h
     include/qtng/pkey.h
     include/qtng/certificate.h
@@ -243,6 +239,9 @@ set(QTNG_QUIC_PRIVATE_INCLUDE
 
 # md.h is always available (OpenSSL or software fallback).
 list(APPEND QTNG_PUBLIC_INCLUDE include/qtng/md.h)
+# random.h (randomBytes + RandomGenerator) has a non-OpenSSL fallback and is
+# needed by http/kcp/websocket even without crypto.
+list(APPEND QTNG_PUBLIC_INCLUDE include/qtng/random.h)
 
 set(QTNG_LMDB_SRC
     src/lmdb.cpp
@@ -262,7 +261,6 @@ set(QTNG_UTILS_INCLUDE
     include/qtng/utils/string_utils.h
     include/qtng/utils/punycode.h
     include/qtng/utils/datetime.h
-    include/qtng/utils/random.h
     include/qtng/utils/url.h
     include/qtng/utils/mime.h
     include/qtng/utils/shared_mutex_compat.h
@@ -412,6 +410,13 @@ if(QTNG_WITH_QUIC)
         ${QTNG_QUIC_PRIVATE_INCLUDE}
     )
 endif()
+if(QTNG_WITH_BT)
+    list(APPEND QTNG_LIB_SOURCES
+        src/bt.cpp
+        include/qtng/bt.h
+        include/qtng/private/bt_p.h
+    )
+endif()
 
 add_library(qtng STATIC ${QTNG_LIB_SOURCES})
 
@@ -452,6 +457,9 @@ if(NOT QTNG_WITH_QUIC)
 endif()
 if(NOT QTNG_WITH_HTTP3)
     target_compile_definitions(qtng PUBLIC QTNG_NO_HTTP3)
+endif()
+if(NOT QTNG_WITH_BT)
+    target_compile_definitions(qtng PUBLIC QTNG_NO_BT)
 endif()
 
 # Platform-specific compile definitions

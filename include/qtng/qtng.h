@@ -21,7 +21,9 @@
 #include "qtng/mqtt.h"
 #include "qtng/lmdb.h"
 #include "qtng/kademlia.h"
-#include "qtng/bt.h"
+#ifndef QTNG_NO_BT
+#  include "qtng/bt.h"
+#endif
 #include "qtng/random.h"
 
 #ifndef QTNG_NO_CRYPTO
