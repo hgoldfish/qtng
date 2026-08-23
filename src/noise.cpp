@@ -6,16 +6,57 @@
 #include <utility>
 #include <vector>
 
+#include "qtng/private/noise_replay_p.h"
 #include "qtng/noise.h"
 #include "qtng/md.h"
 #include "qtng/private/openssl_raii.h"
 #include "qtng/utils/logging.h"
+#include "qtng/utils/string_utils.h"
 
 using namespace std;
 
 namespace qtng {
 
 namespace {
+
+string noiseHandshakeName(NoisePattern pattern, NoisePskModifier pskModifier)
+{
+    const char *pat = "XX";
+    switch (pattern) {
+    case NoisePattern::IK:
+        pat = "IK";
+        break;
+    case NoisePattern::XK:
+        pat = "XK";
+        break;
+    case NoisePattern::KK:
+        pat = "KK";
+        break;
+    case NoisePattern::XX:
+        pat = "XX";
+        break;
+    }
+    const char *mod = "";
+    switch (pskModifier) {
+    case NoisePskModifier::Psk0:
+        mod = "psk0";
+        break;
+    case NoisePskModifier::Psk1:
+        mod = "psk1";
+        break;
+    case NoisePskModifier::Psk2:
+        mod = "psk2";
+        break;
+    case NoisePskModifier::Psk3:
+        mod = "psk3";
+        break;
+    case NoisePskModifier::None:
+        break;
+    }
+    string name(pat);
+    name += mod;
+    return name;
+}
 
 NG_LOGGER("qtng.noise");
 
@@ -32,58 +73,6 @@ inline bool transportNonceAllowed(uint64_t n)
 {
     return n <= NoiseCipherState::MaxNonce;
 }
-
-// WireGuard receive-side replay window (RFC 6479): 8192-bit bitmap, 64 redundant
-// bits, reject before the counter can wrap through the window.
-const int kCounterWordBits = 64;
-const int kCounterBitsTotal = 8192;
-const int kCounterWords = kCounterBitsTotal / kCounterWordBits;
-const uint64_t kCounterWindowSize = static_cast<uint64_t>(kCounterBitsTotal - kCounterWordBits);
-const uint64_t kRejectAfterMessages = ~uint64_t(0) - kCounterWindowSize - 1;
-
-struct ReplayCounter
-{
-    uint64_t counter = 0;
-    array<uint64_t, static_cast<size_t>(kCounterWords)> backtrack{};
-
-    void reset()
-    {
-        counter = 0;
-        backtrack.fill(0);
-    }
-
-    bool validate(uint64_t theirCounter)
-    {
-        if (counter >= kRejectAfterMessages + 1 || theirCounter >= kRejectAfterMessages) {
-            return false;
-        }
-        // Packet nonce is 0-based; WireGuard stores a 1-based counter so 0 means unused.
-        ++theirCounter;
-        if (kCounterWindowSize + theirCounter < counter) {
-            return false;
-        }
-        const uint64_t wordBits = static_cast<uint64_t>(kCounterWordBits);
-        const uint64_t index = theirCounter / wordBits;
-        if (theirCounter > counter) {
-            const uint64_t indexCurrent = counter / wordBits;
-            uint64_t top = index - indexCurrent;
-            if (top > static_cast<uint64_t>(kCounterWords)) {
-                top = static_cast<uint64_t>(kCounterWords);
-            }
-            for (uint64_t i = 1; i <= top; ++i) {
-                backtrack[static_cast<size_t>((i + indexCurrent) & (kCounterWords - 1))] = 0;
-            }
-            counter = theirCounter;
-        }
-        const uint64_t word = index & (kCounterWords - 1);
-        const uint64_t bit = uint64_t(1) << (theirCounter % wordBits);
-        if (backtrack[static_cast<size_t>(word)] & bit) {
-            return false;
-        }
-        backtrack[static_cast<size_t>(word)] |= bit;
-        return true;
-    }
-};
 
 enum class Token : uint8_t { E, S, Ee, Es, Se, Ss, Psk };
 
@@ -152,52 +141,6 @@ NoiseHashInfo noiseHashInfo(NoiseHash hash)
 bool probeNoiseHash(const NoiseHashInfo &info)
 {
     return info.hashLen != 0 && MessageDigest::digest(string(), info.md).size() == info.hashLen;
-}
-
-string noiseProtocolName(NoisePattern pattern, NoisePskModifier pskModifier, Aead::Algorithm cipher,
-                         const char *hashName)
-{
-    const char *pat = "XX";
-    switch (pattern) {
-    case NoisePattern::IK:
-        pat = "IK";
-        break;
-    case NoisePattern::XK:
-        pat = "XK";
-        break;
-    case NoisePattern::KK:
-        pat = "KK";
-        break;
-    case NoisePattern::XX:
-        pat = "XX";
-        break;
-    }
-    const char *mod = "";
-    switch (pskModifier) {
-    case NoisePskModifier::Psk0:
-        mod = "psk0";
-        break;
-    case NoisePskModifier::Psk1:
-        mod = "psk1";
-        break;
-    case NoisePskModifier::Psk2:
-        mod = "psk2";
-        break;
-    case NoisePskModifier::Psk3:
-        mod = "psk3";
-        break;
-    case NoisePskModifier::None:
-        break;
-    }
-    const char *ci = (cipher == Aead::Aes256Gcm) ? "AESGCM" : "ChaChaPoly";
-    string name("Noise_");
-    name += pat;
-    name += mod;
-    name += "_25519_";
-    name += ci;
-    name += "_";
-    name += hashName;
-    return name;
 }
 
 inline bool isNoiseAead(Aead::Algorithm cipher)
@@ -410,6 +353,103 @@ NoiseConfig::NoiseConfig(const string &localPrivateKey)
 NoiseConfig::NoiseConfig(const NoiseKey &key)
     : localStatic(key)
 {
+}
+
+string noiseProtocolName(NoisePattern pattern, NoisePskModifier pskModifier, Aead::Algorithm cipher,
+                         NoiseHash hash)
+{
+    const NoiseHashInfo hashInfo = noiseHashInfo(hash);
+    const char *hashName = hashInfo.name ? hashInfo.name : "SHA256";
+    const char *ci = (cipher == Aead::Aes256Gcm) ? "AESGCM" : "ChaChaPoly";
+    string name("Noise_");
+    name += noiseHandshakeName(pattern, pskModifier);
+    name += "_25519_";
+    name += ci;
+    name += "_";
+    name += hashName;
+    return name;
+}
+
+bool parseNoiseProtocolName(const string &name, NoisePattern *pattern, NoisePskModifier *pskModifier,
+                            Aead::Algorithm *cipher, NoiseHash *hash, string *errorMessage)
+{
+    const string m = utils::toLower(utils::trimmed(name));
+    if (m.empty()) {
+        if (errorMessage) {
+            *errorMessage = "empty Noise protocol name";
+        }
+        return false;
+    }
+
+    // Match noiseProtocolName() output for combinations initialize() accepts.
+    // (noiseProtocolName itself does not validate PSK slot vs pattern.)
+    static const NoisePattern kPatterns[] = {
+        NoisePattern::XX,
+        NoisePattern::IK,
+        NoisePattern::XK,
+        NoisePattern::KK,
+    };
+    static const NoisePskModifier kModifiers[] = {
+        NoisePskModifier::None,
+        NoisePskModifier::Psk0,
+        NoisePskModifier::Psk1,
+        NoisePskModifier::Psk2,
+        NoisePskModifier::Psk3,
+    };
+    static const Aead::Algorithm kCiphers[] = {
+        Aead::ChaCha20Poly1305,
+        Aead::Aes256Gcm,
+    };
+    static const NoiseHash kHashes[] = {
+        NoiseHash::Sha256,
+        NoiseHash::Sha512,
+        NoiseHash::Blake2s,
+        NoiseHash::Blake2b,
+    };
+
+    for (NoisePattern pat : kPatterns) {
+        const int maxSlot = patternTokens(pat).nMessages;
+        for (NoisePskModifier mod : kModifiers) {
+            if (mod != NoisePskModifier::None) {
+                const int slot = static_cast<int>(mod) - static_cast<int>(NoisePskModifier::Psk0);
+                if (slot < 0 || slot > maxSlot) {
+                    continue;
+                }
+            }
+            for (Aead::Algorithm algo : kCiphers) {
+                for (NoiseHash digest : kHashes) {
+                    if (utils::toLower(noiseProtocolName(pat, mod, algo, digest)) == m) {
+                        *pattern = pat;
+                        *pskModifier = mod;
+                        *cipher = algo;
+                        *hash = digest;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    if (errorMessage) {
+        *errorMessage = "unknown Noise protocol name `" + name + "`";
+    }
+    return false;
+}
+
+bool applyNoiseProtocolName(const string &name, NoiseConfig *config, string *errorMessage)
+{
+    NoisePattern pattern = NoisePattern::XX;
+    NoisePskModifier pskModifier = NoisePskModifier::None;
+    Aead::Algorithm cipher = Aead::ChaCha20Poly1305;
+    NoiseHash hash = NoiseHash::Sha256;
+    if (!parseNoiseProtocolName(name, &pattern, &pskModifier, &cipher, &hash, errorMessage)) {
+        return false;
+    }
+    config->pattern = pattern;
+    config->pskModifier = pskModifier;
+    config->cipher = cipher;
+    config->hash = hash;
+    return true;
 }
 
 class NoiseCipherStatePrivate
@@ -770,7 +810,7 @@ bool NoiseHandshakeState::initialize(const NoiseConfig &config)
         return false;
     }
 
-    const string protocolName(noiseProtocolName(config.pattern, config.pskModifier, config.cipher, hashInfo.name));
+    const string protocolName(noiseProtocolName(config.pattern, config.pskModifier, config.cipher, config.hash));
     if (protocolName.size() <= d->hashLen) {
         d->h.assign(d->hashLen, '\0');
         memcpy(&d->h[0], protocolName.data(), protocolName.size());
@@ -1869,7 +1909,7 @@ string NoiseDatagram::decrypt(const string &packet)
         d->error = "truncated datagram";
         return string();
     }
-    if (d->replay.counter >= kRejectAfterMessages + 1) {
+    if (d->replay.exhausted()) {
         ngWarning() << "decrypt: nonce exhausted";
         d->error = "nonce exhausted";
         return string();

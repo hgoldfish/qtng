@@ -53,6 +53,9 @@ public:
 private:
     NoiseCipherStatePrivate *d_ptr;
     Q_DECLARE_PRIVATE(NoiseCipherState)
+    // NoiseHandshakeState::split() feeds the core cipher states into the core
+    // handshake's split, which is not reachable through the public Qt API.
+    friend class NoiseHandshakeState;
 };
 
 enum class NoisePattern {
@@ -100,6 +103,19 @@ struct NoiseConfig
     explicit NoiseConfig(const QByteArray &localPrivateKey = QByteArray());
     explicit NoiseConfig(const NoiseKey &key);
 };
+
+// Full protocol name: Noise_<handshake>_25519_<ChaChaPoly|AESGCM>_<SHA256|...>.
+QString noiseProtocolName(NoisePattern pattern, NoisePskModifier pskModifier = NoisePskModifier::None,
+                          AeadAlgorithm cipher = AeadAlgorithm::ChaCha20Poly1305,
+                          NoiseHash hash = NoiseHash::Sha256);
+
+// Case-insensitive. Accepts names matching noiseProtocolName() for combinations
+// that initialize() allows (invalid PSK slots for a pattern are rejected).
+bool parseNoiseProtocolName(const QString &name, NoisePattern *pattern, NoisePskModifier *pskModifier,
+                            AeadAlgorithm *cipher, NoiseHash *hash, QString *errorMessage = nullptr);
+
+// Sets pattern/pskModifier/cipher/hash from a full protocol name.
+bool applyNoiseProtocolName(const QString &name, NoiseConfig *config, QString *errorMessage = nullptr);
 
 class NoiseHandshakeStatePrivate;
 class NoiseHandshakeState

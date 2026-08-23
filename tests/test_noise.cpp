@@ -195,6 +195,44 @@ TEST_CASE("NoiseConfig generates local static when private key is empty", "[nois
     REQUIRE(bad.errorString().find("invalid") != string::npos);
 }
 
+TEST_CASE("parseNoiseProtocolName is the inverse of noiseProtocolName", "[noise]")
+{
+    NoisePattern pattern = NoisePattern::XX;
+    NoisePskModifier mod = NoisePskModifier::None;
+    Aead::Algorithm cipher = Aead::ChaCha20Poly1305;
+    NoiseHash hash = NoiseHash::Sha256;
+    string err;
+
+    const string full = noiseProtocolName(NoisePattern::XX, NoisePskModifier::Psk0,
+                                          Aead::ChaCha20Poly1305, NoiseHash::Sha256);
+    REQUIRE(full == "Noise_XXpsk0_25519_ChaChaPoly_SHA256");
+    REQUIRE(parseNoiseProtocolName(full, &pattern, &mod, &cipher, &hash, &err));
+    REQUIRE(pattern == NoisePattern::XX);
+    REQUIRE(mod == NoisePskModifier::Psk0);
+    REQUIRE(cipher == Aead::ChaCha20Poly1305);
+    REQUIRE(hash == NoiseHash::Sha256);
+
+    REQUIRE(parseNoiseProtocolName("noise_ikpsk2_25519_aesgcm_sha512", &pattern, &mod, &cipher, &hash,
+                                   &err));
+    REQUIRE(pattern == NoisePattern::IK);
+    REQUIRE(mod == NoisePskModifier::Psk2);
+    REQUIRE(cipher == Aead::Aes256Gcm);
+    REQUIRE(hash == NoiseHash::Sha512);
+
+    NoiseConfig cfg;
+    REQUIRE(applyNoiseProtocolName("Noise_XXpsk0_25519_ChaChaPoly_SHA256", &cfg, &err));
+    REQUIRE(cfg.pattern == NoisePattern::XX);
+    REQUIRE(cfg.pskModifier == NoisePskModifier::Psk0);
+    REQUIRE(cfg.cipher == Aead::ChaCha20Poly1305);
+    REQUIRE(cfg.hash == NoiseHash::Sha256);
+
+    REQUIRE_FALSE(parseNoiseProtocolName("XX", &pattern, &mod, &cipher, &hash, &err));
+    REQUIRE_FALSE(parseNoiseProtocolName("Noise_IKpsk3_25519_ChaChaPoly_SHA256", &pattern, &mod,
+                                         &cipher, &hash, &err));
+    REQUIRE_FALSE(parseNoiseProtocolName("Noise_XX_25519_ChaChaPoly_MD5", &pattern, &mod, &cipher,
+                                         &hash, &err));
+}
+
 TEST_CASE("Noise XX handshake and transport", "[noise]")
 {
     const NoiseKey alice = NoiseKey::generate();

@@ -125,6 +125,22 @@ struct NoiseConfig
     explicit NoiseConfig(const NoiseKey &key);
 };
 
+// Full protocol name: Noise_<handshake>_25519_<ChaChaPoly|AESGCM>_<SHA256|...>.
+std::string noiseProtocolName(NoisePattern pattern,
+                              NoisePskModifier pskModifier = NoisePskModifier::None,
+                              Aead::Algorithm cipher = Aead::ChaCha20Poly1305,
+                              NoiseHash hash = NoiseHash::Sha256);
+
+// Case-insensitive. Accepts names matching noiseProtocolName() for combinations
+// that initialize() allows (invalid PSK slots for a pattern are rejected).
+bool parseNoiseProtocolName(const std::string &name, NoisePattern *pattern,
+                            NoisePskModifier *pskModifier, Aead::Algorithm *cipher, NoiseHash *hash,
+                            std::string *errorMessage = nullptr);
+
+// Sets pattern/pskModifier/cipher/hash from a full protocol name.
+bool applyNoiseProtocolName(const std::string &name, NoiseConfig *config,
+                            std::string *errorMessage = nullptr);
+
 // Minimal Noise handshake state machine for XX / IK / XK / KK, with optional PSK modifiers.
 // After handshake finishes, take transport ciphers via split().
 class NoiseHandshakeStatePrivate;

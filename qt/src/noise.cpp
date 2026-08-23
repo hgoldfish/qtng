@@ -172,6 +172,54 @@ qtng_core::NoiseConfig toCoreConfig(const NoiseConfig &cfg)
 
 }  // namespace
 
+QString noiseProtocolName(NoisePattern pattern, NoisePskModifier pskModifier, AeadAlgorithm cipher, NoiseHash hash)
+{
+    return QString::fromStdString(qtng_core::noiseProtocolName(
+            static_cast<qtng_core::NoisePattern>(pattern),
+            static_cast<qtng_core::NoisePskModifier>(pskModifier),
+            static_cast<qtng_core::Aead::Algorithm>(cipher),
+            static_cast<qtng_core::NoiseHash>(hash)));
+}
+
+bool parseNoiseProtocolName(const QString &name, NoisePattern *pattern, NoisePskModifier *pskModifier,
+                            AeadAlgorithm *cipher, NoiseHash *hash, QString *errorMessage)
+{
+    qtng_core::NoisePattern corePattern = qtng_core::NoisePattern::XX;
+    qtng_core::NoisePskModifier coreMod = qtng_core::NoisePskModifier::None;
+    qtng_core::Aead::Algorithm coreCipher = qtng_core::Aead::ChaCha20Poly1305;
+    qtng_core::NoiseHash coreHash = qtng_core::NoiseHash::Sha256;
+    string err;
+    string *errPtr = errorMessage ? &err : nullptr;
+    if (!qtng_core::parseNoiseProtocolName(toStdString(name), &corePattern, &coreMod, &coreCipher,
+                                           &coreHash, errPtr)) {
+        if (errorMessage) {
+            *errorMessage = QString::fromStdString(err);
+        }
+        return false;
+    }
+    *pattern = static_cast<NoisePattern>(corePattern);
+    *pskModifier = static_cast<NoisePskModifier>(coreMod);
+    *cipher = static_cast<AeadAlgorithm>(coreCipher);
+    *hash = static_cast<NoiseHash>(coreHash);
+    return true;
+}
+
+bool applyNoiseProtocolName(const QString &name, NoiseConfig *config, QString *errorMessage)
+{
+    NoisePattern pattern = NoisePattern::XX;
+    NoisePskModifier pskModifier = NoisePskModifier::None;
+    AeadAlgorithm cipher = AeadAlgorithm::ChaCha20Poly1305;
+    NoiseHash hash = NoiseHash::Sha256;
+    if (!parseNoiseProtocolName(name, &pattern, &pskModifier, &cipher, &hash, errorMessage)) {
+        return false;
+    }
+    config->pattern = pattern;
+    config->pskModifier = pskModifier;
+    config->cipher = cipher;
+    config->hash = hash;
+    return true;
+}
+
 class NoiseHandshakeStatePrivate
 {
 public:
@@ -334,7 +382,7 @@ bool NoiseSocket::isValid() const
 HostAddress NoiseSocket::localAddress() const
 {
     Q_D(const NoiseSocket);
-    return toQtHostAddress(d->core->localAddress());
+    return toQtAddress(d->core->localAddress());
 }
 
 quint16 NoiseSocket::localPort() const
@@ -346,7 +394,7 @@ quint16 NoiseSocket::localPort() const
 HostAddress NoiseSocket::peerAddress() const
 {
     Q_D(const NoiseSocket);
-    return toQtHostAddress(d->core->peerAddress());
+    return toQtAddress(d->core->peerAddress());
 }
 
 QString NoiseSocket::peerName() const
@@ -411,7 +459,7 @@ Socket *NoiseSocket::acceptRaw()
 bool NoiseSocket::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
 {
     Q_D(NoiseSocket);
-    return d->core->bind(toCoreHostAddress(address), port, static_cast<qtng_core::Socket::BindMode>(mode));
+    return d->core->bind(toCoreAddress(address), port, static_cast<qtng_core::Socket::BindMode>(mode));
 }
 
 bool NoiseSocket::bind(quint16 port, Socket::BindMode mode)
@@ -423,7 +471,7 @@ bool NoiseSocket::bind(quint16 port, Socket::BindMode mode)
 bool NoiseSocket::connect(const HostAddress &addr, quint16 port)
 {
     Q_D(NoiseSocket);
-    return d->core->connect(toCoreHostAddress(addr), port);
+    return d->core->connect(toCoreAddress(addr), port);
 }
 
 bool NoiseSocket::connect(const QString &hostName, quint16 port, QSharedPointer<SocketDnsCache> dnsCache)
