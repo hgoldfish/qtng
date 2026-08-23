@@ -15,6 +15,12 @@
 #include "qtng/io_utils.h"
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/platform.h"
+
+#if defined(__has_include) && __has_include(<variant>) \
+    && ((defined(_MSVC_LANG) ? _MSVC_LANG : __cplusplus) >= 201703L)
+#include <variant>
+#endif
+
 namespace qtng {
 
 struct MsgPackExtData
@@ -73,10 +79,12 @@ public:
     MsgPackStream &operator>>(std::int64_t &i64);
     MsgPackStream &operator>>(float &f);
     MsgPackStream &operator>>(double &d);
-    MsgPackStream &operator>>(std::string &str);
     MsgPackStream &operator>>(qtng::utils::DateTime &dt);
+    MsgPackStream &operator>>(qtng::utils::Date &d);
     MsgPackStream &operator>>(MsgPackExtData &ext);
     bool readBytes(char *data, std::int64_t len);
+    bool readString(std::string &s);
+    bool readBytes(std::string &s);
     bool peekByte(std::uint8_t *b) const;
     bool readArrayHeader(std::uint32_t &len);
     bool readMapHeader(std::uint32_t &len);
@@ -95,9 +103,12 @@ public:
     MsgPackStream &operator<<(double d);
     MsgPackStream &operator<<(const std::string &str);
     MsgPackStream &operator<<(const qtng::utils::DateTime &dt);
+    MsgPackStream &operator<<(const qtng::utils::Date &d);
     MsgPackStream &operator<<(const MsgPackExtData &ext);
 
     bool writeBytes(const char *data, std::int64_t len);
+    bool writeBytes(const std::string &s);
+    bool writeString(const std::string &s);
     bool writeString(const char *data, std::uint32_t len);
     bool writeArrayHeader(std::uint32_t len);
     bool writeMapHeader(std::uint32_t len);
@@ -333,8 +344,6 @@ MsgPackStream &operator>>(MsgPackStream &s, std::unordered_map<K, V> &map)
 
 #if defined(__has_include) && __has_include(<variant>) \
     && ((defined(_MSVC_LANG) ? _MSVC_LANG : __cplusplus) >= 201703L)
-#include <variant>
-
 inline MsgPackStream &operator<<(MsgPackStream &s, std::monostate)
 {
     static const char nilByte[1] = {static_cast<char>(FirstByte::NIL)};
@@ -509,6 +518,26 @@ struct variant_wire_match<qtng::utils::DateTime>
     static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Ext; }
 };
 
+template<>
+struct variant_wire_match<qtng::utils::Date>
+{
+    static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Ext; }
+};
+
+template<typename T>
+inline void variant_read_value(MsgPackStream &s, T &val)
+{
+    s >> val;
+}
+
+// std::string must be read through readString(); the generic operator>> is not
+// available because reading strings via >> is intentionally forbidden.
+template<>
+inline void variant_read_value<std::string>(MsgPackStream &s, std::string &val)
+{
+    s.readString(val);
+}
+
 template<std::size_t I, typename Variant>
 inline bool variant_read_if(MsgPackStream &s, Variant &v, MsgPackWireKind kind, bool &matched)
 {
@@ -520,7 +549,7 @@ inline bool variant_read_if(MsgPackStream &s, Variant &v, MsgPackWireKind kind, 
         return false;
     }
     T val = s_allocate<T>();
-    s >> val;
+    variant_read_value(s, val);
     if (s.status() == MsgPackStream::Ok) {
         v.template emplace<I>(std::move(val));
         matched = true;

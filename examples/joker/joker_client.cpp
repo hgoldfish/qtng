@@ -343,7 +343,7 @@ shared_ptr<SocketLike> JokerClient::connectToRemoteHost(const string &hostName, 
         const string &reply = forward->recvPacket();
         MsgPackStream replyStream(reply);
         string s;
-        replyStream >> s;
+        replyStream.readString(s);
         *forwardAddress = HostAddress(s);
     } catch (TimeoutException &) {
         *forwardAddress = HostAddress();

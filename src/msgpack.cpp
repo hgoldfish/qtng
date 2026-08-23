@@ -137,6 +137,8 @@ public:
     bool unpack_longlong(int64_t &i64);
     bool unpack_ulonglong(uint64_t &u64);
     bool unpackString(string &s);
+    bool unpackBin(string &s);
+    bool readPayload(uint32_t len, string &s);
 public:
     map<intptr_t, MsgPackExtUserData *> userData;
     FileLike *dev;
@@ -560,16 +562,54 @@ bool MsgPackStreamPrivate::unpackString(string &s)
             return false;
         }
         len = _msgpack_load32(p + 1);
-        if (static_cast<int>(len) < 0) {
-            status = MsgPackStream::ReadCorruptData;
-            return false;
-        }
     } else {
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
+    return readPayload(len, s);
+}
+
+bool MsgPackStreamPrivate::unpackBin(string &s)
+{
+    uint8_t p[5];
+    if (!readBytes(p, 1)) {
+        return false;
+    }
+
+    uint32_t len = 0;
+    if (p[0] == FirstByte::BIN8) {
+        if (!readBytes(p + 1, 1)) {
+            return false;
+        }
+        len = p[1];
+    } else if (p[0] == FirstByte::BIN16) {
+        if (!readBytes(p + 1, 2)) {
+            return false;
+        }
+        len = _msgpack_load16(p + 1);
+    } else if (p[0] == FirstByte::BIN32) {
+        if (!readBytes(p + 1, 4)) {
+            return false;
+        }
+        len = _msgpack_load32(p + 1);
+    } else {
+        status = MsgPackStream::ReadCorruptData;
+        return false;
+    }
+    return readPayload(len, s);
+}
+
+bool MsgPackStreamPrivate::readPayload(uint32_t len, string &s)
+{
+    // Reject lengths with the high bit set: static_cast<int>(len) would turn
+    // negative and then widen back to a huge size_t in buf.resize() below,
+    // throwing length_error instead of failing cleanly.
+    if (static_cast<int>(len) < 0) {
+        status = MsgPackStream::ReadCorruptData;
+        return false;
+    }
     if (len > limit) {
-        ngDebug() << "read string length is too large.";
+        ngDebug() << "read length is too large.";
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
@@ -992,11 +1032,16 @@ MsgPackStream &MsgPackStream::operator>>(double &f)
     return *this;
 }
 
-MsgPackStream &MsgPackStream::operator>>(string &str)
+bool MsgPackStream::readString(string &str)
 {
     NG_D(MsgPackStream);
-    d->unpackString(str);
-    return *this;
+    return d->unpackString(str);
+}
+
+bool MsgPackStream::readBytes(string &s)
+{
+    NG_D(MsgPackStream);
+    return d->unpackBin(s);
 }
 
 MsgPackStream &MsgPackStream::operator>>(utils::DateTime &dt)
@@ -1020,6 +1065,19 @@ MsgPackStream &MsgPackStream::operator>>(utils::DateTime &dt)
         return *this;
     }
     dt = unpackDatetime(string(static_cast<char *>(static_cast<void *>(p)), len));
+    return *this;
+}
+
+MsgPackStream &MsgPackStream::operator>>(utils::Date &date)
+{
+    CHECK_STREAM_PRECOND(*this);
+    utils::DateTime dt;
+    *this >> dt;
+    if (d->status == Ok && dt.isValid()) {
+        date = dt.date();
+    } else {
+        date = utils::Date();
+    }
     return *this;
 }
 
@@ -1268,6 +1326,18 @@ MsgPackStream &MsgPackStream::operator<<(const utils::DateTime &dt)
     return *this;
 }
 
+// Keep Date consistent with legacy Qt behavior: QDate is serialized as the timestamp ext (type 0xff) of
+// QDateTime(date, 0:00), wire-compatible with DateTime.
+MsgPackStream &MsgPackStream::operator<<(const utils::Date &date)
+{
+    CHECK_STREAM_PRECOND(*this);
+    if (!date.isValid()) {
+        d->status = WriteFailed;
+        return *this;
+    }
+    return *this << utils::DateTime(date, 0, 0, 0);
+}
+
 MsgPackStream &MsgPackStream::operator<<(const MsgPackExtData &ext)
 {
     CHECK_STREAM_PRECOND(*this);
@@ -1283,6 +1353,36 @@ bool MsgPackStream::writeBytes(const char *data, int64_t len)
 {
     NG_D(MsgPackStream);
     return d->writeBytes(data, len);
+}
+
+bool MsgPackStream::writeBytes(const string &data)
+{
+    CHECK_STREAM_PRECOND(false);
+    uint8_t p[5];
+    int sz;
+    const uint32_t len = static_cast<uint32_t>(data.size());
+    if (len <= numeric_limits<uint8_t>::max()) {
+        p[0] = FirstByte::BIN8;
+        _msgpack_store8(p + 1, static_cast<uint8_t>(len));
+        sz = 2;
+    } else if (len <= numeric_limits<uint16_t>::max()) {
+        p[0] = FirstByte::BIN16;
+        _msgpack_store16(p + 1, static_cast<uint16_t>(len));
+        sz = 3;
+    } else {
+        p[0] = FirstByte::BIN32;
+        _msgpack_store32(p + 1, len);
+        sz = 5;
+    }
+    if (!d->writeBytes(p, sz)) {
+        return false;
+    }
+    return d->writeBytes(data.data(), static_cast<int64_t>(data.size()));
+}
+
+bool MsgPackStream::writeString(const string &data)
+{
+    return writeString(data.data(), static_cast<uint32_t>(data.size()));
 }
 
 bool MsgPackStream::writeString(const char *data, uint32_t len)

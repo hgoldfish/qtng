@@ -73,6 +73,8 @@ public:
     MsgPackStream &operator>>(MsgPackExtData &ext);
     MsgPackStream &operator>>(QVariant &v);
     bool readBytes(char *data, qint64 len);
+    bool readString(QString &str);
+    bool readBytes(QByteArray &array);
     bool readArrayHeader(quint32 &len);
     bool readMapHeader(quint32 &len);
     bool readExtHeader(quint32 &len, quint8 msgpackType);
@@ -95,6 +97,8 @@ public:
     MsgPackStream &operator<<(const QVariant &v);
 
     bool writeBytes(const char *data, qint64 len);
+    bool writeBytes(const QByteArray &array);
+    bool writeString(const QString &str);
     bool writeString(const char *data, quint32 len);
     bool writeArrayHeader(quint32 len);
     bool writeMapHeader(quint32 len);

@@ -219,7 +219,8 @@ void JokerServerPrivate::handleChannel(shared_ptr<VirtualChannel> channel)
         if (addressType == 0x01) {
             string hostName;
             uint16_t port;
-            mps >> hostName >> port;
+            mps.readString(hostName);
+            mps >> port;
             if (mps.status() != MsgPackStream::Ok) {
                 return;
             }

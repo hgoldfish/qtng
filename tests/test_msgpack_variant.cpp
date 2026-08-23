@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <limits>
 #include <string>
 #include <variant>
 #include <vector>
@@ -207,4 +208,123 @@ TEST_CASE("peekByte caches one byte from arbitrary FileLike", "[msgpack][variant
     REQUIRE(out.index() == 0);
     REQUIRE(get<int>(out) == 42);
     REQUIRE(file.readCalls == 1);
+}
+
+TEST_CASE("writeString encodes as msgpack str, readString round-trips", "[msgpack][string]")
+{
+    string buf;
+    {
+        MsgPackStream ds(&buf, true);
+        ds.writeString("hello", 5);
+        REQUIRE(ds.isOk());
+    }
+    REQUIRE(buf == string("\xa5hello", 6));
+    {
+        MsgPackStream ds(buf);
+        string out;
+        REQUIRE(ds.readString(out));
+        REQUIRE(ds.isOk());
+        REQUIRE(out == "hello");
+    }
+}
+
+TEST_CASE("writeBytes encodes as msgpack bin, readBytes round-trips", "[msgpack][bin]")
+{
+    string buf;
+    {
+        MsgPackStream ds(&buf, true);
+        ds.writeBytes(string("\xc4\x00\xff\x10", 4));
+        REQUIRE(ds.isOk());
+    }
+    // BIN8 header (0xc4) followed by the 4-byte payload.
+    REQUIRE(buf == string("\xc4\x04\xc4\x00\xff\x10", 6));
+    {
+        MsgPackStream ds(buf);
+        string out;
+        REQUIRE(ds.readBytes(out));
+        REQUIRE(ds.isOk());
+        REQUIRE(out == string("\xc4\x00\xff\x10", 4));
+    }
+}
+
+TEST_CASE("writeString(const string&) encodes as msgpack str", "[msgpack][string]")
+{
+    string buf;
+    {
+        MsgPackStream ds(&buf, true);
+        ds.writeString(string("hello"));
+        REQUIRE(ds.isOk());
+    }
+    REQUIRE(buf == string("\xa5hello", 6));
+    {
+        MsgPackStream ds(buf);
+        string out;
+        REQUIRE(ds.readString(out));
+        REQUIRE(ds.isOk());
+        REQUIRE(out == "hello");
+    }
+}
+
+TEST_CASE("readString rejects bin values", "[msgpack][string]")
+{
+    string buf;
+    {
+        MsgPackStream ds(&buf, true);
+        ds.writeBytes(string("abc"));
+        REQUIRE(ds.isOk());
+    }
+    MsgPackStream ds(buf);
+    string out = "unchanged";
+    REQUIRE_FALSE(ds.readString(out));
+    REQUIRE(ds.status() == MsgPackStream::ReadCorruptData);
+    REQUIRE(out == "unchanged");
+}
+
+TEST_CASE("readBytes rejects str values", "[msgpack][bin]")
+{
+    string buf;
+    {
+        MsgPackStream ds(&buf, true);
+        ds.writeString("abc", 3);
+        REQUIRE(ds.isOk());
+    }
+    MsgPackStream ds(buf);
+    string out = "unchanged";
+    REQUIRE_FALSE(ds.readBytes(out));
+    REQUIRE(ds.status() == MsgPackStream::ReadCorruptData);
+    REQUIRE(out == "unchanged");
+}
+
+TEST_CASE("str and bin round-trip verbatim, including invalid UTF-8", "[msgpack][bin]")
+{
+    const string payload("\xff\xfe\x00\xc4", 4);
+    string buf;
+    {
+        MsgPackStream ds(&buf, true);
+        ds << payload;              // str
+        ds.writeBytes(payload);     // bin
+        REQUIRE(ds.isOk());
+    }
+    MsgPackStream ds(buf);
+    string asStr;
+    string asBin;
+    REQUIRE(ds.readString(asStr));
+    REQUIRE(ds.readBytes(asBin));
+    REQUIRE(ds.isOk());
+    REQUIRE(asStr == payload);
+    REQUIRE(asBin == payload);
+}
+
+TEST_CASE("readBytes rejects bin32 payload with length >= 2^31", "[msgpack][bin]")
+{
+    // BIN32 header (0xc6) claiming 0x80000000 bytes must fail cleanly. With the
+    // default length limit of UINT32_MAX the old code let it through the
+    // limit check and crashed in string::resize via the negative int wrap.
+    string buf("\xc6\x80\x00\x00\x00", 5);
+    MsgPackStream ds(buf);
+    ds.setLengthLimit(numeric_limits<uint32_t>::max());
+    string out = "unchanged";
+    REQUIRE_FALSE(ds.readBytes(out));
+    REQUIRE(ds.status() == MsgPackStream::ReadCorruptData);
+    REQUIRE(out == "unchanged");
 }
