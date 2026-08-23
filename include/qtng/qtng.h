@@ -5,7 +5,6 @@
 #include "qtng/locks.h"
 #include "qtng/eventloop.h"
 #include "qtng/socket.h"
-#include "qtng/local_socket.h"
 #include "qtng/socket_utils.h"
 #include "qtng/http.h"
 #include "qtng/http_proxy.h"

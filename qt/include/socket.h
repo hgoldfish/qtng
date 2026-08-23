@@ -27,7 +27,7 @@ public:
         // SctpSocket = QAbstractSocket::SctpSocket,
         // define for other XXXSocket types. not used here.
         KcpSocket = 3,
-        LocalSocket = 4,
+        // LocalSocket removed (unused placeholder), value 4 reserved.
         UnknownSocketType = -1
     };
     Q_ENUMS(SocketType)

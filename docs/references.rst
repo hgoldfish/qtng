@@ -1234,95 +1234,7 @@ These are the member functions of ``Socket`` type.
 
     Set a ``SocketDnsCache`` to ``Socket`` object. Every call to ``connect(hostName, port)`` will check the cache first.
 
-2.2 LocalSocket
-^^^^^^^^^^^^^^^
-
-``LocalSocket`` provides cross-platform local IPC (inter-process communication) on the same machine. It emulates most of the ``Socket`` interface (``bind()``, ``listen()``, ``accept()``, ``connect()``, ``recv()``, ``send()``, ``recvfrom()``, ``sendto()``), but it is **not** fully compatible: the address is a plain ``std::string`` path instead of ``HostAddress``, and there is no DNS, port, or protocol family concept.
-
-* On Linux/BSD/macOS it is implemented with ``AF_UNIX`` sockets, supporting both stream (``SOCK_STREAM``) and datagram (``SOCK_DGRAM``) modes.
-* On Windows it is implemented with named pipes (``\\.\pipe\<name>``). Named pipes only support the stream mode; constructing a ``DatagramSocket`` on Windows fails with ``UnsupportedSocketOperationError``.
-
-There are two constructors.
-
-.. code-block:: c++
-    :caption: LocalSocket constructors
-
-    LocalSocket(LocalSocketType type = StreamSocket);
-
-    LocalSocket(std::intptr_t socketDescriptor);
-
-The ``type`` parameter selects ``StreamSocket`` or ``DatagramSocket``. The second form converts a descriptor (a Unix file descriptor, or a named pipe ``HANDLE`` on Windows) created by other code into a ``LocalSocket``; it must already be connected.
-
-These are the member functions of the ``LocalSocket`` type.
-
-.. method:: LocalSocket::LocalSocketType type() const
-
-    Return the socket type (``StreamSocket`` or ``DatagramSocket``).
-
-.. method:: LocalSocket::LocalSocketState state() const
-
-    Return the current state. Possible values are ``UnconnectedState``, ``ConnectingState``, ``ConnectedState``, ``BoundState``, ``ListeningState`` and ``ClosingState``.
-
-.. method:: bool bind(const std::string &name)
-
-    Bind the local socket to path ``name``. On Unix this creates a socket file; on Windows this creates the named pipe instance ``\\.\pipe\<name>``. Returns ``true`` on success.
-
-.. method:: bool listen(int backlog)
-
-    Set the socket to listening mode. ``accept()`` can then be used to accept new connections.
-
-.. method:: LocalSocket *accept()
-
-    If the socket is currently listening, ``accept()`` blocks the current coroutine and returns a new ``LocalSocket`` object once a client connects. This function returns ``0`` if the socket is closed by another coroutine.
-
-.. method:: bool connect(const std::string &name)
-
-    Connect to the local server at path ``name``. Blocks the current coroutine until the connection is established or failed.
-
-.. method:: void close()
-
-    Close the socket. On Unix the socket file created by ``bind()`` is removed.
-
-.. method:: void abort()
-
-    Abort the socket immediately, discarding any buffered data.
-
-.. method:: std::int32_t peek(char *data, std::int32_t size)
-
-    Receive up to ``size`` bytes without consuming them.
-
-.. method:: std::int32_t recv(char *data, std::int32_t size)
-
-    Receive up to ``size`` bytes. Returns the number of bytes received, or ``-1`` on error.
-
-.. method:: std::int32_t recvall(char *data, std::int32_t size)
-
-    Receive exactly ``size`` bytes, blocking until all bytes are received.
-
-.. method:: std::int32_t send(const char *data, std::int32_t size)
-
-    Send up to ``size`` bytes.
-
-.. method:: std::int32_t sendall(const char *data, std::int32_t size)
-
-    Send exactly ``size`` bytes.
-
-.. method:: std::int32_t recvfrom(char *data, std::int32_t size, std::string *addr)
-
-    Receive a datagram and fill ``*addr`` with the sender's path. Datagram mode only (Unix).
-
-.. method:: std::int32_t sendto(const char *data, std::int32_t size, const std::string &addr)
-
-    Send a datagram to the peer at path ``addr``. Datagram mode only (Unix).
-
-There are also string convenience overloads: ``recv(int32_t size)``, ``recvall(int32_t size)``, ``send(const std::string &data)``, ``sendall(const std::string &data)``, ``recvfrom(int32_t size, std::string *addr)`` and ``sendto(const std::string &data, const std::string &addr)``.
-
-Platform differences:
-
-* **Datagram**: supported on Unix with ``AF_UNIX SOCK_DGRAM``. On Windows, constructing a ``DatagramSocket`` fails and ``recvfrom()``/``sendto()`` return ``UnsupportedSocketOperationError``.
-* **Path length**: on Unix the path is limited by ``sizeof(sun_path)`` (about 108 bytes); a longer path yields ``SocketAddressNotAvailableError``. On Windows the pipe name is limited by the named pipe namespace (the full name is at most 256 characters).
-
-2.3 SslSocket
+2.2 SslSocket
 ^^^^^^^^^^^^^
 
 The ``SslSocket`` is designed to be similar to ``Socket``. It take most functions of ``Socket`` such as ``connect()``, ``recv()``, ``send()``, ``peerName()``, etc.. But exclude ``recvfrom()`` and ``sendto()`` which are only used for UDP socket.
@@ -1443,7 +1355,7 @@ In addition, there are many function provided for obtain information from SslSoc
 
     Set the configuration to use. This function must called before ``handshake()`` is called.
 
-2.4 Socks5 Proxy
+2.3 Socks5 Proxy
 ^^^^^^^^^^^^^^^^
 
 ``Socks5Proxy`` provides SOCKS5 client support. You can use it to make connection to remote host via SOCKS5 proxy.
@@ -1538,10 +1450,10 @@ The second constructor use the ``hostName`` and ``port`` to create a valid Socks
 
     Set the ``password`` used for autherication of proxy server.
 
-2.5 SocketServer
+2.4 SocketServer
 ^^^^^^^^^^^^^^^^
 
-2.5.1 BaseStreamServer
+2.4.1 BaseStreamServer
 +++++++++++++++++++++++
 
 BaseStreamServer is the foundational core class for building other SocketServers, providing basic socket server methods and reserving interfaces for further implementation of server types like TcpServer and KcpServer.
@@ -1602,7 +1514,7 @@ BaseStreamServer is the foundational core class for building other SocketServers
 
     Verifies request validity (e.g. IP blacklist). Default implementation: directly returns true, accepting all connections.
 
-2.5.2 WithSsl
+2.4.2 WithSsl
 ++++++++++++++
 Adds SSL/TLS encryption to any streaming server seamlessly through template composition.
 
@@ -1639,7 +1551,7 @@ Adds SSL/TLS encryption to any streaming server seamlessly through template comp
 
     Upgrades raw TCP connection to SSL connection.
 
-2.5.3 BaseRequestHandler
+2.4.3 BaseRequestHandler
 +++++++++++++++++++++++++
 Base class for request handling logic, users should inherit and implement concrete logic.
 
@@ -1663,7 +1575,7 @@ Base class for request handling logic, users should inherit and implement concre
 
     Safely retrieves server-associated custom data (e.g. database connection pools, configuration objects).
 
-2.5.4 Socks5RequestHandler
+2.4.4 Socks5RequestHandler
 +++++++++++++++++++++++++++
 Socks5RequestHandler implements SOCKS5 proxy protocol, inheriting from BaseRequestHandler to handle client connection requests through SOCKS5 proxy. Core features include protocol handshake, target address resolution, connection establishment, and data forwarding.
 
@@ -1707,7 +1619,7 @@ Socks5RequestHandler implements SOCKS5 proxy protocol, inheriting from BaseReque
 
     Logs detailed proxy request information.
 
-2.5.5 TcpServer
+2.4.5 TcpServer
 ++++++++++++++++
 
 Encapsulates the creation, binding, and listening of TCP servers. Implements business logic decoupling through the template parameter RequestHandler. Supports high-concurrency connections based on coroutine concurrency model.
@@ -1755,7 +1667,7 @@ Encapsulates the creation, binding, and listening of TCP servers. Implements bus
         return 0;
     }
 
-2.5.6 KcpServer
+2.4.6 KcpServer
 ++++++++++++++++
 KCP protocol server implementation.
 

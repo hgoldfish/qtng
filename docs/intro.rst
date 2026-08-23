@@ -197,14 +197,6 @@ control and reliability follow LEDBAT rather than KCP ``Mode``. Protocol paramet
 ``setMode`` / ``setTearDownTime``. The session core is ``UtpStream`` (``qtng/private/utp.h``), also
 built on ``DatagramLink``. Runtime does not link libutp; libutp is only an optional test peer.
 
-``LocalSocket`` provides local IPC (inter-process communication) on the same machine, emulating
-most of the ``Socket`` interface (``bind()``, ``listen()``, ``accept()``, ``connect()``,
-``recv()``, ``send()``, and the datagram ``recvfrom()``/``sendto()``). The address is a plain
-``std::string`` path rather than a ``HostAddress``, so there is no DNS, port or protocol family
-concept. On Linux/BSD/macOS it is implemented with ``AF_UNIX`` sockets (stream and datagram); on
-Windows it is implemented with named pipes (stream only).
-
-
 Create Socket client
 ^^^^^^^^^^^^^^^^^^^^
 

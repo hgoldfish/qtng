@@ -223,14 +223,6 @@ target_include_directories(qtng_test_utp PRIVATE "${CMAKE_SOURCE_DIR}/include")
 set_target_properties(qtng_test_utp PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 catch_discover_tests(qtng_test_utp)
 
-add_executable(qtng_test_local_socket
-    test_local_socket.cpp
-)
-target_link_libraries(qtng_test_local_socket PRIVATE qtng Catch2::Catch2WithMain)
-target_include_directories(qtng_test_local_socket PRIVATE "${CMAKE_SOURCE_DIR}/include")
-set_target_properties(qtng_test_local_socket PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-catch_discover_tests(qtng_test_local_socket)
-
 if(QTNG_WITH_QUIC)
     add_executable(qtng_test_quic
         test_quic.cpp

@@ -1015,95 +1015,7 @@ DNS相关
 
     设置DNS缓存
 
-2.2 LocalSocket
-^^^^^^^^^^^^^^^
-
-``LocalSocket`` 提供同一台机器上的跨平台本地进程间通信（IPC）。它模拟了 ``Socket`` 的大部分接口（``bind()``、``listen()``、``accept()``、``connect()``、``recv()``、``send()``、``recvfrom()``、``sendto()``），但**并不完全兼容**：地址是普通的 ``std::string`` 路径而非 ``HostAddress``，没有 DNS、端口或协议族的概念。
-
-* 在 Linux/BSD/macOS 上基于 ``AF_UNIX`` 套接字实现，同时支持流（``SOCK_STREAM``）和数据报（``SOCK_DGRAM``）两种模式。
-* 在 Windows 上基于命名管道（``\\.\pipe\<name>``）实现。命名管道只支持流模式；在 Windows 上构造 ``DatagramSocket`` 会以 ``UnsupportedSocketOperationError`` 失败。
-
-提供两种构造函数：
-
-.. code-block:: c++
-    :caption: LocalSocket 构造函数
-
-    LocalSocket(LocalSocketType type = StreamSocket);
-
-    LocalSocket(std::intptr_t socketDescriptor);
-
-``type`` 参数选择 ``StreamSocket`` 或 ``DatagramSocket``。第二种形式把其它代码创建的描述符（Unix 文件描述符，或 Windows 上的命名管道 ``HANDLE``）转换成 ``LocalSocket``；它必须已经处于已连接状态。
-
-以下是 ``LocalSocket`` 类型的成员函数：
-
-.. method:: LocalSocket::LocalSocketType type() const
-
-    返回套接字类型（``StreamSocket`` 或 ``DatagramSocket``）。
-
-.. method:: LocalSocket::LocalSocketState state() const
-
-    返回当前状态。可能取值为 ``UnconnectedState``、``ConnectingState``、``ConnectedState``、``BoundState``、``ListeningState`` 和 ``ClosingState``。
-
-.. method:: bool bind(const std::string &name)
-
-    将本地套接字绑定到路径 ``name``。在 Unix 上会创建套接字文件；在 Windows 上会创建命名管道实例 ``\\.\pipe\<name>``。成功返回 ``true``。
-
-.. method:: bool listen(int backlog)
-
-    将套接字设为监听模式，之后可用 ``accept()`` 接受新连接。
-
-.. method:: LocalSocket *accept()
-
-    若套接字正在监听，``accept()`` 阻塞当前协程，待新客户端连接后返回新的 ``LocalSocket`` 对象。若套接字被其它协程关闭，此函数返回 ``0``。
-
-.. method:: bool connect(const std::string &name)
-
-    连接到路径 ``name`` 处的本地服务端。阻塞当前协程直到连接建立或失败。
-
-.. method:: void close()
-
-    关闭套接字。在 Unix 上会移除 ``bind()`` 创建的套接字文件。
-
-.. method:: void abort()
-
-    立即中止套接字，丢弃任何缓冲数据。
-
-.. method:: std::int32_t peek(char *data, std::int32_t size)
-
-    读取至多 ``size`` 字节但不消费它们。
-
-.. method:: std::int32_t recv(char *data, std::int32_t size)
-
-    接收至多 ``size`` 字节。返回实际接收的字节数，出错返回 ``-1``。
-
-.. method:: std::int32_t recvall(char *data, std::int32_t size)
-
-    接收恰好 ``size`` 字节，阻塞直到收满为止。
-
-.. method:: std::int32_t send(const char *data, std::int32_t size)
-
-    发送至多 ``size`` 字节。
-
-.. method:: std::int32_t sendall(const char *data, std::int32_t size)
-
-    发送恰好 ``size`` 字节。
-
-.. method:: std::int32_t recvfrom(char *data, std::int32_t size, std::string *addr)
-
-    接收一个数据报，并把发送方路径填入 ``*addr``。仅数据报模式（Unix）。
-
-.. method:: std::int32_t sendto(const char *data, std::int32_t size, const std::string &addr)
-
-    向路径 ``addr`` 的对端发送一个数据报。仅数据报模式（Unix）。
-
-另外还有字符串便捷重载：``recv(int32_t size)``、``recvall(int32_t size)``、``send(const std::string &data)``、``sendall(const std::string &data)``、``recvfrom(int32_t size, std::string *addr)`` 和 ``sendto(const std::string &data, const std::string &addr)``。
-
-平台差异：
-
-* **数据报**：Unix 上由 ``AF_UNIX SOCK_DGRAM`` 支持。Windows 上构造 ``DatagramSocket`` 失败，``recvfrom()``/``sendto()`` 返回 ``UnsupportedSocketOperationError``。
-* **路径长度**：Unix 上路径受 ``sizeof(sun_path)``（约 108 字节）限制；更长的路径产生 ``SocketAddressNotAvailableError``。Windows 上管道名受命名管道命名空间限制（完整名最长 256 字符）。
-
-2.3 SslSocket
+2.2 SslSocket
 ^^^^^^^^^^^^^
 
 ``SslSocket`` 设计类似 ``Socket``，继承大部分函数如 ``connect()``、``recv()``、``send()``、``peerName()`` 等，但排除仅用于 UDP 套接字的 ``recvfrom()`` 和 ``sendto()``。
@@ -1208,7 +1120,7 @@ DNS相关
 
     设置 SSL 配置（必须在握手前调用）
 
-2.4 Socks5 代理
+2.3 Socks5 代理
 ^^^^^^^^^^^^^^^^
 
 ``Socks5Proxy`` 提供 SOCKS5 客户端支持，支持通过代理服务器连接远程主机。
@@ -1285,10 +1197,10 @@ DNS相关
 
     设置认证密码
 
-2.5 SocketServer
+2.4 SocketServer
 ^^^^^^^^^^^^^^^^
 
-2.5.1 BaseStreamServer
+2.4.1 BaseStreamServer
 +++++++++++++++++++++++
  ``BaseStreamServer`` 是构建其他SocketServer基础核心类，提供了一些Socket服务器基础方法，以及保留了一些接口，用于进一步实现 ``TcpServer`` 和 ``KcpServer`` 等类型
 
@@ -1348,7 +1260,7 @@ DNS相关
 
     验证请求是否合法（如IP黑名单），默认实现：直接返回 true，接受所有连接。
 
-2.5.2 WithSsl 
+2.4.2 WithSsl 
 ++++++++++++++
 通过模板组合，为任意流式服务器无缝添加 SSL/TLS 加密功能。
 
@@ -1388,7 +1300,7 @@ DNS相关
     将原始 TCP 连接升级为 SSL 连接。
 
 
-2.5.3 BaseRequestHandler
+2.4.3 BaseRequestHandler
 +++++++++++++++++++++++++
 请求处理逻辑的基类，用户需继承并实现具体逻辑。
 
@@ -1412,7 +1324,7 @@ DNS相关
 
     安全获取服务器关联的自定义数据（如数据库连接池、配置对象）。
 
-2.5.4 Socks5RequestHandler
+2.4.4 Socks5RequestHandler
 +++++++++++++++++++++++++++
 ``Socks5RequestHandler`` 是 SOCKS5 代理协议的具体实现，继承自 ``BaseRequestHandler``，用于处理客户端通过 SOCKS5 代理发起的连接请求。其核心功能包括协议握手、目标地址解析、连接建立和数据转发。
 
@@ -1458,7 +1370,7 @@ DNS相关
 
     记录代理请求的详细日志。 
 
-2.5.5 TcpServer
+2.4.5 TcpServer
 ++++++++++++++++
 封装 TCP 服务器的创建、绑定、监听,通过模板参数 RequestHandler 实现业务逻辑解耦,基于协程的并发模型,支持高并发连接。
 
@@ -1506,7 +1418,7 @@ DNS相关
             return 0;
         }
 
-2.5.6 KcpServer
+2.4.6 KcpServer
 ++++++++++++++++
 KCP 协议的服务器实现。
 
