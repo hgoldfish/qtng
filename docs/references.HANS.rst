@@ -1908,6 +1908,10 @@ KCP 协议的服务器实现。
 
     设置表单 ``name`` 字段的值为 ``value``。
 
+.. method:: static std::string makeBoundary()
+
+    生成随机的 multipart boundary。构造函数调用它以初始化 ``boundary`` 成员。
+
 3.4 HTTP errors
 ^^^^^^^^^^^^^^^
 
@@ -2814,6 +2818,11 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 PSK 不是独立 pattern，而是 ``NoisePskModifier``（``None`` / ``Psk0``–``Psk3``）：
 
 * 协议名变为 ``Noise_<pattern>pskN_25519_*_*``（例如 ``Noise_XXpsk0_...``、``Noise_IKpsk2_...``）。
+* 完整协议名由 ``noiseProtocolName()`` / ``parseNoiseProtocolName()`` /
+  ``applyNoiseProtocolName()`` 处理：``Noise_XXpsk0_25519_ChaChaPoly_SHA256``。
+  ``parseNoiseProtocolName()`` 匹配 ``noiseProtocolName()`` 且 ``initialize()`` 允许的组合
+  （非法 PSK 槽位拒绝）；``applyNoiseProtocolName()`` 把结果写入 ``NoiseConfig``
+  （pattern、PSK 修饰符、cipher、hash）。
 * ``psk0`` 在第 1 条握手消息的 token 之前做 ``MixKeyAndHash``；``pskN``（N>0）在第 N 条消息其余 token 之后、payload AEAD 之前。
 * 2 条消息的 pattern（``IK`` / ``KK``）允许 ``psk0``–``psk2``；3 条消息的（``XX`` / ``XK``）允许 ``psk0``–``psk3``。
 * PSK 必须恰好 32 字节；非空 PSK 必须带修饰符，带修饰符则 PSK 不得为空。
@@ -2849,6 +2858,8 @@ PSK 不是独立 pattern，而是 ``NoisePskModifier``（``None`` / ``Psk0``–`
   ``REJECT_AFTER_MESSAGES``（``2^64 - 8129``）处停止。
   本类不调用 ``Socket``、``DatagramLink`` 或任何其它 I/O 类型。会话对象不可拷贝：拷贝会
   复制 nonce 计数器，导致密钥流重用。可以移动，以便把已完成握手的会话交给另一个对象。
+  可运行示例见 ``examples/noise-udp/``（由 ``CoroutineGroup`` 启动的两个 worker
+  协程各自持有 UDP ``Socket``，由 ``performNoiseHandshake()`` 辅助函数驱动握手消息交换）。
 * ``NoiseSocket`` — 与 ``SslSocket`` 同类：在可靠流（TCP 等）上跑 Noise。握手由
   ``NoiseHandshakeState`` 完成；传输层用顺序 ``NoiseCipherState``（自增 nonce，线上不传 nonce，
   不做防重放）。每个 Noise 消息在 backend 上加 2 字节大端长度前缀（传输为 ``密文||tag``，
@@ -2926,11 +2937,12 @@ CMake 按如下顺序选择 TLS/加密库：
 * 否则调用 ``find_package(OpenSSL 1.1.1 QUIET)``；找到则链接系统 OpenSSL（Noise 需要 1.1.1+ 的 X25519 raw key API）。
 * 若 LibreSSL 与 OpenSSL 皆不可用，CMake 发出警告并继续构建（``QTNG_NO_CRYPTO``）：不编译 TLS/SSL、Noise、AEAD、QUIC。``MessageDigest`` 仍通过软件实现支持 MD5/SHA-1/SHA-224/SHA-256。
 
-不完善协议模块（默认开启）：
+可选协议模块（默认关闭；用 ``-DQTNG_WITH_*=ON`` 开启）：
 
 * ``QTNG_WITH_HTTP2`` — HTTP/2 客户端与 HPACK
 * ``QTNG_WITH_QUIC`` — QUICv1 传输层 MVP（无加密时强制关闭）
 * ``QTNG_WITH_HTTP3`` — HTTP/3 占位实现（无 QUIC 时强制关闭）
+* ``QTNG_WITH_BT`` — BitTorrent 下载栈（``TorrentSession``；bencode 与 DHT 仍在默认构建中）
 
 未使用内置 LibreSSL 时，Debian/Ubuntu 可安装 ``libssl-dev`` 开发包。
 
@@ -3997,6 +4009,7 @@ API 相同）。
 ``TorrentSession`` / ``TorrentHandle`` / ``TorrentMeta`` / ``MagnetLink``（头文件
 ``qtng/bt.h``，实现 ``src/bt.cpp``）提供面向网络程序的 **BitTorrent 核心下载栈**：
 加载 ``.torrent`` 或 magnet URI、发现 peer、经 peer wire 传片、SHA-1 校验并写盘。
+需用 ``-DQTNG_WITH_BT=ON`` 启用（默认关闭；关闭时定义 ``QTNG_NO_BT``）。
 
 本栈**复用**已有 qtng 组件，不重复实现：
 

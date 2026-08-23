@@ -898,21 +898,6 @@ Types of I/O operations
     Returns event loop's termination status code for judging operation result.
 
 
-.. method:: bool isQt()
-
-    Determines if the event loop backend implementation is Qt.
-
-
-.. method:: bool isEv()
-
-    Determines if the event loop backend implementation is libev.
-
-
-.. method:: bool isWin()
-
-    Determines if the event loop backend implementation is winev.
-
-
 .. method:: static EventLoopCoroutine *get()
 
     Unified entry point for event loop, manages instance lifecycle via thread-local storage and adapts to multi-platform backends.
@@ -2200,6 +2185,10 @@ Note: see ``void HttpRequest::setBody(const FormData &formData)``.
 
     Set the field in ``name`` of form to ``value``.
 
+.. method:: static std::string makeBoundary()
+
+    Generate a random multipart boundary. The constructor calls it to initialize the ``boundary`` member.
+
 
 3.4 HTTP errors
 ^^^^^^^^^^^^^^^
@@ -3097,6 +3086,11 @@ PSK is a ``NoisePskModifier`` (``None`` / ``Psk0``–``Psk3``), not a separate p
 
 * Protocol names become ``Noise_<pattern>pskN_25519_*_*`` (e.g. ``Noise_XXpsk0_...``,
   ``Noise_IKpsk2_...``).
+* Full protocol names are ``noiseProtocolName()`` / ``parseNoiseProtocolName()`` /
+  ``applyNoiseProtocolName()``: ``Noise_XXpsk0_25519_ChaChaPoly_SHA256``.
+  ``parseNoiseProtocolName()`` matches ``noiseProtocolName()`` for combinations
+  ``initialize()`` allows (invalid PSK slots rejected); ``applyNoiseProtocolName()`` writes the
+  result into ``NoiseConfig`` (pattern, PSK modifier, cipher, hash).
 * ``psk0`` is ``MixKeyAndHash`` at the start of handshake message 1; ``pskN`` (N>0) is at
   the end of message N, before payload AEAD.
 * Two-message patterns (``IK`` / ``KK``) allow ``psk0``–``psk2``; three-message patterns
@@ -3148,6 +3142,9 @@ PSK is a ``NoisePskModifier`` (``None`` / ``Psk0``–``Psk3``), not a separate p
   This class does not call ``Socket``, ``DatagramLink``, or any other I/O type.
   The session is not copyable: a copy would duplicate nonce counters and reuse the
   keystream. It is movable so a completed handshake can be handed to another object.
+  A runnable example lives under ``examples/noise-udp/`` (two worker coroutines
+  spawned by a ``CoroutineGroup`` each own a UDP ``Socket``; a
+  ``performNoiseHandshake()`` helper drives the message exchange).
 * ``NoiseSocket`` — analogous to ``SslSocket``: Noise over a reliable stream
   (TCP, ...). Handshake uses ``NoiseHandshakeState``; transport uses sequential
   ``NoiseCipherState`` (implicit incrementing nonce, no on-wire nonce or replay
@@ -3229,11 +3226,12 @@ CMake chooses the TLS/crypto library as follows:
 * Else ``find_package(OpenSSL 1.1.1 QUIET)`` is used; when found, system OpenSSL is linked (Noise needs the X25519 raw-key API from 1.1.1+).
 * If neither LibreSSL nor OpenSSL is available, CMake emits a warning and continues with ``QTNG_NO_CRYPTO`` (TLS/SSL, Noise, AEAD, and QUIC are not built). ``MessageDigest`` still supports MD5/SHA-1/SHA-224/SHA-256 via a software fallback.
 
-Incomplete protocol modules (default ON):
+Optional protocol modules (default OFF; enable with ``-DQTNG_WITH_*=ON``):
 
 * ``QTNG_WITH_HTTP2`` — HTTP/2 client + HPACK
 * ``QTNG_WITH_QUIC`` — QUICv1 transport MVP (forced off without crypto)
 * ``QTNG_WITH_HTTP3`` — HTTP/3 stub (forced off without QUIC)
+* ``QTNG_WITH_BT`` — BitTorrent download stack (``TorrentSession``; bencode and DHT stay in the default build)
 
 Install development packages on Debian/Ubuntu with ``libssl-dev`` when not using bundled LibreSSL.
 
@@ -4359,6 +4357,7 @@ This module does **not** implement:
 ``qtng/bt.h``, implementation ``src/bt.cpp``) provide a **core BitTorrent download
 stack** for network programs: load a ``.torrent`` or magnet URI, discover peers,
 transfer pieces over the peer wire protocol, verify SHA-1, and write files.
+Enable with ``-DQTNG_WITH_BT=ON`` (off by default; defines ``QTNG_NO_BT`` when disabled).
 
 The stack **reuses** existing qtng building blocks and does not reimplement them:
 

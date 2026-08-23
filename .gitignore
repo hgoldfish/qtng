@@ -21,6 +21,7 @@ website/
 /docs/_build/
 /examples/*/build/
 /qt/examples/*/build/
+/qt/tests/*/build/
 /examples/*/dist/
 /examples/*/.build-in-docker/
 /examples/*/.build-winxp/
