@@ -177,6 +177,18 @@ target_link_libraries(qtnetworkng
     PRIVATE qtng ${QTNG_QT_EXTRA_LIBS}
 )
 
+# Bundled static LibreSSL exports OpenSSL symbols; hide them from the dynamic
+# symbol table so dlopen'd plugins (e.g. libssh) use system libcrypto instead.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET crypto)
+    get_target_property(_qtng_crypto_type crypto TYPE)
+    if(_qtng_crypto_type STREQUAL "STATIC_LIBRARY")
+        target_link_options(qtnetworkng INTERFACE
+            "LINKER:--exclude-libs,libcrypto.a"
+            "LINKER:--exclude-libs,libssl.a")
+    endif()
+    unset(_qtng_crypto_type)
+endif()
+
 target_compile_features(qtnetworkng PUBLIC cxx_std_${QTNG_QT_CXX_STANDARD})
 
 # Only propagate the Qt major version back through PARENT_SCOPE when qt/ is pulled in via
