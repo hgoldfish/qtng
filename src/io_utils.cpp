@@ -1083,7 +1083,13 @@ public:
     }
 
     int32_t write(const char *, int32_t) override { return -1; }
-    void close() override { pp->closed = true; }
+    void close() override
+    {
+        if (!pp->closed) {
+            pp->closed = true;
+            pp->queue.putForcedly(string());  // signal EOF to the reader
+        }
+    }
     int64_t size() override { return -1; }
 
     shared_ptr<PipePrivate> pp;
@@ -1112,7 +1118,13 @@ public:
         }
         return size;
     }
-    void close() override { pp->closed = true; }
+    void close() override
+    {
+        if (!pp->closed) {
+            pp->closed = true;
+            pp->queue.putForcedly(string());  // signal EOF to the reader
+        }
+    }
     int64_t size() override { return -1; }
 
     shared_ptr<PipePrivate> pp;

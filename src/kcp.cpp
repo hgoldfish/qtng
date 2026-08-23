@@ -22,7 +22,6 @@
 #include "qtng/socket_utils.h"
 #include "qtng/coroutine_utils.h"
 #include "qtng/random.h"
-#include "qtng/utils/random.h"
 #include "qtng/private/socket_p.h"
 #include "./kcp/ikcp.h"
 #include "qtng/utils/datetime.h"
@@ -623,7 +622,7 @@ string KcpStreamPrivate::makeDataPacket(const char *data, int32_t size)
 string KcpStreamPrivate::makeShutdownPacket(uint32_t sessionId)
 {
     // Pad to a random length in [5, 64) so control packets are not fixed-size.
-    const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
+    const int size = 5 + static_cast<int>(RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_CLOSE;
     ngToBigEndian<uint32_t>(sessionId, &packet[1]);
@@ -632,7 +631,7 @@ string KcpStreamPrivate::makeShutdownPacket(uint32_t sessionId)
 
 string KcpStreamPrivate::makeKeepalivePacket()
 {
-    const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
+    const int size = 5 + static_cast<int>(RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_KEEPALIVE;
     ngToBigEndian<uint32_t>(this->sessionId, &packet[1]);
@@ -641,7 +640,7 @@ string KcpStreamPrivate::makeKeepalivePacket()
 
 string KcpStreamPrivate::makeMultiPathPacket(uint32_t sessionId)
 {
-    const int size = 5 + static_cast<int>(utils::RandomGenerator::global().bounded(64 - 5));
+    const int size = 5 + static_cast<int>(RandomGenerator::global().bounded(64 - 5));
     string packet = randomBytes(size);
     packet[0] = PACKET_TYPE_CREATE_MULTIPATH;
     ngToBigEndian<uint32_t>(sessionId, &packet[1]);
@@ -702,14 +701,20 @@ bool MasterKcpStreamPrivate::close(bool force)
     } else if (state == Socket::ConnectedState) {
         state = Socket::UnconnectedState;
         if (!force && error == Socket::NoError) {
-            bool drained = sendingQueueEmpty.isSet();
-            if (!drained) {
-                updateKcp();
-                drained = sendingQueueEmpty.tryWait(3000);
-            }
-            if (drained) {
-                const string &packet = makeShutdownPacket(this->sessionId);
-                rawSend(packet.data(), packet.size());
+            try {
+                bool drained = sendingQueueEmpty.isSet();
+                if (!drained) {
+                    updateKcp();
+                    drained = sendingQueueEmpty.tryWait(3000);
+                }
+                if (drained) {
+                    const string &packet = makeShutdownPacket(this->sessionId);
+                    rawSend(packet.data(), packet.size());
+                }
+            } catch (...) {
+                // close() can run from a destructor while the current coroutine is being killed.
+                // Waiting on the queue would raise the kill exception out of the destructor
+                // (noexcept -> terminate), so fall through to the non-blocking cleanup below.
             }
         }
     } else if (state == Socket::ListeningState) {
@@ -722,11 +727,35 @@ bool MasterKcpStreamPrivate::close(bool force)
             }
         }
         this->receiversByHostAndPort.clear();
-        CoroutineGroup::each<SlaveKcpStreamPrivate *>([force](SlaveKcpStreamPrivate *receiver) {
-            if (receiver) {
-                receiver->close(force);
+        if (force) {
+            // force-close is called from destructors / doUpdate() and must not block:
+            // CoroutineGroup::each() joins, and joining from a coroutine that is being
+            // killed raises CoroutineExitException out of a destructor (noexcept -> terminate).
+            // SlaveKcpStreamPrivate::close(true) is non-blocking, so close inline.
+            for (SlaveKcpStreamPrivate *receiver : receivers) {
+                if (receiver) {
+                    receiver->close(true);
+                }
             }
-        }, receivers, 10);
+        } else {
+            try {
+                CoroutineGroup::each<SlaveKcpStreamPrivate *>([force](SlaveKcpStreamPrivate *receiver) {
+                    if (receiver) {
+                        receiver->close(force);
+                    }
+                }, receivers, 10);
+            } catch (...) {
+                // close() can run from a destructor while the current coroutine is being killed.
+                // each() joins, and joining raises the kill exception out of the destructor. The
+                // streams are closed here non-blockingly instead; close(true) is idempotent, so
+                // streams already closed by the aborted each() are simply skipped.
+                for (SlaveKcpStreamPrivate *receiver : receivers) {
+                    if (receiver) {
+                        receiver->close(true);
+                    }
+                }
+            }
+        }
         receiversBySessionId.clear();
     } else {  // BoundState
         state = Socket::UnconnectedState;

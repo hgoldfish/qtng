@@ -151,6 +151,11 @@ bool SocketPrivate::createSocket()
 
         return false;
     }
+#ifndef SOCK_CLOEXEC
+    // macOS has no SOCK_CLOEXEC; ensure the socket is not inherited to avoid
+    // port leaks and shared-socket shutdown issues.
+    ::fcntl(fd, F_SETFD, FD_CLOEXEC);
+#endif
 #ifdef NG_OS_MACOS
     if (!setNonblocking()) {
         close();

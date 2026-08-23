@@ -131,11 +131,31 @@ void BaseStreamServer::serverClose()
     d->serverSocket->close();
 }
 
+class ServingStateGuard
+{
+public:
+    ServingStateGuard(shared_ptr<Event> started, shared_ptr<Event> stopped)
+        : started(std::move(started))
+        , stopped(std::move(stopped))
+    {
+        this->started->set();
+        this->stopped->clear();
+    }
+    ~ServingStateGuard()
+    {
+        started->clear();
+        stopped->set();
+    }
+
+private:
+    shared_ptr<Event> started;
+    shared_ptr<Event> stopped;
+};
+
 void BaseStreamServerPrivate::serveForever()
 {
     NG_Q(BaseStreamServer);
-    started->set();
-    stopped->clear();
+    ServingStateGuard servingStateGuard(started, stopped);
     while (true) {
         shared_ptr<SocketLike> request = q->getRequest();
         if (!request) {
@@ -164,8 +184,6 @@ void BaseStreamServerPrivate::serveForever()
         }
     }
     q->serverClose();
-    started->clear();
-    stopped->set();
 }
 
 bool BaseStreamServer::serveForever()

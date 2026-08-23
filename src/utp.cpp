@@ -5,7 +5,6 @@
 #include "qtng/coroutine_utils.h"
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/logging.h"
-#include "qtng/utils/random.h"
 #include "qtng/random.h"
 
 #include <algorithm>
@@ -837,11 +836,33 @@ bool MasterUtpStreamPrivate::close(bool force)
             }
         }
         slavesByPath.clear();
-        CoroutineGroup::each<UtpStream *>([](UtpStream *s) {
-            if (s) {
-                s->close();
+        if (force) {
+            // force-close is called from destructors and must not block (CoroutineGroup::each
+            // joins; joining from a killed coroutine raises CoroutineExitException out of a
+            // destructor -> terminate). SlaveUtpStreamPrivate::close(true) is non-blocking.
+            for (UtpStream *s : slaves) {
+                if (s) {
+                    s->abort();
+                }
             }
-        }, slaves, 10);
+        } else {
+            try {
+                CoroutineGroup::each<UtpStream *>([](UtpStream *s) {
+                    if (s) {
+                        s->close();
+                    }
+                }, slaves, 10);
+            } catch (...) {
+                // close() can run from a destructor while the current coroutine is being killed.
+                // each() joins, and joining raises the kill exception out of the destructor. The
+                // streams are aborted non-blockingly instead; abort() is idempotent.
+                for (UtpStream *s : slaves) {
+                    if (s) {
+                        s->abort();
+                    }
+                }
+            }
+        }
     } else {
         state = Socket::UnconnectedState;
     }
