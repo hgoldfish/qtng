@@ -98,6 +98,7 @@ set(UTILS_SRC
 set(QTNG_SRC
     ${UTILS_SRC}
     src/socket.cpp
+    src/local_socket.cpp
     src/eventloop.cpp
     src/coroutine.cpp
     src/locks.cpp
@@ -151,6 +152,7 @@ set(QTNG_PUBLIC_INCLUDE
     include/qtng.h
     include/qtng/coroutine.h
     include/qtng/socket.h
+    include/qtng/local_socket.h
     include/qtng/eventloop.h
     include/qtng/locks.h
     include/qtng/coroutine_utils.h
@@ -183,6 +185,7 @@ set(QTNG_PRIVATE_INCLUDE
     include/qtng/private/coroutine_p.h
     include/qtng/private/coroutine_utils_p.h
     include/qtng/private/socket_p.h
+    include/qtng/private/local_socket_p.h
     include/qtng/private/kcp.h
     include/qtng/private/utp.h
     include/qtng/private/kademlia_p.h
@@ -270,6 +273,7 @@ set(QTNG_UTILS_INCLUDE
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
     set(OS_DEPENDENDED_SRC
         src/socket_win.cpp
+        src/local_socket_win.cpp
         src/coroutine_win.cpp
         src/network_interface/network_interface_win.cpp
     )
@@ -306,6 +310,7 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Android")
     endif()
     list(APPEND OS_DEPENDENDED_SRC
         src/socket_unix.cpp
+        src/local_socket_unix.cpp
         src/coroutine_fcontext.cpp
         src/network_interface/network_interface_unix.cpp
     )
@@ -338,6 +343,7 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
     endif()
     list(APPEND OS_DEPENDENDED_SRC
         src/socket_unix.cpp
+        src/local_socket_unix.cpp
         src/coroutine_fcontext.cpp
         src/network_interface/network_interface_unix.cpp
     )
@@ -377,6 +383,7 @@ elseif(UNIX)
     endif()
     list(APPEND OS_DEPENDENDED_SRC
         src/socket_unix.cpp
+        src/local_socket_unix.cpp
     )
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         list(APPEND OS_DEPENDENDED_SRC src/network_interface/network_interface_linux.cpp)

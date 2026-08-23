@@ -198,6 +198,12 @@ qtng旨在简化C++网络编程。 ``Socket`` 类是对BSD socket接口的面向
 不用 ``setMode`` / ``setTearDownTime``。会话核心为 ``UtpStream``（``qtng/private/utp.h``），同样基于
 ``DatagramLink``。运行时不链接 libutp；libutp 仅用于可选的互通测试。
 
+``LocalSocket`` 提供同一台机器上的本地进程间通信（IPC），模拟 ``Socket`` 的大部分接口
+（``bind()``、``listen()``、``accept()``、``connect()``、``recv()``、``send()``，以及数据报的
+``recvfrom()``/``sendto()``）。地址是普通的 ``std::string`` 路径而非 ``HostAddress``，因此没有
+DNS、端口或协议族的概念。在 Linux/BSD/macOS 上基于 ``AF_UNIX`` 套接字实现（流 + 数据报）；在
+Windows 上基于命名管道实现（仅流）。
+
 
 创建Socket客户端
 ^^^^^^^^^^^^^^^^
