@@ -74,7 +74,7 @@ public:
 };
 
 class HttpRequestPrivate;
-class HttpRequest : public HttpHeaderManager
+class HttpRequest
 {
 public:
     enum CacheLoadControl { AlwaysNetwork, PreferNetwork, PreferCache, AlwaysCache };
@@ -136,9 +136,38 @@ public:
     void setBody(const QJsonArray &json);
     void setBody(const QMap<QString, QString> form);
     void setBody(const QUrlQuery &form);
+public:
+    void setContentType(const QString &contentType);
+    QString getContentType() const;
+    void setContentLength(qint64 contentLength);
+    qint64 getContentLength() const;
+    void setLocation(const QUrl &url);
+    QUrl getLocation() const;
+    void setLastModified(const QDateTime &lastModified);
+    QDateTime getLastModified() const;
+    void setModifiedSince(const QDateTime &modifiedSince);
+    QDateTime getModifedSince() const;
+
+    void setHeader(const QString &name, const QByteArray &value);
+    void addHeader(const QString &name, const QByteArray &value);
+    void addHeader(const HttpHeader &header);
+    bool hasHeader(const QString &name) const;
+    bool removeHeader(const QString &name);
+    void setHeader(KnownHeader header, const QByteArray &value);
+    void addHeader(KnownHeader header, const QByteArray &value);
+    bool hasHeader(KnownHeader header) const;
+    bool removeHeader(KnownHeader header);
+    QByteArray header(const QString &name, const QByteArray &defaultValue = QByteArray()) const;
+    QByteArray header(KnownHeader header, const QByteArray &defaultValue = QByteArray()) const;
+    QList<QByteArray> multiHeader(const QString &name) const;
+    QList<QByteArray> multiHeader(KnownHeader header) const;
+    QList<HttpHeader> allHeaders() const;
+    void setHeaders(const QMap<QString, QByteArray> headers);
+    void setHeaders(const QList<HttpHeader> &headers);
 private:
     QSharedDataPointer<HttpRequestPrivate> d;
     friend class HttpSessionPrivate;
+    friend class QtHttpBridgeAccess;
 };
 
 class RequestError
@@ -149,7 +178,7 @@ public:
 };
 
 class HttpResponsePrivate;
-class HttpResponse : public HttpHeaderManager
+class HttpResponse
 {
 public:
     HttpResponse();
@@ -194,9 +223,38 @@ public:
     QSharedPointer<RequestError> error() const;
     void setError(QSharedPointer<RequestError> error);
     void setError(RequestError *error) { setError(QSharedPointer<RequestError>(error)); }
+public:
+    void setContentType(const QString &contentType);
+    QString getContentType() const;
+    void setContentLength(qint64 contentLength);
+    qint64 getContentLength() const;
+    void setLocation(const QUrl &url);
+    QUrl getLocation() const;
+    void setLastModified(const QDateTime &lastModified);
+    QDateTime getLastModified() const;
+    void setModifiedSince(const QDateTime &modifiedSince);
+    QDateTime getModifedSince() const;
+
+    void setHeader(const QString &name, const QByteArray &value);
+    void addHeader(const QString &name, const QByteArray &value);
+    void addHeader(const HttpHeader &header);
+    bool hasHeader(const QString &name) const;
+    bool removeHeader(const QString &name);
+    void setHeader(KnownHeader header, const QByteArray &value);
+    void addHeader(KnownHeader header, const QByteArray &value);
+    bool hasHeader(KnownHeader header) const;
+    bool removeHeader(KnownHeader header);
+    QByteArray header(const QString &name, const QByteArray &defaultValue = QByteArray()) const;
+    QByteArray header(KnownHeader header, const QByteArray &defaultValue = QByteArray()) const;
+    QList<QByteArray> multiHeader(const QString &name) const;
+    QList<QByteArray> multiHeader(KnownHeader header) const;
+    QList<HttpHeader> allHeaders() const;
+    void setHeaders(const QMap<QString, QByteArray> headers);
+    void setHeaders(const QList<HttpHeader> &headers);
 private:
     QSharedDataPointer<HttpResponsePrivate> d;
     friend class HttpSessionPrivate;
+    friend class QtHttpBridgeAccess;
 };
 
 class Socks5Proxy;
@@ -268,6 +326,7 @@ public:
     HttpResponse post(const QUrl &url, const QUrlQuery &body);
     HttpResponse post(const QUrl &url, const FormData &body);
     HttpResponse post(const QUrl &url, const QByteArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse post(const QUrl &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers);
     HttpResponse post(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers);
     HttpResponse post(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers);
     HttpResponse post(const QUrl &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers);
@@ -283,6 +342,7 @@ public:
     HttpResponse post(const QString &url, const QUrlQuery &body);
     HttpResponse post(const QString &url, const FormData &body);
     HttpResponse post(const QString &url, const QByteArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse post(const QString &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers);
     HttpResponse post(const QString &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers);
     HttpResponse post(const QString &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers);
     HttpResponse post(const QString &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers);
@@ -299,6 +359,7 @@ public:
     HttpResponse patch(const QUrl &url, const QUrlQuery &body);
     HttpResponse patch(const QUrl &url, const FormData &body);
     HttpResponse patch(const QUrl &url, const QByteArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse patch(const QUrl &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers);
     HttpResponse patch(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers);
     HttpResponse patch(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers);
     HttpResponse patch(const QUrl &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers);
@@ -314,6 +375,7 @@ public:
     HttpResponse patch(const QString &url, const QUrlQuery &body);
     HttpResponse patch(const QString &url, const FormData &body);
     HttpResponse patch(const QString &url, const QByteArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse patch(const QString &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers);
     HttpResponse patch(const QString &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers);
     HttpResponse patch(const QString &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers);
     HttpResponse patch(const QString &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers);
@@ -331,6 +393,7 @@ public:
     HttpResponse put(const QUrl &url, const QUrlQuery &body);
     HttpResponse put(const QUrl &url, const FormData &body);
     HttpResponse put(const QUrl &url, const QByteArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse put(const QUrl &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers);
     HttpResponse put(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers);
     HttpResponse put(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers);
     HttpResponse put(const QUrl &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers);
@@ -346,6 +409,7 @@ public:
     HttpResponse put(const QString &url, const QUrlQuery &body);
     HttpResponse put(const QString &url, const FormData &body);
     HttpResponse put(const QString &url, const QByteArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse put(const QString &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers);
     HttpResponse put(const QString &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers);
     HttpResponse put(const QString &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers);
     HttpResponse put(const QString &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers);
@@ -410,6 +474,7 @@ private:
     Q_DECLARE_PRIVATE(HttpSession)
 };
 
+class HttpCacheManagerPrivate;
 class HttpCacheManager
 {
 public:
@@ -421,6 +486,10 @@ public:
 protected:
     virtual bool store(const QString &url, const QByteArray &data);
     virtual QByteArray load(const QString &url);
+private:
+    HttpCacheManagerPrivate * const d_ptr;
+    Q_DECLARE_PRIVATE(HttpCacheManager);
+    friend class HttpCacheManagerCoreBridge;
 };
 
 class HttpMemoryCacheManagerPrivate;
@@ -453,9 +522,8 @@ public:
     {
     }
 protected:
-    virtual bool store(const QString &url, const QByteArray &data);
-    virtual QByteArray load(const QString &url);
-protected:
+    virtual bool store(const QString &url, const QByteArray &data) override;
+    virtual QByteArray load(const QString &url) override;
     QDir cacheDir;
 };
 

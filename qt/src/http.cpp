@@ -2,9 +2,12 @@
 #include <QtCore/qurlquery.h>
 
 #include "bridge/core_access.h"
+#include "bridge/http_access.h"
 #include "bridge/io_bridge.h"
+#include "bridge/socket_access.h"
+#include "bridge/ssl_access.h"
 #include "http.h"
-#include "private/http_p.h"
+#include "ssl.h"
 #include "websocket.h"
 
 using namespace std;
@@ -13,36 +16,21 @@ using namespace qtng_bridge;
 
 namespace QTNETWORKNG_NAMESPACE {
 
+// Friend of HttpRequest/HttpResponse. Since both hold their core object (and
+// thus the headers) in the same private payload, crossing the layer is a move
+// for the core->Qt direction and a per-field deep copy for the Qt->core
+// direction (core::HttpSession::send() mutates the request in place, and the
+// core copy constructor shares the private data).
+class QtHttpBridgeAccess
+{
+public:
+    static qtng_core::HttpRequest coreOf(const HttpRequest &req);
+    static qtng_core::HttpResponse coreOf(const HttpResponse &resp);
+    static HttpRequest fromCore(qtng_core::HttpRequest core);
+    static HttpResponse fromCore(qtng_core::HttpResponse core);
+};
+
 namespace {
-
-qtng_core::HttpHeader toCoreHeader(const HttpHeader &h)
-{
-    return qtng_core::HttpHeader(toStdString(h.name), toStdString(h.value));
-}
-
-HttpHeader toQtHeader(const qtng_core::HttpHeader &h)
-{
-    return HttpHeader(toQString(h.name), toQByteArray(h.value));
-}
-
-void syncHeadersToCore(const HttpHeaderManager &qt, qtng_core::HttpHeaderManager &core)
-{
-    vector<qtng_core::HttpHeader> headers;
-    headers.reserve(static_cast<size_t>(qt.allHeaders().size()));
-    for (const HttpHeader &h : qt.allHeaders()) {
-        headers.push_back(toCoreHeader(h));
-    }
-    core.setHeaders(headers);
-}
-
-void syncHeadersFromCore(const qtng_core::HttpHeaderManager &core, HttpHeaderManager &qt)
-{
-    QList<HttpHeader> headers;
-    for (const qtng_core::HttpHeader &h : core.allHeaders()) {
-        headers.append(toQtHeader(h));
-    }
-    qt.setHeaders(headers);
-}
 
 qtng_core::HttpCookie toCoreCookie(const HttpCookie &c)
 {
@@ -66,72 +54,25 @@ HttpCookie toQtCookie(const qtng_core::HttpCookie &c)
 
 qtng_core::HttpRequest toCoreRequest(const HttpRequest &req)
 {
-    qtng_core::HttpRequest core;
-    core.setMethod(toStdString(req.method()));
-    core.setUrl(toCoreUrl(req.url()));
-    core.setQuery(toCoreUrlQuery(req.query()));
-    vector<qtng_core::HttpCookie> cookies;
-    for (const HttpCookie &c : req.cookies()) {
-        cookies.push_back(toCoreCookie(c));
-    }
-    core.setCookies(cookies);
-    if (QSharedPointer<FileLike> body = req.body()) {
-        core.setBody(toCoreFileLike(body));
-    }
-    core.setUserAgent(toStdString(req.userAgent()));
-    core.setMaxBodySize(req.maxBodySize());
-    core.setMaxRedirects(req.maxRedirects());
-    core.setPriority(static_cast<qtng_core::HttpRequest::Priority>(req.priority()));
-    core.setVersion(static_cast<qtng_core::HttpVersion>(req.version()));
-    core.setStreamResponse(req.streamResponse());
-    core.setConnectionTimeout(req.connectionTimeout());
-    core.setTimeout(req.timeout());
-    if (QSharedPointer<SocketLike> conn = req.connection()) {
-        core.useConnection(toCoreSocketLike(conn));
-    }
-    syncHeadersToCore(req, core);
-    return core;
+    return QtHttpBridgeAccess::coreOf(req);
 }
 
 HttpRequest toQtRequest(const qtng_core::HttpRequest &core)
 {
-    HttpRequest req;
-    req.setMethod(toQString(core.method()));
-    req.setUrl(toQUrl(core.url()));
-    req.setQuery(toQUrlQuery(core.query()));
-    QList<HttpCookie> cookies;
-    for (const qtng_core::HttpCookie &c : core.cookies()) {
-        cookies.append(toQtCookie(c));
-    }
-    req.setCookies(cookies);
-    req.setUserAgent(toQString(core.userAgent()));
-    req.setMaxBodySize(core.maxBodySize());
-    req.setMaxRedirects(core.maxRedirects());
-    req.setPriority(static_cast<HttpRequest::Priority>(core.priority()));
-    req.setVersion(static_cast<HttpVersion>(core.version()));
-    req.setStreamResponse(core.streamResponse());
-    req.setConnectionTimeout(core.connectionTimeout());
-    req.setTimeout(core.timeout());
-    syncHeadersFromCore(core, req);
-    return req;
+    return QtHttpBridgeAccess::fromCore(qtng_core::detail::HttpDeepCopy::request(core));
 }
 
-HttpResponse toQtResponse(const qtng_core::HttpResponse &core)
+HttpResponse toQtResponse(qtng_core::HttpResponse core)
 {
-    HttpResponse resp;
-    resp.setUrl(toQUrl(core.url()));
-    resp.setStatusCode(core.statusCode());
-    resp.setStatusText(toQString(core.statusText()));
-    QList<HttpCookie> cookies;
-    for (const qtng_core::HttpCookie &c : core.cookies()) {
-        cookies.append(toQtCookie(c));
-    }
-    resp.setCookies(cookies);
-    resp.setRequest(toQtRequest(core.request()));
-    resp.setElapsed(core.elapsed());
-    resp.setVersion(static_cast<HttpVersion>(core.version()));
-    syncHeadersFromCore(core, resp);
-    return resp;
+    return QtHttpBridgeAccess::fromCore(std::move(core));
+}
+
+qtng_core::HttpResponse toCoreResponse(HttpResponse &resp)
+{
+    // Whole-payload deep copy through the private bridge. It copies the private
+    // data directly and does not run the body accessors, so it cannot consume a
+    // streaming body nor re-enter the Qt layer.
+    return QtHttpBridgeAccess::coreOf(resp);
 }
 
 map<string, string> toCoreStringMap(const QMap<QString, QString> &m)
@@ -154,6 +95,193 @@ map<string, string> toCoreHeaderMap(const QMap<QString, QByteArray> &m)
 
 }  // namespace
 
+namespace {
+
+class CoreSocketProxyAdapter : public qtng_core::SocketProxy
+{
+public:
+    explicit CoreSocketProxyAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::SocketProxy> proxy)
+        : proxy(std::move(proxy))
+    {
+    }
+
+    std::shared_ptr<qtng_core::SocketLike> connect(const qtng_core::HostAddress &addr, std::uint16_t port) override
+    {
+        if (!proxy) {
+            return std::shared_ptr<qtng_core::SocketLike>();
+        }
+        return toCoreSocketLike(proxy->connect(toQtAddress(addr), port));
+    }
+
+    std::shared_ptr<qtng_core::SocketLike> connect(const std::string &addr, std::uint16_t port) override
+    {
+        if (!proxy) {
+            return std::shared_ptr<qtng_core::SocketLike>();
+        }
+        return toCoreSocketLike(proxy->connect(toQString(addr), port));
+    }
+
+    QSharedPointer<QTNETWORKNG_NAMESPACE::SocketProxy> proxy;
+};
+
+class QtSocketProxyAdapter : public SocketProxy
+{
+public:
+    explicit QtSocketProxyAdapter(std::shared_ptr<qtng_core::SocketProxy> core)
+        : core(std::move(core))
+    {
+    }
+
+    QSharedPointer<SocketLike> connect(const HostAddress &addr, quint16 port) override
+    {
+        if (!core) {
+            return QSharedPointer<SocketLike>();
+        }
+        return toQtSocketLike(core->connect(toCoreAddress(addr), port));
+    }
+
+    QSharedPointer<SocketLike> connect(const QString &addr, quint16 port) override
+    {
+        if (!core) {
+            return QSharedPointer<SocketLike>();
+        }
+        return toQtSocketLike(core->connect(toStdString(addr), port));
+    }
+
+    std::shared_ptr<qtng_core::SocketProxy> core;
+};
+
+class CoreHttpProxyAdapter : public qtng_core::HttpProxy
+{
+public:
+    explicit CoreHttpProxyAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::HttpProxy> proxy)
+        : proxy(std::move(proxy))
+    {
+    }
+
+    std::shared_ptr<qtng_core::SocketLike> connect(const qtng_core::HostAddress &addr, std::uint16_t port) override
+    {
+        if (!proxy) {
+            return std::shared_ptr<qtng_core::SocketLike>();
+        }
+        return toCoreSocketLike(proxy->connect(toQtAddress(addr), port));
+    }
+
+    std::shared_ptr<qtng_core::SocketLike> connect(const std::string &addr, std::uint16_t port) override
+    {
+        if (!proxy) {
+            return std::shared_ptr<qtng_core::SocketLike>();
+        }
+        return toCoreSocketLike(proxy->connect(toQString(addr), port));
+    }
+
+    QSharedPointer<QTNETWORKNG_NAMESPACE::HttpProxy> proxy;
+};
+
+class QtHttpProxyAdapter : public HttpProxy
+{
+public:
+    explicit QtHttpProxyAdapter(std::shared_ptr<qtng_core::HttpProxy> core)
+        : core(std::move(core))
+    {
+        if (this->core) {
+            setHostName(toQString(this->core->hostName()));
+            setPort(this->core->port());
+            setUser(toQString(this->core->user()));
+            setPassword(toQString(this->core->password()));
+            setHeaders(toQtHeaders(this->core->allHeaders()));
+        }
+    }
+
+    QSharedPointer<SocketLike> connect(const HostAddress &addr, quint16 port) override
+    {
+        if (!core) {
+            return QSharedPointer<SocketLike>();
+        }
+        return toQtSocketLike(core->connect(toCoreAddress(addr), port));
+    }
+
+    QSharedPointer<SocketLike> connect(const QString &addr, quint16 port) override
+    {
+        if (!core) {
+            return QSharedPointer<SocketLike>();
+        }
+        return toQtSocketLike(core->connect(toStdString(addr), port));
+    }
+
+    std::shared_ptr<qtng_core::HttpProxy> core;
+};
+
+class CoreHttpCacheManagerAdapter : public qtng_core::HttpCacheManager
+{
+public:
+    explicit CoreHttpCacheManagerAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::HttpCacheManager> manager)
+        : manager(std::move(manager))
+    {
+    }
+
+    bool addResponse(qtng_core::HttpResponse &response) override
+    {
+        if (!manager) {
+            return false;
+        }
+        HttpResponse qr = toQtResponse(response);
+        return manager->addResponse(qr);
+    }
+
+    bool getResponse(qtng_core::HttpResponse *response) override
+    {
+        if (!manager || !response) {
+            return false;
+        }
+        HttpResponse qr = toQtResponse(*response);
+        const bool ok = manager->getResponse(&qr);
+        if (ok) {
+            *response = toCoreResponse(qr);
+        }
+        return ok;
+    }
+
+public:
+    QSharedPointer<QTNETWORKNG_NAMESPACE::HttpCacheManager> manager;
+};
+
+class QtHttpCacheManagerAdapter : public HttpCacheManager
+{
+public:
+    explicit QtHttpCacheManagerAdapter(std::shared_ptr<qtng_core::HttpCacheManager> core)
+        : core(std::move(core))
+    {
+    }
+
+    bool addResponse(HttpResponse &response) override
+    {
+        if (!core) {
+            return false;
+        }
+        qtng_core::HttpResponse coreResp = toCoreResponse(response);
+        return core->addResponse(coreResp);
+    }
+
+    bool getResponse(HttpResponse *response) override
+    {
+        if (!core || !response) {
+            return false;
+        }
+        qtng_core::HttpResponse coreResp = toCoreResponse(*response);
+        const bool ok = core->getResponse(&coreResp);
+        if (ok) {
+            *response = toQtResponse(coreResp);
+        }
+        return ok;
+    }
+
+public:
+    std::shared_ptr<qtng_core::HttpCacheManager> core;
+};
+
+}  // namespace
+
 class HttpRequestPrivate : public QSharedData
 {
 public:
@@ -161,13 +289,8 @@ public:
 };
 
 FormData::FormData()
+    : boundary(toQByteArray(qtng_core::FormData::makeBoundary()))
 {
-    const QString possibleCharacters = QString::fromLatin1("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
-    QString randomPart;
-    for (int i = 0; i < 16; ++i) {
-        randomPart.append(possibleCharacters.at(qrand() % possibleCharacters.size()));
-    }
-    boundary = QByteArray("----WebKitFormBoundary") + randomPart.toLatin1();
 }
 
 QByteArray FormData::toByteArray() const
@@ -191,20 +314,17 @@ HttpRequest::HttpRequest()
 HttpRequest::~HttpRequest() { }
 
 HttpRequest::HttpRequest(const HttpRequest &other)
-    : HttpHeaderManager(other)
-    , d(other.d)
+    : d(other.d)
 {
 }
 
 HttpRequest::HttpRequest(HttpRequest &&other)
-    : HttpHeaderManager(std::move(other))
-    , d(std::move(other.d))
+    : d(std::move(other.d))
 {
 }
 
 HttpRequest &HttpRequest::operator=(const HttpRequest &other)
 {
-    HttpHeaderManager::operator=(other);
     d = other.d;
     return *this;
 }
@@ -254,12 +374,75 @@ void HttpRequest::setTimeout(float timeout) { d->core.setTimeout(timeout); }
 QSharedPointer<SocketLike> HttpRequest::connection() const { return toQtSocketLike(d->core.connection()); }
 void HttpRequest::useConnection(QSharedPointer<SocketLike> connection) { d->core.useConnection(toCoreSocketLike(connection)); }
 
-void HttpRequest::setBody(const FormData &formData) { setBody(formData.toByteArray()); }
+void HttpRequest::setBody(const FormData &formData)
+{
+    const QByteArray contentType = QByteArrayLiteral("multipart/form-data; boundary=") + formData.boundary;
+    setHeader(QStringLiteral("Content-Type"), contentType);
+    if (!hasHeader(QStringLiteral("MIME-Version"))) {
+        setHeader(QStringLiteral("MIME-Version"), QByteArrayLiteral("1.0"));
+    }
+    setBody(formData.toByteArray());
+}
 void HttpRequest::setBody(const QJsonDocument &json) { setBody(json.toJson(QJsonDocument::Compact)); }
 void HttpRequest::setBody(const QJsonObject &json) { setBody(QJsonDocument(json)); }
 void HttpRequest::setBody(const QJsonArray &json) { setBody(QJsonDocument(json)); }
 void HttpRequest::setBody(const QMap<QString, QString> form) { d->core.setBody(toCoreStringMap(form)); }
 void HttpRequest::setBody(const QUrlQuery &form) { d->core.setBody(toCoreUrlQuery(form)); }
+
+void HttpRequest::setContentType(const QString &contentType) { d->core.setContentType(toStdString(contentType)); }
+QString HttpRequest::getContentType() const { return toQString(d->core.getContentType()); }
+void HttpRequest::setContentLength(qint64 contentLength) { d->core.setContentLength(contentLength); }
+qint64 HttpRequest::getContentLength() const { return d->core.getContentLength(); }
+void HttpRequest::setLocation(const QUrl &url) { d->core.setLocation(toStdString(url.toEncoded(QUrl::FullyEncoded))); }
+QUrl HttpRequest::getLocation() const
+{
+    const QByteArray value = toQByteArray(d->core.getLocation());
+    if (value.isEmpty()) {
+        return QUrl();
+    }
+    const QUrl result = QUrl::fromEncoded(value, QUrl::StrictMode);
+    return result.isValid() ? result : QUrl();
+}
+void HttpRequest::setLastModified(const QDateTime &lastModified) { d->core.setLastModified(toCoreDateTime(lastModified)); }
+QDateTime HttpRequest::getLastModified() const { return toQDateTime(d->core.getLastModified()); }
+void HttpRequest::setModifiedSince(const QDateTime &modifiedSince) { d->core.setModifiedSince(toCoreDateTime(modifiedSince)); }
+QDateTime HttpRequest::getModifedSince() const { return toQDateTime(d->core.getModifedSince()); }
+
+void HttpRequest::setHeader(const QString &name, const QByteArray &value)
+{
+    d->core.setHeader(toStdString(name), toStdString(value));
+}
+void HttpRequest::addHeader(const QString &name, const QByteArray &value)
+{
+    d->core.addHeader(toStdString(name), toStdString(value));
+}
+void HttpRequest::addHeader(const HttpHeader &header) { d->core.addHeader(toCoreHeader(header)); }
+bool HttpRequest::hasHeader(const QString &name) const { return d->core.hasHeader(toStdString(name)); }
+bool HttpRequest::removeHeader(const QString &name) { return d->core.removeHeader(toStdString(name)); }
+void HttpRequest::setHeader(KnownHeader header, const QByteArray &value) { setHeader(toString(header), value); }
+void HttpRequest::addHeader(KnownHeader header, const QByteArray &value) { addHeader(toString(header), value); }
+bool HttpRequest::hasHeader(KnownHeader header) const { return hasHeader(toString(header)); }
+bool HttpRequest::removeHeader(KnownHeader header) { return removeHeader(toString(header)); }
+QByteArray HttpRequest::header(const QString &name, const QByteArray &defaultValue) const
+{
+    return toQByteArray(d->core.header(toStdString(name), toStdString(defaultValue)));
+}
+QByteArray HttpRequest::header(KnownHeader knownHeader, const QByteArray &defaultValue) const
+{
+    return header(toString(knownHeader), defaultValue);
+}
+QList<QByteArray> HttpRequest::multiHeader(const QString &name) const
+{
+    QList<QByteArray> result;
+    for (const string &v : d->core.multiHeader(toStdString(name))) {
+        result.append(toQByteArray(v));
+    }
+    return result;
+}
+QList<QByteArray> HttpRequest::multiHeader(KnownHeader header) const { return multiHeader(toString(header)); }
+QList<HttpHeader> HttpRequest::allHeaders() const { return toQtHeaders(d->core.allHeaders()); }
+void HttpRequest::setHeaders(const QMap<QString, QByteArray> headers) { d->core.setHeaders(toCoreHeaderMap(headers)); }
+void HttpRequest::setHeaders(const QList<HttpHeader> &headers) { d->core.setHeaders(toCoreHeaders(headers)); }
 
 RequestError::~RequestError() { }
 QString RequestError::what() const { return QString(); }
@@ -275,22 +458,46 @@ HttpResponse::HttpResponse()
 {
 }
 
+qtng_core::HttpRequest QtHttpBridgeAccess::coreOf(const HttpRequest &req)
+{
+    // The core copy constructor shares the private payload and
+    // core::HttpSession::send() mutates the request in place (version, cookies),
+    // so build an independent object through the private deep-copy bridge.
+    return qtng_core::detail::HttpDeepCopy::request(req.d->core);
+}
+
+qtng_core::HttpResponse QtHttpBridgeAccess::coreOf(const HttpResponse &resp)
+{
+    return qtng_core::detail::HttpDeepCopy::response(resp.d->core);
+}
+
+HttpRequest QtHttpBridgeAccess::fromCore(qtng_core::HttpRequest core)
+{
+    HttpRequest req;
+    req.d->core = std::move(core);
+    return req;
+}
+
+HttpResponse QtHttpBridgeAccess::fromCore(qtng_core::HttpResponse core)
+{
+    HttpResponse resp;
+    resp.d->core = std::move(core);
+    return resp;
+}
+
 HttpResponse::~HttpResponse() { }
 HttpResponse::HttpResponse(const HttpResponse &other)
-    : HttpHeaderManager(other)
-    , d(other.d)
+    : d(other.d)
 {
 }
 
 HttpResponse::HttpResponse(HttpResponse &&other)
-    : HttpHeaderManager(std::move(other))
-    , d(std::move(other.d))
+    : d(std::move(other.d))
 {
 }
 
 HttpResponse &HttpResponse::operator=(const HttpResponse &other)
 {
-    HttpHeaderManager::operator=(other);
     d = other.d;
     return *this;
 }
@@ -369,192 +576,68 @@ bool HttpResponse::hasHttpError() const { return d->core.hasHttpError(); }
 QSharedPointer<RequestError> HttpResponse::error() const { return QSharedPointer<RequestError>(); }
 void HttpResponse::setError(QSharedPointer<RequestError> error) { Q_UNUSED(error); }
 
-namespace {
-
-QUrl hostOnly(const QUrl &url)
+void HttpResponse::setContentType(const QString &contentType) { d->core.setContentType(toStdString(contentType)); }
+QString HttpResponse::getContentType() const { return toQString(d->core.getContentType()); }
+void HttpResponse::setContentLength(qint64 contentLength) { d->core.setContentLength(contentLength); }
+qint64 HttpResponse::getContentLength() const { return d->core.getContentLength(); }
+void HttpResponse::setLocation(const QUrl &url) { d->core.setLocation(toStdString(url.toEncoded(QUrl::FullyEncoded))); }
+QUrl HttpResponse::getLocation() const
 {
-    QUrl h;
-    h.setScheme(url.scheme());
-    h.setHost(url.host());
-    h.setPort(url.port());
-    return h;
+    const QByteArray value = toQByteArray(d->core.getLocation());
+    if (value.isEmpty()) {
+        return QUrl();
+    }
+    const QUrl result = QUrl::fromEncoded(value, QUrl::StrictMode);
+    return result.isValid() ? result : QUrl();
 }
-
-quint16 urlDefaultPort(const QUrl &url)
+void HttpResponse::setLastModified(const QDateTime &lastModified)
 {
-    if (url.port() > 0) {
-        return static_cast<quint16>(url.port());
-    }
-    const QString scheme = url.scheme().toLower();
-    if (scheme == QStringLiteral("https") || scheme == QStringLiteral("wss")) {
-        return 443;
-    }
-    if (scheme == QStringLiteral("http") || scheme == QStringLiteral("ws")) {
-        return 80;
-    }
-    return 0;
+    d->core.setLastModified(toCoreDateTime(lastModified));
 }
-
-}  // namespace
-
-ConnectionPool::ConnectionPool()
-    : dnsCache(new SocketDnsCache())
-    , proxySwitcher(QSharedPointer<BaseProxySwitcher>(new SimpleProxySwitcher()))
-    , maxConnectionsPerServer(5)
-    , timeToLive(60)
-    , defaultConnectionTimeout(10.0f)
-    , defaultTimeout(20.0f)
-    , operations(new CoroutineGroup())
+QDateTime HttpResponse::getLastModified() const { return toQDateTime(d->core.getLastModified()); }
+void HttpResponse::setModifiedSince(const QDateTime &modifiedSince)
 {
-    operations->spawnWithName(QStringLiteral("removeUnusedConnections"), [this] { removeUnusedConnections(); });
+    d->core.setModifiedSince(toCoreDateTime(modifiedSince));
 }
+QDateTime HttpResponse::getModifedSince() const { return toQDateTime(d->core.getModifedSince()); }
 
-ConnectionPool::~ConnectionPool()
+void HttpResponse::setHeader(const QString &name, const QByteArray &value)
 {
-    delete operations;
+    d->core.setHeader(toStdString(name), toStdString(value));
 }
-
-QSharedPointer<ConnectionPoolItem> ConnectionPool::getItem(const QUrl &url)
+void HttpResponse::addHeader(const QString &name, const QByteArray &value)
 {
-    const QUrl host = hostOnly(url);
-    QSharedPointer<ConnectionPoolItem> &item = items[host];
-    if (item.isNull()) {
-        item = QSharedPointer<ConnectionPoolItem>(new ConnectionPoolItem());
-    }
-    item->lastUsed = QDateTime::currentDateTimeUtc();
-    if (item->semaphore.isNull()) {
-        item->semaphore = QSharedPointer<Semaphore>(new Semaphore(maxConnectionsPerServer));
-    }
-    return item;
+    d->core.addHeader(toStdString(name), toStdString(value));
 }
-
-QSharedPointer<Semaphore> ConnectionPool::getSemaphore(const QUrl &url)
+void HttpResponse::addHeader(const HttpHeader &header) { d->core.addHeader(toCoreHeader(header)); }
+bool HttpResponse::hasHeader(const QString &name) const { return d->core.hasHeader(toStdString(name)); }
+bool HttpResponse::removeHeader(const QString &name) { return d->core.removeHeader(toStdString(name)); }
+void HttpResponse::setHeader(KnownHeader header, const QByteArray &value) { setHeader(toString(header), value); }
+void HttpResponse::addHeader(KnownHeader header, const QByteArray &value) { addHeader(toString(header), value); }
+bool HttpResponse::hasHeader(KnownHeader header) const { return hasHeader(toString(header)); }
+bool HttpResponse::removeHeader(KnownHeader header) { return removeHeader(toString(header)); }
+QByteArray HttpResponse::header(const QString &name, const QByteArray &defaultValue) const
 {
-    return getItem(url)->semaphore;
+    return toQByteArray(d->core.header(toStdString(name), toStdString(defaultValue)));
 }
-
-void ConnectionPool::recycle(const QUrl &url, QSharedPointer<SocketLike> connection)
+QByteArray HttpResponse::header(KnownHeader knownHeader, const QByteArray &defaultValue) const
 {
-    QSharedPointer<ConnectionPoolItem> item = getItem(url);
-    if (item->connections.size() < maxConnectionsPerServer) {
-        item->connections.append(connection);
-    }
+    return header(toString(knownHeader), defaultValue);
 }
-
-QSharedPointer<SocketLike> ConnectionPool::oldConnectionForUrl(const QUrl &url)
+QList<QByteArray> HttpResponse::multiHeader(const QString &name) const
 {
-    QSharedPointer<ConnectionPoolItem> item = getItem(url);
-    while (!item->connections.isEmpty()) {
-        QSharedPointer<SocketLike> connection = item->connections.takeFirst();
-        if (!connection || !connection->isValid()) {
-            continue;
-        }
-        char tbuf;
-        if (connection->peekRaw(&tbuf, 1) >= 0) {
-            return connection;
-        }
+    QList<QByteArray> result;
+    for (const string &v : d->core.multiHeader(toStdString(name))) {
+        result.append(toQByteArray(v));
     }
-    return QSharedPointer<SocketLike>();
+    return result;
 }
+QList<QByteArray> HttpResponse::multiHeader(KnownHeader header) const { return multiHeader(toString(header)); }
+QList<HttpHeader> HttpResponse::allHeaders() const { return toQtHeaders(d->core.allHeaders()); }
+void HttpResponse::setHeaders(const QMap<QString, QByteArray> headers) { d->core.setHeaders(toCoreHeaderMap(headers)); }
+void HttpResponse::setHeaders(const QList<HttpHeader> &headers) { d->core.setHeaders(toCoreHeaders(headers)); }
 
-QSharedPointer<SocketLike> ConnectionPool::newConnectionForUrl(const QUrl &url, RequestError **error)
-{
-    const quint16 port = urlDefaultPort(url);
-    QSharedPointer<SocketLike> connection;
-    QSharedPointer<SocketProxy> socketProxy = proxySwitcher->selectSocketProxy(url);
-    if (socketProxy) {
-        connection = socketProxy->connect(url.host(), port);
-        if (!connection || !connection->isValid()) {
-            *error = new ConnectionError();
-            return QSharedPointer<SocketLike>();
-        }
-    } else {
-        QSharedPointer<Socket> rawSocket;
-        rawSocket.reset(Socket::createConnection(url.host(), port, nullptr, dnsCache));
-        if (!rawSocket || !rawSocket->isValid()) {
-            *error = new ConnectionError();
-            return QSharedPointer<SocketLike>();
-        }
-        connection = asSocketLike(rawSocket);
-    }
-
-    const QString scheme = url.scheme().toLower();
-    if (scheme == QStringLiteral("https") || scheme == QStringLiteral("wss")) {
-#ifndef QTNG_NO_CRYPTO
-        QSharedPointer<SslSocket> ssl(new SslSocket(connection, sslConfig));
-        if (!ssl->handshake(false, url.host())) {
-            *error = new ConnectionError();
-            return QSharedPointer<SocketLike>();
-        }
-        connection = asSocketLike(ssl);
-#else
-        *error = new ConnectionError();
-        return QSharedPointer<SocketLike>();
-#endif
-    }
-    return connection;
-}
-
-void ConnectionPool::removeUnusedConnections()
-{
-    while (true) {
-        try {
-            Coroutine::sleep(1.0);
-        } catch (CoroutineException &) {
-            return;
-        }
-        const QDateTime now = QDateTime::currentDateTimeUtc();
-        QMap<QUrl, QSharedPointer<ConnectionPoolItem>> newItems;
-        for (auto it = items.constBegin(); it != items.constEnd(); ++it) {
-            if (it.value()->lastUsed.secsTo(now) < timeToLive || it.value()->semaphore->isUsed()) {
-                newItems.insert(it.key(), it.value());
-            }
-        }
-        items = newItems;
-    }
-}
-
-QSharedPointer<SocketProxy> ConnectionPool::socketProxy() const
-{
-    QSharedPointer<SimpleProxySwitcher> sps = proxySwitcher.dynamicCast<SimpleProxySwitcher>();
-    if (sps && !sps->socketProxies.isEmpty()) {
-        return sps->socketProxies.front();
-    }
-    return QSharedPointer<SocketProxy>();
-}
-
-QSharedPointer<HttpProxy> ConnectionPool::httpProxy() const
-{
-    QSharedPointer<SimpleProxySwitcher> sps = proxySwitcher.dynamicCast<SimpleProxySwitcher>();
-    if (sps && !sps->httpProxies.isEmpty()) {
-        return sps->httpProxies.at(0);
-    }
-    return QSharedPointer<HttpProxy>();
-}
-
-void ConnectionPool::setSocketProxy(QSharedPointer<SocketProxy> proxy)
-{
-    QSharedPointer<SimpleProxySwitcher> sps = proxySwitcher.dynamicCast<SimpleProxySwitcher>();
-    if (sps) {
-        sps->socketProxies.clear();
-        if (proxy) {
-            sps->socketProxies.append(proxy);
-        }
-    }
-}
-
-void ConnectionPool::setHttpProxy(QSharedPointer<HttpProxy> proxy)
-{
-    QSharedPointer<SimpleProxySwitcher> sps = proxySwitcher.dynamicCast<SimpleProxySwitcher>();
-    if (sps) {
-        sps->httpProxies.clear();
-        if (proxy) {
-            sps->httpProxies.append(proxy);
-        }
-    }
-}
-
-class HttpSessionPrivate : public ConnectionPool
+class HttpSessionPrivate
 {
 public:
     explicit HttpSessionPrivate(HttpSession *q)
@@ -563,11 +646,19 @@ public:
         , managingCookies(true)
         , keepAlive(true)
     {
+        bindHttpCookieJarToCore(&cookieJar, &core.cookieJar());
+        bindWebSocketConfiguration(&webSocketConfiguration, &core.webSocketConfiguration());
+#ifndef QTNG_NO_CRYPTO
+        bindSslConfigurationToCore(&sslConfiguration, &core.sslConfiguration());
+#endif
     }
 
     qtng_core::HttpSession core;
     HttpCookieJar cookieJar;
     WebSocketConfiguration webSocketConfiguration;
+#ifndef QTNG_NO_CRYPTO
+    SslConfiguration sslConfiguration;
+#endif
     QSharedPointer<HttpCacheManager> cacheManager;
     HttpSession *q_ptr;
     int debugLevel;
@@ -585,20 +676,682 @@ HttpSession::~HttpSession()
     delete d_ptr;
 }
 
-#define HTTP_DELEGATE1(method) \
-    HttpResponse HttpSession::method(const QUrl &url) \
-    { \
-        return toQtResponse(d_ptr->core.method(toCoreUrl(url).toString())); \
-    } \
-    HttpResponse HttpSession::method(const QString &url) \
-    { \
-        return method(QUrl::fromUserInput(url)); \
-    }
+HttpResponse HttpSession::get(const QUrl &url)
+{
+    return toQtResponse(d_ptr->core.get(toCoreUrl(url).toString()));
+}
 
-HTTP_DELEGATE1(get)
-HTTP_DELEGATE1(head)
-HTTP_DELEGATE1(options)
-HTTP_DELEGATE1(delete_)
+HttpResponse HttpSession::get(const QString &url)
+{
+    return get(QUrl::fromUserInput(url));
+}
+
+HttpResponse HttpSession::head(const QUrl &url)
+{
+    return toQtResponse(d_ptr->core.head(toCoreUrl(url).toString()));
+}
+
+HttpResponse HttpSession::head(const QString &url)
+{
+    return head(QUrl::fromUserInput(url));
+}
+
+HttpResponse HttpSession::options(const QUrl &url)
+{
+    return toQtResponse(d_ptr->core.options(toCoreUrl(url).toString()));
+}
+
+HttpResponse HttpSession::options(const QString &url)
+{
+    return options(QUrl::fromUserInput(url));
+}
+
+HttpResponse HttpSession::delete_(const QUrl &url)
+{
+    return toQtResponse(d_ptr->core.delete_(toCoreUrl(url).toString()));
+}
+
+HttpResponse HttpSession::delete_(const QString &url)
+{
+    return delete_(QUrl::fromUserInput(url));
+}
+
+HttpResponse HttpSession::get(const QUrl &url, const QMap<QString, QString> &query)
+{
+    return toQtResponse(d_ptr->core.get(toCoreUrl(url).toString(), toCoreStringMap(query)));
+}
+
+HttpResponse HttpSession::get(const QUrl &url, const QMap<QString, QString> &query, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.get(toCoreUrl(url).toString(), toCoreStringMap(query), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::get(const QUrl &url, const QUrlQuery &query)
+{
+    return toQtResponse(d_ptr->core.get(toCoreUrl(url).toString(), toCoreUrlQuery(query)));
+}
+
+HttpResponse HttpSession::get(const QUrl &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.get(toCoreUrl(url).toString(), toCoreUrlQuery(query), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::get(const QString &url, const QMap<QString, QString> &query)
+{
+    return get(QUrl::fromUserInput(url), query);
+}
+
+HttpResponse HttpSession::get(const QString &url, const QMap<QString, QString> &query, const QMap<QString, QByteArray> &headers)
+{
+    return get(QUrl::fromUserInput(url), query, headers);
+}
+
+HttpResponse HttpSession::get(const QString &url, const QUrlQuery &query)
+{
+    return get(QUrl::fromUserInput(url), query);
+}
+
+HttpResponse HttpSession::get(const QString &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers)
+{
+    return get(QUrl::fromUserInput(url), query, headers);
+}
+
+HttpResponse HttpSession::head(const QUrl &url, const QMap<QString, QString> &query)
+{
+    return toQtResponse(d_ptr->core.head(toCoreUrl(url).toString(), toCoreStringMap(query)));
+}
+
+HttpResponse HttpSession::head(const QUrl &url, const QMap<QString, QString> &query, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.head(toCoreUrl(url).toString(), toCoreStringMap(query), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::head(const QUrl &url, const QUrlQuery &query)
+{
+    return toQtResponse(d_ptr->core.head(toCoreUrl(url).toString(), toCoreUrlQuery(query)));
+}
+
+HttpResponse HttpSession::head(const QUrl &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.head(toCoreUrl(url).toString(), toCoreUrlQuery(query), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::head(const QString &url, const QMap<QString, QString> &query)
+{
+    return head(QUrl::fromUserInput(url), query);
+}
+
+HttpResponse HttpSession::head(const QString &url, const QMap<QString, QString> &query, const QMap<QString, QByteArray> &headers)
+{
+    return head(QUrl::fromUserInput(url), query, headers);
+}
+
+HttpResponse HttpSession::head(const QString &url, const QUrlQuery &query)
+{
+    return head(QUrl::fromUserInput(url), query);
+}
+
+HttpResponse HttpSession::head(const QString &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers)
+{
+    return head(QUrl::fromUserInput(url), query, headers);
+}
+
+HttpResponse HttpSession::options(const QUrl &url, const QMap<QString, QString> &query)
+{
+    return toQtResponse(d_ptr->core.options(toCoreUrl(url).toString(), toCoreStringMap(query)));
+}
+
+HttpResponse HttpSession::options(const QUrl &url, const QMap<QString, QString> &query, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.options(toCoreUrl(url).toString(), toCoreStringMap(query), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::options(const QUrl &url, const QUrlQuery &query)
+{
+    return toQtResponse(d_ptr->core.options(toCoreUrl(url).toString(), toCoreUrlQuery(query)));
+}
+
+HttpResponse HttpSession::options(const QUrl &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.options(toCoreUrl(url).toString(), toCoreUrlQuery(query), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::options(const QString &url, const QMap<QString, QString> &query)
+{
+    return options(QUrl::fromUserInput(url), query);
+}
+
+HttpResponse HttpSession::options(const QString &url, const QMap<QString, QString> &query, const QMap<QString, QByteArray> &headers)
+{
+    return options(QUrl::fromUserInput(url), query, headers);
+}
+
+HttpResponse HttpSession::options(const QString &url, const QUrlQuery &query)
+{
+    return options(QUrl::fromUserInput(url), query);
+}
+
+HttpResponse HttpSession::options(const QString &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers)
+{
+    return options(QUrl::fromUserInput(url), query, headers);
+}
+
+HttpResponse HttpSession::delete_(const QUrl &url, const QMap<QString, QString> &query)
+{
+    return toQtResponse(d_ptr->core.delete_(toCoreUrl(url).toString(), toCoreStringMap(query)));
+}
+
+HttpResponse HttpSession::delete_(const QUrl &url, const QMap<QString, QString> &query, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.delete_(toCoreUrl(url).toString(), toCoreStringMap(query), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::delete_(const QUrl &url, const QUrlQuery &query)
+{
+    return toQtResponse(d_ptr->core.delete_(toCoreUrl(url).toString(), toCoreUrlQuery(query)));
+}
+
+HttpResponse HttpSession::delete_(const QUrl &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.delete_(toCoreUrl(url).toString(), toCoreUrlQuery(query), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::delete_(const QString &url, const QMap<QString, QString> &query)
+{
+    return delete_(QUrl::fromUserInput(url), query);
+}
+
+HttpResponse HttpSession::delete_(const QString &url, const QMap<QString, QString> &query, const QMap<QString, QByteArray> &headers)
+{
+    return delete_(QUrl::fromUserInput(url), query, headers);
+}
+
+HttpResponse HttpSession::delete_(const QString &url, const QUrlQuery &query)
+{
+    return delete_(QUrl::fromUserInput(url), query);
+}
+
+HttpResponse HttpSession::delete_(const QString &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers)
+{
+    return delete_(QUrl::fromUserInput(url), query, headers);
+}
+
+HttpResponse HttpSession::post(const QUrl &url, QSharedPointer<FileLike> body)
+{
+    return toQtResponse(d_ptr->core.post(toCoreUrl(url).toString(), toCoreFileLike(body)));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QMap<QString, QString> &body)
+{
+    return toQtResponse(d_ptr->core.post(toCoreUrl(url).toString(), toCoreStringMap(body)));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QUrlQuery &body)
+{
+    return toQtResponse(d_ptr->core.post(toCoreUrl(url).toString(), toCoreUrlQuery(body)));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QJsonDocument &body)
+{
+    return post(url, body.toJson(QJsonDocument::Compact));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QJsonObject &body)
+{
+    return post(url, QJsonDocument(body));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QJsonArray &body)
+{
+    return post(url, QJsonDocument(body));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const FormData &body)
+{
+    HttpRequest request;
+    request.setMethod(QStringLiteral("POST"));
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QByteArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.post(toCoreUrl(url).toString(), toStdString(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.post(toCoreUrl(url).toString(), toCoreFileLike(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QMap<QString, QString> &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.post(toCoreUrl(url).toString(), toCoreStringMap(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.post(toCoreUrl(url).toString(), toCoreUrlQuery(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(url, body.toJson(QJsonDocument::Compact), headers);
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(url, QJsonDocument(body), headers);
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(url, QJsonDocument(body), headers);
+}
+
+HttpResponse HttpSession::post(const QUrl &url, const FormData &body, const QMap<QString, QByteArray> &headers)
+{
+    HttpRequest request;
+    request.setMethod(QStringLiteral("POST"));
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::post(const QString &url, QSharedPointer<FileLike> body)
+{
+    return post(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QMap<QString, QString> &body)
+{
+    return post(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QUrlQuery &body)
+{
+    return post(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QJsonDocument &body)
+{
+    return post(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QJsonObject &body)
+{
+    return post(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QJsonArray &body)
+{
+    return post(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::post(const QString &url, const FormData &body)
+{
+    return post(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::post(const QString &url, const FormData &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QByteArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::post(const QString &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers)
+{
+    return post(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QMap<QString, QString> &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::post(const QString &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return post(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::put(const QUrl &url, QSharedPointer<FileLike> body)
+{
+    return toQtResponse(d_ptr->core.put(toCoreUrl(url).toString(), toCoreFileLike(body)));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QMap<QString, QString> &body)
+{
+    return toQtResponse(d_ptr->core.put(toCoreUrl(url).toString(), toCoreStringMap(body)));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QUrlQuery &body)
+{
+    return toQtResponse(d_ptr->core.put(toCoreUrl(url).toString(), toCoreUrlQuery(body)));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QJsonDocument &body)
+{
+    return put(url, body.toJson(QJsonDocument::Compact));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QJsonObject &body)
+{
+    return put(url, QJsonDocument(body));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QJsonArray &body)
+{
+    return put(url, QJsonDocument(body));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const FormData &body)
+{
+    HttpRequest request;
+    request.setMethod(QStringLiteral("PUT"));
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QByteArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.put(toCoreUrl(url).toString(), toStdString(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.put(toCoreUrl(url).toString(), toCoreFileLike(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QMap<QString, QString> &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.put(toCoreUrl(url).toString(), toCoreStringMap(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.put(toCoreUrl(url).toString(), toCoreUrlQuery(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(url, body.toJson(QJsonDocument::Compact), headers);
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(url, QJsonDocument(body), headers);
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(url, QJsonDocument(body), headers);
+}
+
+HttpResponse HttpSession::put(const QUrl &url, const FormData &body, const QMap<QString, QByteArray> &headers)
+{
+    HttpRequest request;
+    request.setMethod(QStringLiteral("PUT"));
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::put(const QString &url, QSharedPointer<FileLike> body)
+{
+    return put(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QMap<QString, QString> &body)
+{
+    return put(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QUrlQuery &body)
+{
+    return put(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QJsonDocument &body)
+{
+    return put(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QJsonObject &body)
+{
+    return put(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QJsonArray &body)
+{
+    return put(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::put(const QString &url, const FormData &body)
+{
+    return put(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::put(const QString &url, const FormData &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QByteArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::put(const QString &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers)
+{
+    return put(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QMap<QString, QString> &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::put(const QString &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return put(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, QSharedPointer<FileLike> body)
+{
+    return toQtResponse(d_ptr->core.patch(toCoreUrl(url).toString(), toCoreFileLike(body)));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QMap<QString, QString> &body)
+{
+    return toQtResponse(d_ptr->core.patch(toCoreUrl(url).toString(), toCoreStringMap(body)));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QUrlQuery &body)
+{
+    return toQtResponse(d_ptr->core.patch(toCoreUrl(url).toString(), toCoreUrlQuery(body)));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QJsonDocument &body)
+{
+    return patch(url, body.toJson(QJsonDocument::Compact));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QJsonObject &body)
+{
+    return patch(url, QJsonDocument(body));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QJsonArray &body)
+{
+    return patch(url, QJsonDocument(body));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const FormData &body)
+{
+    HttpRequest request;
+    request.setMethod(QStringLiteral("PATCH"));
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QByteArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.patch(toCoreUrl(url).toString(), toStdString(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.patch(toCoreUrl(url).toString(), toCoreFileLike(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QMap<QString, QString> &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.patch(toCoreUrl(url).toString(), toCoreStringMap(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers)
+{
+    return toQtResponse(d_ptr->core.patch(toCoreUrl(url).toString(), toCoreUrlQuery(body), toCoreHeaderMap(headers)));
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(url, body.toJson(QJsonDocument::Compact), headers);
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(url, QJsonDocument(body), headers);
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(url, QJsonDocument(body), headers);
+}
+
+HttpResponse HttpSession::patch(const QUrl &url, const FormData &body, const QMap<QString, QByteArray> &headers)
+{
+    HttpRequest request;
+    request.setMethod(QStringLiteral("PATCH"));
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::patch(const QString &url, QSharedPointer<FileLike> body)
+{
+    return patch(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QMap<QString, QString> &body)
+{
+    return patch(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QUrlQuery &body)
+{
+    return patch(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QJsonDocument &body)
+{
+    return patch(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QJsonObject &body)
+{
+    return patch(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QJsonArray &body)
+{
+    return patch(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const FormData &body)
+{
+    return patch(QUrl::fromUserInput(url), body);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const FormData &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QByteArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::patch(const QString &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QMap<QString, QString> &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(QUrl::fromUserInput(url), body, headers);
+}
+
+HttpResponse HttpSession::patch(const QString &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers)
+{
+    return patch(QUrl::fromUserInput(url), body, headers);
+}
 
 HttpResponse HttpSession::propfind(const QUrl &url)
 {
@@ -665,8 +1418,15 @@ HttpCookieJar &HttpSession::cookieJar()
 {
     return d_ptr->cookieJar;
 }
-HttpCookie HttpSession::cookie(const QUrl &url, const QString &name) { Q_UNUSED(url); Q_UNUSED(name); return HttpCookie(); }
-void HttpSession::setManagingCookies(bool managingCookies) { d_ptr->managingCookies = managingCookies; }
+HttpCookie HttpSession::cookie(const QUrl &url, const QString &name)
+{
+    return toQtCookie(d_ptr->core.cookie(toStdString(url.toString()), toStdString(name)));
+}
+void HttpSession::setManagingCookies(bool managingCookies)
+{
+    d_ptr->managingCookies = managingCookies;
+    d_ptr->core.setManagingCookies(managingCookies);
+}
 void HttpSession::setMaxConnectionsPerServer(int maxConnectionsPerServer) { d_ptr->core.setMaxConnectionsPerServer(maxConnectionsPerServer); }
 int HttpSession::maxConnectionsPerServer() { return d_ptr->core.maxConnectionsPerServer(); }
 void HttpSession::setDebugLevel(int level) { d_ptr->debugLevel = level; d_ptr->core.setDebugLevel(level); }
@@ -681,14 +1441,83 @@ float HttpSession::defaultConnnectionTimeout() const { return d_ptr->core.defaul
 void HttpSession::setDefaultConnectionTimeout(float timeout) { d_ptr->core.setDefaultConnectionTimeout(timeout); }
 float HttpSession::defaultTimeout() const { return d_ptr->core.defaultTimeout(); }
 void HttpSession::setDefaultTimeout(float defaultTimeout) { d_ptr->core.setDefaultTimeout(defaultTimeout); }
-void HttpSession::setDnsCache(QSharedPointer<SocketDnsCache> dnsCache) { Q_UNUSED(dnsCache); }
-QSharedPointer<SocketDnsCache> HttpSession::dnsCache() const { return QSharedPointer<SocketDnsCache>(); }
-QSharedPointer<SocketProxy> HttpSession::socketProxy() const { return QSharedPointer<SocketProxy>(); }
-void HttpSession::setSocketProxy(QSharedPointer<SocketProxy> proxy) { Q_UNUSED(proxy); }
-QSharedPointer<HttpProxy> HttpSession::httpProxy() const { return QSharedPointer<HttpProxy>(); }
-void HttpSession::setHttpProxy(QSharedPointer<HttpProxy> proxy) { Q_UNUSED(proxy); }
-QSharedPointer<HttpCacheManager> HttpSession::cacheManager() const { return QSharedPointer<HttpCacheManager>(); }
-void HttpSession::setCacheManager(QSharedPointer<HttpCacheManager> cacheManager) { Q_UNUSED(cacheManager); }
+void HttpSession::setDnsCache(QSharedPointer<SocketDnsCache> dnsCache)
+{
+    d_ptr->core.setDnsCache(dnsCacheCoreOf(dnsCache.data()));
+}
+QSharedPointer<SocketDnsCache> HttpSession::dnsCache() const
+{
+    return dnsCacheFromCore(d_ptr->core.dnsCache());
+}
+QSharedPointer<SocketProxy> HttpSession::socketProxy() const
+{
+    std::shared_ptr<qtng_core::SocketProxy> core = d_ptr->core.socketProxy();
+    if (!core) {
+        return QSharedPointer<SocketProxy>();
+    }
+    if (std::shared_ptr<CoreSocketProxyAdapter> adapter = std::dynamic_pointer_cast<CoreSocketProxyAdapter>(core)) {
+        return adapter->proxy;
+    }
+    return QSharedPointer<SocketProxy>(new QtSocketProxyAdapter(core));
+}
+void HttpSession::setSocketProxy(QSharedPointer<SocketProxy> proxy)
+{
+    if (proxy.isNull()) {
+        d_ptr->core.setSocketProxy(std::shared_ptr<qtng_core::SocketProxy>());
+        return;
+    }
+    if (QSharedPointer<QtSocketProxyAdapter> adapter = proxy.dynamicCast<QtSocketProxyAdapter>()) {
+        d_ptr->core.setSocketProxy(adapter->core);
+        return;
+    }
+    d_ptr->core.setSocketProxy(std::make_shared<CoreSocketProxyAdapter>(proxy));
+}
+QSharedPointer<HttpProxy> HttpSession::httpProxy() const
+{
+    std::shared_ptr<qtng_core::HttpProxy> core = d_ptr->core.httpProxy();
+    if (!core) {
+        return QSharedPointer<HttpProxy>();
+    }
+    if (std::shared_ptr<CoreHttpProxyAdapter> adapter = std::dynamic_pointer_cast<CoreHttpProxyAdapter>(core)) {
+        return adapter->proxy;
+    }
+    return QSharedPointer<HttpProxy>(new QtHttpProxyAdapter(core));
+}
+void HttpSession::setHttpProxy(QSharedPointer<HttpProxy> proxy)
+{
+    if (proxy.isNull()) {
+        d_ptr->core.setHttpProxy(std::shared_ptr<qtng_core::HttpProxy>());
+        return;
+    }
+    if (QSharedPointer<QtHttpProxyAdapter> adapter = proxy.dynamicCast<QtHttpProxyAdapter>()) {
+        d_ptr->core.setHttpProxy(adapter->core);
+        return;
+    }
+    d_ptr->core.setHttpProxy(std::make_shared<CoreHttpProxyAdapter>(proxy));
+}
+QSharedPointer<HttpCacheManager> HttpSession::cacheManager() const
+{
+    std::shared_ptr<qtng_core::HttpCacheManager> core = d_ptr->core.cacheManager();
+    if (!core) {
+        return QSharedPointer<HttpCacheManager>();
+    }
+    if (std::shared_ptr<CoreHttpCacheManagerAdapter> adapter = std::dynamic_pointer_cast<CoreHttpCacheManagerAdapter>(core)) {
+        return adapter->manager;
+    }
+    return QSharedPointer<HttpCacheManager>(new QtHttpCacheManagerAdapter(core));
+}
+void HttpSession::setCacheManager(QSharedPointer<HttpCacheManager> cacheManager)
+{
+    if (cacheManager.isNull()) {
+        d_ptr->core.setCacheManager(std::shared_ptr<qtng_core::HttpCacheManager>());
+        return;
+    }
+    if (QSharedPointer<QtHttpCacheManagerAdapter> adapter = cacheManager.dynamicCast<QtHttpCacheManagerAdapter>()) {
+        d_ptr->core.setCacheManager(adapter->core);
+        return;
+    }
+    d_ptr->core.setCacheManager(std::make_shared<CoreHttpCacheManagerAdapter>(cacheManager));
+}
 WebSocketConfiguration &HttpSession::webSocketConfiguration() { return d_ptr->webSocketConfiguration; }
 
 void setProxySwitcher(HttpSession *session, QSharedPointer<BaseProxySwitcher> switcher)
@@ -696,21 +1525,99 @@ void setProxySwitcher(HttpSession *session, QSharedPointer<BaseProxySwitcher> sw
     if (!session) {
         return;
     }
-    session->d_ptr->proxySwitcher = switcher;
+    QSharedPointer<SimpleProxySwitcher> sps = switcher.dynamicCast<SimpleProxySwitcher>();
+    if (sps) {
+        if (!sps->socketProxies.isEmpty()) {
+            session->setSocketProxy(sps->socketProxies.front());
+        } else {
+            session->setSocketProxy(QSharedPointer<SocketProxy>());
+        }
+        if (!sps->httpProxies.isEmpty()) {
+            session->setHttpProxy(sps->httpProxies.at(0));
+        } else {
+            session->setHttpProxy(QSharedPointer<HttpProxy>());
+        }
+    }
 }
 
 #ifndef QTNG_NO_CRYPTO
 SslConfiguration &HttpSession::sslConfiguration()
 {
-    static SslConfiguration config;
-    return config;
+    return d_ptr->sslConfiguration;
 }
 #endif
 
-HttpCacheManager::HttpCacheManager() { }
-HttpCacheManager::~HttpCacheManager() { }
-bool HttpCacheManager::addResponse(HttpResponse &response) { Q_UNUSED(response); return false; }
-bool HttpCacheManager::getResponse(HttpResponse *response) { Q_UNUSED(response); return false; }
+class HttpCacheManagerCoreBridge : public qtng_core::HttpCacheManager
+{
+public:
+    explicit HttpCacheManagerCoreBridge(QTNETWORKNG_NAMESPACE::HttpCacheManager *q)
+        : q(q)
+    {
+    }
+
+    bool store(const std::string &url, const std::string &data) override
+    {
+        return q->store(toQString(url), toQByteArray(data));
+    }
+
+    std::string load(const std::string &url) override
+    {
+        return toStdString(q->load(toQString(url)));
+    }
+
+private:
+    QTNETWORKNG_NAMESPACE::HttpCacheManager * const q;
+};
+
+class HttpCacheManagerPrivate
+{
+public:
+    explicit HttpCacheManagerPrivate(HttpCacheManager *q)
+        : coreBridge(new HttpCacheManagerCoreBridge(q))
+    {
+    }
+
+    ~HttpCacheManagerPrivate()
+    {
+        delete coreBridge;
+    }
+
+    HttpCacheManagerCoreBridge *coreBridge;
+};
+
+HttpCacheManager::HttpCacheManager()
+    : d_ptr(new HttpCacheManagerPrivate(this))
+{
+}
+
+HttpCacheManager::~HttpCacheManager()
+{
+    delete d_ptr;
+}
+
+bool HttpCacheManager::addResponse(HttpResponse &response)
+{
+    qtng_core::HttpResponse coreResp = toCoreResponse(response);
+    return d_ptr->coreBridge->addResponse(coreResp);
+}
+
+bool HttpCacheManager::getResponse(HttpResponse *response)
+{
+    if (!response) {
+        return false;
+    }
+    // Only the URL is needed to look up the cache entry; do not run the full
+    // toCoreResponse() here, since it reads body() and would mark the shared
+    // core response (and therefore the caller's response) as consumed/errored.
+    qtng_core::HttpResponse coreResp;
+    coreResp.setUrl(toCoreUrl(response->url()));
+    const bool ok = d_ptr->coreBridge->getResponse(&coreResp);
+    if (ok) {
+        *response = toQtResponse(coreResp);
+    }
+    return ok;
+}
+
 bool HttpCacheManager::store(const QString &url, const QByteArray &data) { Q_UNUSED(url); Q_UNUSED(data); return false; }
 QByteArray HttpCacheManager::load(const QString &url) { Q_UNUSED(url); return QByteArray(); }
 
@@ -718,7 +1625,7 @@ class HttpMemoryCacheManagerPrivate
 {
 public:
     QMap<QString, QByteArray> cache;
-    float expireTime = 300.0f;
+    float expireTime = 60 * 60 * 24;
 };
 
 HttpMemoryCacheManager::HttpMemoryCacheManager()
@@ -770,3 +1677,12 @@ QString RetryError::what() const { return QString::fromLatin1("retry error"); }
 QString UnrewindableBodyError::what() const { return QString::fromLatin1("unrewindable body"); }
 
 }  // namespace QTNETWORKNG_NAMESPACE
+
+namespace qtng_bridge {
+
+HttpResponse httpResponseFromCore(qtng_core::HttpResponse core)
+{
+    return QTNETWORKNG_NAMESPACE::QtHttpBridgeAccess::fromCore(std::move(core));
+}
+
+}  // namespace qtng_bridge

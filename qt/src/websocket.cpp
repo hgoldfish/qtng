@@ -1,4 +1,5 @@
 #include "bridge/core_access.h"
+#include "bridge/http_access.h"
 #include "bridge/io_bridge.h"
 #include "websocket.h"
 #include "http.h"
@@ -9,10 +10,40 @@ using namespace qtng_bridge;
 
 namespace QTNETWORKNG_NAMESPACE {
 
+namespace {
+qtng_core::WebSocketConfiguration toCoreConfig(const WebSocketConfiguration &config)
+{
+    qtng_core::WebSocketConfiguration coreConfig;
+    coreConfig.setKeepaliveInterval(config.keepaliveInterval());
+    coreConfig.setKeepaliveTimeout(config.keepaliveTimeout());
+    coreConfig.setSendingQueueCapacity(config.sendingQueueCapacity());
+    coreConfig.setReceivingQueueCapacity(config.receivingQueueCapacity());
+    coreConfig.setMaxPayloadSize(config.maxPayloadSize());
+    std::vector<std::string> protocols;
+    for (const QString &p : config.protocols()) {
+        protocols.push_back(toStdString(p));
+    }
+    coreConfig.setProtocols(protocols);
+    coreConfig.setOutgoingSize(config.outgoingSize());
+    return coreConfig;
+}
+}  // namespace
+
 class WebSocketConfigurationPrivate
 {
 public:
     qtng_core::WebSocketConfiguration core;
+    qtng_core::WebSocketConfiguration *external = nullptr;
+
+    qtng_core::WebSocketConfiguration &config() { return external ? *external : core; }
+    const qtng_core::WebSocketConfiguration &config() const { return external ? *external : core; }
+
+    static void bind(WebSocketConfiguration *config, qtng_core::WebSocketConfiguration *core)
+    {
+        if (config) {
+            config->d_ptr->external = core;
+        }
+    }
 };
 
 WebSocketConfiguration::WebSocketConfiguration()
@@ -28,68 +59,68 @@ WebSocketConfiguration::~WebSocketConfiguration()
 void WebSocketConfiguration::setKeepaliveInterval(float interval)
 {
     Q_D(WebSocketConfiguration);
-    d->core.setKeepaliveInterval(interval);
+    d->config().setKeepaliveInterval(interval);
 }
 
 float WebSocketConfiguration::keepaliveInterval() const
 {
     Q_D(const WebSocketConfiguration);
-    return d->core.keepaliveInterval();
+    return d->config().keepaliveInterval();
 }
 
 void WebSocketConfiguration::setKeepaliveTimeout(float timeout)
 {
     Q_D(WebSocketConfiguration);
-    d->core.setKeepaliveTimeout(timeout);
+    d->config().setKeepaliveTimeout(timeout);
 }
 
 float WebSocketConfiguration::keepaliveTimeout() const
 {
     Q_D(const WebSocketConfiguration);
-    return d->core.keepaliveTimeout();
+    return d->config().keepaliveTimeout();
 }
 
 quint32 WebSocketConfiguration::sendingQueueCapacity() const
 {
     Q_D(const WebSocketConfiguration);
-    return d->core.sendingQueueCapacity();
+    return d->config().sendingQueueCapacity();
 }
 
 void WebSocketConfiguration::setSendingQueueCapacity(quint32 capacity)
 {
     Q_D(WebSocketConfiguration);
-    d->core.setSendingQueueCapacity(capacity);
+    d->config().setSendingQueueCapacity(capacity);
 }
 
 quint32 WebSocketConfiguration::receivingQueueCapacity() const
 {
     Q_D(const WebSocketConfiguration);
-    return d->core.receivingQueueCapacity();
+    return d->config().receivingQueueCapacity();
 }
 
 void WebSocketConfiguration::setReceivingQueueCapacity(quint32 capacity)
 {
     Q_D(WebSocketConfiguration);
-    d->core.setReceivingQueueCapacity(capacity);
+    d->config().setReceivingQueueCapacity(capacity);
 }
 
 qint32 WebSocketConfiguration::maxPayloadSize() const
 {
     Q_D(const WebSocketConfiguration);
-    return d->core.maxPayloadSize();
+    return d->config().maxPayloadSize();
 }
 
 void WebSocketConfiguration::setMaxPayloadSize(qint32 size)
 {
     Q_D(WebSocketConfiguration);
-    d->core.setMaxPayloadSize(size);
+    d->config().setMaxPayloadSize(size);
 }
 
 QStringList WebSocketConfiguration::protocols() const
 {
     Q_D(const WebSocketConfiguration);
     QStringList result;
-    for (const string &p : d->core.protocols()) {
+    for (const string &p : d->config().protocols()) {
         result.append(toQString(p));
     }
     return result;
@@ -102,19 +133,19 @@ void WebSocketConfiguration::setProtocols(const QStringList &protocols)
     for (const QString &p : protocols) {
         coreProtocols.push_back(toStdString(p));
     }
-    d->core.setProtocols(coreProtocols);
+    d->config().setProtocols(coreProtocols);
 }
 
 void WebSocketConfiguration::setOutgoingSize(qint32 size)
 {
     Q_D(WebSocketConfiguration);
-    d->core.setOutgoingSize(size);
+    d->config().setOutgoingSize(size);
 }
 
 qint32 WebSocketConfiguration::outgoingSize() const
 {
     Q_D(const WebSocketConfiguration);
-    return d->core.outgoingSize();
+    return d->config().outgoingSize();
 }
 
 class WebSocketConnectionPrivate
@@ -122,6 +153,8 @@ class WebSocketConnectionPrivate
 public:
     shared_ptr<qtng_core::WebSocketConnection> core;
     QSharedPointer<Event> disconnectedEvent;
+    mutable HttpResponse response;
+    mutable bool responseReady = false;
 };
 
 WebSocketConnection::WebSocketConnection(QSharedPointer<SocketLike> connection, const QByteArray &headBytes, Side side,
@@ -129,12 +162,9 @@ WebSocketConnection::WebSocketConnection(QSharedPointer<SocketLike> connection, 
     : d_ptr(new WebSocketConnectionPrivate)
 {
     Q_D(WebSocketConnection);
-    qtng_core::WebSocketConfiguration coreConfig;
-    coreConfig.setKeepaliveInterval(config.keepaliveInterval());
-    coreConfig.setKeepaliveTimeout(config.keepaliveTimeout());
     d->core = make_shared<qtng_core::WebSocketConnection>(
             toCoreSocketLike(connection), toStdString(headBytes),
-            static_cast<qtng_core::WebSocketConnection::Side>(side), coreConfig);
+            static_cast<qtng_core::WebSocketConnection::Side>(side), toCoreConfig(config));
     d->disconnectedEvent = QSharedPointer<Event>(new Event());
     disconnected = d->disconnectedEvent;
 }
@@ -147,9 +177,7 @@ WebSocketConnection::~WebSocketConnection()
 void WebSocketConnection::setConfiguration(const WebSocketConfiguration &config)
 {
     Q_D(WebSocketConnection);
-    qtng_core::WebSocketConfiguration coreConfig;
-    coreConfig.setKeepaliveInterval(config.keepaliveInterval());
-    d->core->setConfiguration(coreConfig);
+    d->core->setConfiguration(toCoreConfig(config));
 }
 
 bool WebSocketConnection::send(const QByteArray &packet) { Q_D(WebSocketConnection); return d->core->send(toStdString(packet)); }
@@ -182,8 +210,21 @@ QString WebSocketConnection::origin() const { Q_D(const WebSocketConnection); re
 QUrl WebSocketConnection::url() const { Q_D(const WebSocketConnection); return toQUrl(qtng_core::utils::Url(d->core->url())); }
 const HttpResponse &WebSocketConnection::response() const
 {
-    static HttpResponse empty;
-    return empty;
+    Q_D(const WebSocketConnection);
+    if (!d->responseReady) {
+        d->response = qtng_bridge::httpResponseFromCore(d->core->response());
+        d->responseReady = true;
+    }
+    return d->response;
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE
+
+namespace qtng_bridge {
+
+void bindWebSocketConfiguration(QTNETWORKNG_NAMESPACE::WebSocketConfiguration *config, qtng_core::WebSocketConfiguration *core)
+{
+    QTNETWORKNG_NAMESPACE::WebSocketConfigurationPrivate::bind(config, core);
+}
+
+}  // namespace qtng_bridge

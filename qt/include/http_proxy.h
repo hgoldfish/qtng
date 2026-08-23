@@ -45,6 +45,7 @@ public:
     bool operator==(const HttpProxy &other) const;
 private:
     HttpProxyPrivate *d_ptr;
+    friend class HttpProxyPrivate;
     Q_DECLARE_PRIVATE(HttpProxy)
 };
 

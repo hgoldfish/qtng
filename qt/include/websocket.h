@@ -32,6 +32,7 @@ public:
 private:
     WebSocketConfigurationPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(WebSocketConfiguration);
+    friend class WebSocketConfigurationPrivate;
 };
 
 class Event;

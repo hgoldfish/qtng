@@ -1,4 +1,5 @@
 #include "bridge/core_access.h"
+#include "bridge/http_access.h"
 #include "bridge/stream_bridge.h"
 #include "http_proxy.h"
 
@@ -12,19 +13,12 @@ class HttpProxyPrivate
 {
 public:
     qtng_core::HttpProxy core;
+
+    static qtng_core::HttpProxy *coreOf(HttpProxy *proxy) { return proxy ? &proxy->d_ptr->core : nullptr; }
+    static const qtng_core::HttpProxy *coreOf(const HttpProxy *proxy) { return proxy ? &proxy->d_ptr->core : nullptr; }
 };
 
 namespace {
-
-vector<qtng_core::HttpHeader> toCoreHeaders(const QList<HttpHeader> &headers)
-{
-    vector<qtng_core::HttpHeader> result;
-    result.reserve(static_cast<size_t>(headers.size()));
-    for (const HttpHeader &header : headers) {
-        result.push_back(qtng_core::HttpHeader(toStdString(header.name), toStdString(header.value)));
-    }
-    return result;
-}
 
 void syncHeadersToCore(const WithHttpHeaders<SocketProxy> *from, qtng_core::HttpProxy *to)
 {
@@ -120,7 +114,7 @@ HttpProxy &HttpProxy::operator=(const HttpProxy &other)
 HttpProxy &HttpProxy::operator=(HttpProxy &&other)
 {
     qSwap(d_ptr, other.d_ptr);
-    headers = other.headers;
+    headers = std::move(other.headers);
     return *this;
 }
 
@@ -154,3 +148,17 @@ QSharedPointer<HttpProxy> SimpleProxySwitcher::selectHttpProxy(const QUrl &url)
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE
+
+namespace qtng_bridge {
+
+qtng_core::HttpProxy *httpProxyCoreOf(QTNETWORKNG_NAMESPACE::HttpProxy *proxy)
+{
+    return QTNETWORKNG_NAMESPACE::HttpProxyPrivate::coreOf(proxy);
+}
+
+const qtng_core::HttpProxy *httpProxyCoreOf(const QTNETWORKNG_NAMESPACE::HttpProxy *proxy)
+{
+    return QTNETWORKNG_NAMESPACE::HttpProxyPrivate::coreOf(proxy);
+}
+
+}  // namespace qtng_bridge

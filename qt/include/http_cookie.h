@@ -111,6 +111,7 @@ private:
     Q_DECLARE_PRIVATE(HttpCookieJar)
     Q_DISABLE_COPY(HttpCookieJar)
     HttpCookieJarPrivate * const d_ptr;
+    friend class HttpCookieJarPrivate;
 };
 
 QTNETWORKNG_NAMESPACE_END

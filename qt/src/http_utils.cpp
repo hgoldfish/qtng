@@ -1,4 +1,5 @@
 #include "bridge/core_access.h"
+#include "bridge/http_access.h"
 #include "bridge/stream_bridge.h"
 #include "http_utils.h"
 
@@ -7,20 +8,6 @@ using namespace QTNETWORKNG_NAMESPACE;
 using namespace qtng_bridge;
 
 namespace QTNETWORKNG_NAMESPACE {
-
-namespace {
-
-qtng_core::HttpHeader toCoreHttpHeader(const HttpHeader &header)
-{
-    return qtng_core::HttpHeader(toStdString(header.name), toStdString(header.value));
-}
-
-HttpHeader toQtHttpHeader(const qtng_core::HttpHeader &header)
-{
-    return HttpHeader(toQString(header.name), toQByteArray(header.value));
-}
-
-}  // namespace
 
 bool toMessage(HttpStatus status, QString *shortMessage, QString *longMessage)
 {
@@ -102,7 +89,7 @@ HttpHeader HeaderSplitter::nextHeader(Error *error)
     if (error) {
         *error = static_cast<Error>(coreError);
     }
-    return toQtHttpHeader(header);
+    return toQtHeader(header);
 }
 
 QList<HttpHeader> HeaderSplitter::headers(int maxHeaders, Error *error)
@@ -117,7 +104,7 @@ QList<HttpHeader> HeaderSplitter::headers(int maxHeaders, Error *error)
     }
     QList<HttpHeader> result;
     for (const qtng_core::HttpHeader &header : coreHeaders) {
-        result.append(toQtHttpHeader(header));
+        result.append(toQtHeader(header));
     }
     return result;
 }

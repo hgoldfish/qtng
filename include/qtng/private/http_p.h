@@ -51,6 +51,22 @@ public:
     bool isWebSocket;
 };
 
+namespace detail {
+
+// HttpRequest/HttpResponse are shallow-copyable by design: their copy
+// constructors share the private data. HttpDeepCopy provides the only
+// sanctioned deep copy, used by the Qt binding to hand an independent object
+// to the core (core::HttpSession::send() mutates the request in place). It is
+// a friend of both classes; this header is private and never installed.
+class HttpDeepCopy
+{
+public:
+    static HttpRequest request(const HttpRequest &req);
+    static HttpResponse response(const HttpResponse &resp);
+};
+
+}  // namespace detail
+
 class HttpResponsePrivate
 {
 public:

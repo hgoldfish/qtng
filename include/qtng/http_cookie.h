@@ -76,7 +76,7 @@ public:
     virtual bool insertCookie(const HttpCookie &cookie);
     virtual bool updateCookie(const HttpCookie &cookie);
     virtual bool deleteCookie(const HttpCookie &cookie);
-protected:
+
     std::vector<HttpCookie> allCookies() const;
     void setAllCookies(const std::vector<HttpCookie> &cookieList);
     virtual bool validateCookie(const HttpCookie &cookie, const std::string &url) const;

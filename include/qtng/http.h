@@ -18,10 +18,21 @@
 
 namespace qtng {
 
+namespace detail {
+
+// Deep-copy bridge used by the Qt binding. HttpRequest/HttpResponse are
+// intentionally shallow-copyable (their copy constructors share the private
+// data); this class is the only sanctioned path to an independent copy and is
+// declared in qtng/private/http_p.h.
+class HttpDeepCopy;
+
+}  // namespace detail
+
 class FormData
 {
 public:
     FormData();
+    static std::string makeBoundary();
     std::string toByteArray() const;
 
     void addFile(const std::string &name, const std::string &filename, const std::string &data,
@@ -137,6 +148,7 @@ private:
     std::shared_ptr<HttpRequestPrivate> d;
     friend class HttpSessionPrivate;
     friend class Http1Protocol;
+    friend class detail::HttpDeepCopy;
 #ifndef QTNG_NO_HTTP2
     friend class Http2Protocol;
     friend class Http2ClientSessionPrivate;
@@ -200,6 +212,7 @@ private:
     std::shared_ptr<HttpResponsePrivate> d;
     friend class HttpSessionPrivate;
     friend class Http1Protocol;
+    friend class detail::HttpDeepCopy;
 #ifndef QTNG_NO_HTTP2
     friend class Http2Protocol;
     friend class Http2ClientSessionPrivate;
@@ -250,6 +263,7 @@ public:
     HttpResponse post(const std::string &url, const qtng::utils::UrlQuery &body);
     HttpResponse post(const std::string &url, const FormData &body);
     HttpResponse post(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
+    HttpResponse post(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
     HttpResponse post(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
     HttpResponse post(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
     HttpResponse post(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
@@ -260,6 +274,7 @@ public:
     HttpResponse patch(const std::string &url, const qtng::utils::UrlQuery &body);
     HttpResponse patch(const std::string &url, const FormData &body);
     HttpResponse patch(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
+    HttpResponse patch(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
     HttpResponse patch(const std::string &url, const std::map<std::string, std::string> &body,
                        const std::map<std::string, std::string> &headers);
     HttpResponse patch(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
@@ -271,6 +286,7 @@ public:
     HttpResponse put(const std::string &url, const qtng::utils::UrlQuery &body);
     HttpResponse put(const std::string &url, const FormData &body);
     HttpResponse put(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
+    HttpResponse put(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
     HttpResponse put(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
     HttpResponse put(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
     HttpResponse put(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);

@@ -14,10 +14,14 @@ QTNETWORKNG_NAMESPACE_BEGIN
 #  define QBYTEARRAYLIST QList<QByteArray>
 #endif
 
+class QtHttpRequestHandlerCoreBridge;
+
 class BaseHttpRequestHandler : public WithHttpHeaders<BaseRequestHandler>
 {
 public:
     BaseHttpRequestHandler();
+    virtual ~BaseHttpRequestHandler();
+    friend class QtHttpRequestHandlerCoreBridge;
 protected:  // most common methods to override
     virtual void doMethod();
     virtual void doGET();
@@ -56,6 +60,8 @@ protected:
     virtual QByteArray tryToHandleMagicCode(bool &done);
 private:
     QBYTEARRAYLIST headerCache;  // used for sendHeader() & endHeader()
+protected:
+    QtHttpRequestHandlerCoreBridge * const coreBridge;
 public:
     static QString normalizePath(const QString &path);
 protected:
@@ -78,6 +84,7 @@ public:
         : enableDirectoryListing(false)
     {
     }
+    friend class QtHttpRequestHandlerCoreBridge;
 protected:
     virtual QSharedPointer<FileLike> serveStaticFiles(const QDir &dir, const QString &subPath);
     virtual QSharedPointer<FileLike> listDirectory(const QDir &dir, const QString &displayDir);

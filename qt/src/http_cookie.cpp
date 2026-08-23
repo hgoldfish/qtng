@@ -1,6 +1,7 @@
 #include <QtCore/qdebug.h>
 
 #include "bridge/core_access.h"
+#include "bridge/http_access.h"
 #include "bridge/stream_bridge.h"
 #include "http_cookie.h"
 
@@ -163,21 +164,21 @@ QList<HttpCookie> HttpCookie::parseCookies(const QByteArray &cookieString)
     return result;
 }
 
-class HttpCookieJarBridge : public qtng_core::HttpCookieJar
-{
-public:
-    vector<qtng_core::HttpCookie> cookieList() const { return allCookies(); }
-    void setCookieList(const vector<qtng_core::HttpCookie> &cookies) { setAllCookies(cookies); }
-    bool validate(const qtng_core::HttpCookie &cookie, const string &url) const
-    {
-        return validateCookie(cookie, url);
-    }
-};
-
 class HttpCookieJarPrivate
 {
 public:
-    HttpCookieJarBridge core;
+    qtng_core::HttpCookieJar core;
+    qtng_core::HttpCookieJar *externalCore = nullptr;
+
+    qtng_core::HttpCookieJar &coreRef() { return externalCore ? *externalCore : core; }
+    const qtng_core::HttpCookieJar &coreRef() const { return externalCore ? *externalCore : core; }
+
+    static void bindToCore(HttpCookieJar *jar, qtng_core::HttpCookieJar *core)
+    {
+        if (jar) {
+            jar->d_ptr->externalCore = core;
+        }
+    }
 };
 
 HttpCookieJar::HttpCookieJar()
@@ -192,7 +193,7 @@ HttpCookieJar::~HttpCookieJar()
 
 QList<HttpCookie> HttpCookieJar::cookiesForUrl(const QUrl &url) const
 {
-    const vector<qtng_core::HttpCookie> cookies = d_ptr->core.cookiesForUrl(toCoreUrl(url).toString());
+    const vector<qtng_core::HttpCookie> cookies = d_ptr->coreRef().cookiesForUrl(toCoreUrl(url).toString());
     QList<HttpCookie> result;
     for (const qtng_core::HttpCookie &cookie : cookies) {
         result.append(HttpCookiePrivate::fromCore(cookie));
@@ -207,27 +208,27 @@ bool HttpCookieJar::setCookiesFromUrl(const QList<HttpCookie> &cookieList, const
     for (const HttpCookie &cookie : cookieList) {
         cookies.push_back(HttpCookiePrivate::toCore(cookie));
     }
-    return d_ptr->core.setCookiesFromUrl(cookies, toCoreUrl(url).toString());
+    return d_ptr->coreRef().setCookiesFromUrl(cookies, toCoreUrl(url).toString());
 }
 
 bool HttpCookieJar::insertCookie(const HttpCookie &cookie)
 {
-    return d_ptr->core.insertCookie(HttpCookiePrivate::toCore(cookie));
+    return d_ptr->coreRef().insertCookie(HttpCookiePrivate::toCore(cookie));
 }
 
 bool HttpCookieJar::updateCookie(const HttpCookie &cookie)
 {
-    return d_ptr->core.updateCookie(HttpCookiePrivate::toCore(cookie));
+    return d_ptr->coreRef().updateCookie(HttpCookiePrivate::toCore(cookie));
 }
 
 bool HttpCookieJar::deleteCookie(const HttpCookie &cookie)
 {
-    return d_ptr->core.deleteCookie(HttpCookiePrivate::toCore(cookie));
+    return d_ptr->coreRef().deleteCookie(HttpCookiePrivate::toCore(cookie));
 }
 
 QList<HttpCookie> HttpCookieJar::allCookies() const
 {
-    const vector<qtng_core::HttpCookie> cookies = d_ptr->core.cookieList();
+    const vector<qtng_core::HttpCookie> cookies = d_ptr->coreRef().allCookies();
     QList<HttpCookie> result;
     for (const qtng_core::HttpCookie &cookie : cookies) {
         result.append(HttpCookiePrivate::fromCore(cookie));
@@ -242,12 +243,13 @@ void HttpCookieJar::setAllCookies(const QList<HttpCookie> &cookieList)
     for (const HttpCookie &cookie : cookieList) {
         cookies.push_back(HttpCookiePrivate::toCore(cookie));
     }
-    d_ptr->core.setCookieList(cookies);
+    d_ptr->coreRef().setAllCookies(cookies);
 }
 
 bool HttpCookieJar::validateCookie(const HttpCookie &cookie, const QUrl &url) const
 {
-    return d_ptr->core.validate(HttpCookiePrivate::toCore(cookie), toCoreUrl(url).toString());
+    const qtng_core::HttpCookie coreCookie = HttpCookiePrivate::toCore(cookie);
+    return d_ptr->coreRef().validateCookie(coreCookie, toCoreUrl(url).toString());
 }
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -260,3 +262,12 @@ QDebug operator<<(QDebug debug, const HttpCookie &cookie)
 #endif
 
 }  // namespace QTNETWORKNG_NAMESPACE
+
+namespace qtng_bridge {
+
+void bindHttpCookieJarToCore(QTNETWORKNG_NAMESPACE::HttpCookieJar *jar, qtng_core::HttpCookieJar *core)
+{
+    QTNETWORKNG_NAMESPACE::HttpCookieJarPrivate::bindToCore(jar, core);
+}
+
+}  // namespace qtng_bridge

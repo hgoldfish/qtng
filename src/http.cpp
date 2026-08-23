@@ -9,7 +9,6 @@
 #include "qtng/socks5_proxy.h"
 #include "qtng/random.h"
 #include "qtng/utils/string_utils.h"
-#include "qtng/utils/random.h"
 #include "qtng/md.h"
 #include "qtng/io_utils.h"
 #include "qtng/utils/url.h"
@@ -118,22 +117,29 @@ inline MsgPackStream &operator<<(MsgPackStream &ds, const HttpHeader &header)
 
 inline MsgPackStream &operator>>(MsgPackStream &ds, HttpHeader &header)
 {
-    return ds >> header.name >> header.value;
+    ds.readString(header.name);
+    ds.readString(header.value);
+    return ds;
 }
 
 FormData::FormData()
+    : boundary(makeBoundary())
+{
+}
+
+std::string FormData::makeBoundary()
 {
     const string possibleCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
     const int randomPartLength = 16;
 
     string randomPart;
     for (int i = 0; i < randomPartLength; ++i) {
-        int index = static_cast<int>(utils::RandomGenerator::global().bounded(static_cast<uint32_t>(possibleCharacters.size())));
+        int index = static_cast<int>(RandomGenerator::global().bounded(static_cast<uint32_t>(possibleCharacters.size())));
         char nextChar = possibleCharacters[static_cast<size_t>(index)];
         randomPart.push_back(nextChar);
     }
 
-    boundary = string("----WebKitFormBoundary") + randomPart;
+    return string("----WebKitFormBoundary") + randomPart;
 }
 
 string formatHeaderParam(const string &name, const string &value)
@@ -1528,6 +1534,16 @@ HttpResponse HttpSession::post(const string &url, const string &body, const map<
     return send(request);
 }
 
+HttpResponse HttpSession::post(const string &url, shared_ptr<FileLike> body, const map<string, string> &headers)
+{
+    HttpRequest request;
+    request.setMethod("POST");
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
 HttpResponse HttpSession::post(const string &url, const map<string, string> &body, const map<string, string> &headers)
 {
     HttpRequest request;
@@ -1613,6 +1629,16 @@ HttpResponse HttpSession::patch(const string &url, const string &body, const map
     return send(request);
 }
 
+HttpResponse HttpSession::patch(const string &url, shared_ptr<FileLike> body, const map<string, string> &headers)
+{
+    HttpRequest request;
+    request.setMethod("PATCH");
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
 HttpResponse HttpSession::patch(const string &url, const map<string, string> &body, const map<string, string> &headers)
 {
     HttpRequest request;
@@ -1689,6 +1715,16 @@ HttpResponse HttpSession::put(const string &url, const FormData &body)
 }
 
 HttpResponse HttpSession::put(const string &url, const string &body, const map<string, string> &headers)
+{
+    HttpRequest request;
+    request.setMethod("PUT");
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::put(const string &url, shared_ptr<FileLike> body, const map<string, string> &headers)
 {
     HttpRequest request;
     request.setMethod("PUT");
@@ -2091,7 +2127,10 @@ bool HttpCacheManager::getResponse(HttpResponse *response)
     string statusText;
     vector<HttpHeader> headers;
     string body;
-    ds >> statusCode >> statusText >> headers >> body;
+    ds >> statusCode;
+    ds.readString(statusText);
+    ds >> headers;
+    ds.readString(body);
     if (!ds.isOk()) {
         return false;
     }
@@ -2286,5 +2325,25 @@ string UnrewindableBodyError::what() const
 {
     return "Requests encountered an error when trying to rewind a body";
 }
+
+namespace detail {
+
+HttpRequest HttpDeepCopy::request(const HttpRequest &req)
+{
+    HttpRequest copy;
+    copy.d = std::make_shared<HttpRequestPrivate>(*req.d);
+    copy.headers = req.headers;
+    return copy;
+}
+
+HttpResponse HttpDeepCopy::response(const HttpResponse &resp)
+{
+    HttpResponse copy;
+    copy.d = std::make_shared<HttpResponsePrivate>(*resp.d);
+    copy.headers = resp.headers;
+    return copy;
+}
+
+}  // namespace detail
 
 }  // namespace qtng
