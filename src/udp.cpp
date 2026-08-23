@@ -294,6 +294,9 @@ public:
     shared_ptr<DatagramLink> link;
     shared_ptr<UdpDatagramLink> udp;  // may be null for non-UDP DatagramLink
     shared_ptr<KcpStream> stream;
+    // Optional per-socket filter, invoked from KcpSocket::filter() (which the UDP link
+    // filter forwards to). Lets Qt-binding code install a filter without subclassing.
+    function<bool(char *, int32_t *, HostAddress *, uint16_t *)> filterCallback;
     // True when this KcpSocket installed the UDP recv filter (owns the link lifetime).
     bool ownsFilter = false;
 };
@@ -673,11 +676,15 @@ int32_t KcpSocket::sendall(const string &data)
 
 bool KcpSocket::filter(char *data, int32_t *len, HostAddress *addr, uint16_t *port)
 {
-    (void) data;
-    (void) len;
-    (void) addr;
-    (void) port;
+    if (d_ptr->filterCallback) {
+        return d_ptr->filterCallback(data, len, addr, port);
+    }
     return false;
+}
+
+void KcpSocket::setFilter(function<bool(char *, int32_t *, HostAddress *, uint16_t *)> callback)
+{
+    d_ptr->filterCallback = std::move(callback);
 }
 
 int32_t KcpSocket::udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port)
