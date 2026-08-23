@@ -10,11 +10,11 @@
 #include "qtng/coroutine_utils.h"
 #include "qtng/eventloop.h"
 #include "qtng/locks.h"
+#include "qtng/random.h"
 #include "qtng/socket.h"
 #include "qtng/socket_utils.h"
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/logging.h"
-#include "qtng/utils/random.h"
 
 #ifndef QTNG_NO_CRYPTO
 #  include "qtng/ssl.h"
@@ -276,7 +276,7 @@ bool parsePublish(const string &payload, uint8_t flags, MqttMessage &msg, uint16
 
 string defaultClientId()
 {
-    return string("qtng-") + utils::RandomGenerator::global().generateHex(8);
+    return string("qtng-") + RandomGenerator::global().generateHex(8);
 }
 
 }  // namespace

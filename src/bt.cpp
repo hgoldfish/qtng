@@ -21,7 +21,6 @@
 #include "qtng/io_utils.h"
 #include "qtng/md.h"
 #include "qtng/random.h"
-#include "qtng/utils/random.h"
 #include "qtng/utils/url.h"
 
 #include <climits>
@@ -1595,7 +1594,7 @@ vector<BtPeerAddr> TorrentSessionPrivate::announceUdp(shared_ptr<TorrentHandlePr
         return true;
     };
 
-    std::uint32_t tx = utils::RandomGenerator::global().generate();
+    std::uint32_t tx = RandomGenerator::global().generate();
     string creq(16, '\0');
     btWriteBe64(&creq[0], 0x41727101980ULL);
     btWriteBe32(&creq[8], 0);  // connect
@@ -1618,7 +1617,7 @@ vector<BtPeerAddr> TorrentSessionPrivate::announceUdp(shared_ptr<TorrentHandlePr
         eventCode = 3;
     }
     TorrentStats st = h->statsSnapshot();
-    tx = utils::RandomGenerator::global().generate();
+    tx = RandomGenerator::global().generate();
     string areq(98, '\0');
     btWriteBe64(&areq[0], connId);
     btWriteBe32(&areq[8], 1);  // announce

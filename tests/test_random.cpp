@@ -2,11 +2,11 @@
 #include <set>
 #include <vector>
 
-#include "qtng/utils/random.h"
+#include "qtng/random.h"
 
 using namespace std;
 
-using namespace qtng::utils;
+using namespace qtng;
 
 TEST_CASE("RandomGenerator bounded", "[random]")
 {
