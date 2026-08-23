@@ -16,6 +16,9 @@ bool startsWith(const std::string &text, const std::string &prefix);
 bool endsWith(const std::string &text, const std::string &suffix);
 std::string number(int value);
 std::string number(long long value);
+// Format an integer in the given base (base=16 is used for HTTP chunked block sizes, etc.).
+std::string number(int value, int base);
+std::string number(long long value, int base);
 std::string number(double value, int precision = 6);
 int parseInt(const std::string &text, bool *ok = nullptr);
 long long parseLongLong(const std::string &text, bool *ok = nullptr);
@@ -31,6 +34,9 @@ std::string toAce(const std::string &domain);
 std::string fromAce(const std::string &domain);
 std::string bytesToHex(const std::string &data);
 std::string bytesToBase64(const std::string &data);
+// Decode base64; whitespace and invalid characters in the input are tolerated and skipped, returning the
+// decoded result (possibly empty).
+std::string base64ToBytes(const std::string &data);
 std::string join(const std::vector<std::string> &parts, char separator);
 
 }  // namespace utils

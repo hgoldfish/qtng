@@ -195,6 +195,32 @@ string number(long long value)
     return to_string(value);
 }
 
+string number(int value, int base)
+{
+    return number(static_cast<long long>(value), base);
+}
+
+string number(long long value, int base)
+{
+    if (base == 10) {
+        return to_string(value);
+    }
+    if (base != 16) {
+        return to_string(value);
+    }
+    unsigned long long u = static_cast<unsigned long long>(value);
+    const char digits[] = "0123456789abcdef";
+    string result;
+    if (u == 0) {
+        return "0";
+    }
+    while (u != 0) {
+        result.insert(result.begin(), digits[u & 0xf]);
+        u >>= 4;
+    }
+    return result;
+}
+
 string number(double value, int precision)
 {
     ostringstream oss;
@@ -420,6 +446,48 @@ string bytesToBase64(const string &data)
         } else {
             result.push_back('=');
             result.push_back('=');
+        }
+    }
+    return result;
+}
+
+string base64ToBytes(const string &data)
+{
+    static const int table[256] = {
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,  //
+        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,  //
+        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,             //
+        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,   //
+        -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,   //
+        41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,   //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,   //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,   //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,   //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,   //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,   //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,   //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,   //
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    };
+    string result;
+    result.reserve((data.size() / 4) * 3);
+    int buffer = 0;
+    int bits = 0;
+    for (unsigned char ch : data) {
+        if (ch == '=' || ch == '\n' || ch == '\r' || ch == ' ' || ch == '\t') {
+            continue;
+        }
+        const int v = table[ch];
+        if (v < 0) {
+            continue;
+        }
+        buffer = (buffer << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            result.push_back(static_cast<char>((buffer >> bits) & 0xff));
         }
     }
     return result;
