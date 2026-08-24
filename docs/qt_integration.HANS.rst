@@ -25,6 +25,24 @@ Qt5/Qt6 可选兼容层
 
     find_package(Qt${QTNG_QT_VERSION_MAJOR}Core CONFIG REQUIRED)
 
+当系统同时安装了 Qt5 与 Qt6 时，可用 CMake 缓存选项 ``QTNG_QT_VERSION`` 选择使用哪一个：
+
+* ``auto``（默认）—— 找到 Qt5 则优先使用 Qt5，否则用 Qt6
+* ``5`` —— 强制 Qt5
+* ``6`` —— 强制 Qt6
+
+示例（强制 Qt6）::
+
+    cmake -S /path/to/qtng/qt/examples/fetch_web_content -B build-fetch -DQTNG_QT_VERSION=6
+
+编译器要求
+----------
+
+Qt5 目标以 C++11 编译，Qt6 目标以 C++17 编译（``qt/CMakeLists.txt`` 会自动设置
+``CMAKE_CXX_STANDARD``）。Qt6 头文件使用了 ``<filesystem>``，因此编译 Qt6 版本需要
+C++17 编译器（GCC 8+、Clang 7+ 或等效）；仅编译 Qt5 版本时 C++11 编译器（如 GCC 7）
+即可。
+
 最小示例
 --------
 

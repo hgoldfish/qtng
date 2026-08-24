@@ -37,6 +37,14 @@ Example (force Qt6)::
 
     cmake -S /path/to/qtng/qt/examples/fetch_web_content -B build-fetch -DQTNG_QT_VERSION=6
 
+Toolchain requirements
+~~~~~~~~~~~~~~~~~~~~~~
+
+The binding compiles Qt5 targets with C++11 and Qt6 targets with C++17
+(``CMAKE_CXX_STANDARD`` is set automatically by ``qt/CMakeLists.txt``). Qt6 headers use
+``<filesystem>``, so building the Qt6 variant needs a C++17 compiler (GCC 8+, Clang 7+ or
+equivalent); a C++11 compiler such as GCC 7 is only sufficient for the Qt5 variant.
+
 Minimal example
 ---------------
 
