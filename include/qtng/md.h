@@ -65,6 +65,10 @@ inline std::string MessageDigest::digest(const std::string &data, Algorithm algo
     return m.result();
 }
 
+// HMAC (RFC 2104) using the given digest. Returns empty string on failure
+// (unsupported digest or empty key).
+std::string hmac(const MessageDigest::Algorithm hashAlgo, const std::string &key, const std::string &data);
+
 std::string PBKDF2_HMAC(int keylen, const std::string &password, const std::string &salt,
                        const MessageDigest::Algorithm hashAlgo = MessageDigest::Sha256, int i = 10000);
 

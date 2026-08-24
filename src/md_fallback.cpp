@@ -430,6 +430,11 @@ string MessageDigest::result()
     return d->result();
 }
 
+string hmac(const MessageDigest::Algorithm, const string &, const string &)
+{
+    return string();
+}
+
 string PBKDF2_HMAC(int, const string &, const string &, const MessageDigest::Algorithm, int)
 {
     return string();
