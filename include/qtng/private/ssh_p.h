@@ -79,6 +79,7 @@ enum SshMessageType {
     SSH_MSG_DEBUG = 4,
     SSH_MSG_SERVICE_REQUEST = 5,
     SSH_MSG_SERVICE_ACCEPT = 6,
+    SSH_MSG_EXT_INFO = 7,  // RFC 8308
     SSH_MSG_KEXINIT = 20,
     SSH_MSG_NEWKEYS = 21,
     SSH_MSG_KEX_ECDH_INIT = 30,   // curve25519-sha256 uses ECDH message numbers
@@ -134,6 +135,7 @@ public:
     bool eofReceived;
     bool closed;  // our side initiated close
     bool remoteClosed;
+    bool exitStatusSent;
     SshTerminalSize termSize;
     std::shared_ptr<SshChannelCallback> callback;
 };
@@ -232,6 +234,7 @@ public:
     bool kexDone;
     std::string myKexInitPayload;
     std::string peerKexInitPayload;
+    bool peerExtInfoC;  // peer advertised ext-info-c in its KEXINIT (RFC 8308)
     std::string kexAlgo;
     std::string hostKeyAlgo;
     std::string cipherAlgo;
@@ -273,6 +276,7 @@ public:
     bool authenticated;
     std::string authUser;
     std::string banner;
+    bool bannerSent;
 
     // Server application.
     std::shared_ptr<SshApplication> app;

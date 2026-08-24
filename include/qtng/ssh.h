@@ -60,6 +60,8 @@ public:
     bool requestShell();
     bool requestWindowChange(std::uint32_t cols, std::uint32_t rows);
     bool sendSignal(const std::string &signalName);
+    // Server-side: report the session exit status to the peer (RFC 4254 §6.10).
+    bool sendExitStatus(std::uint32_t status);
 private:
     friend class SshConnectionPrivate;
     friend class SshClientPrivate;

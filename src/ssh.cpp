@@ -1,5 +1,7 @@
 #include "qtng/private/ssh_p.h"
 
+#include <algorithm>
+
 #include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
@@ -297,6 +299,7 @@ SshChannelPrivate::SshChannelPrivate(SshConnectionPrivate *conn, uint32_t localI
     , eofReceived(false)
     , closed(false)
     , remoteClosed(false)
+    , exitStatusSent(false)
 {
 }
 
@@ -319,7 +322,17 @@ string SshChannelPrivate::recv(int32_t maxSize)
         if (chunk.empty()) {
             continue;
         }
-        result.append(chunk);
+        // A single CHANNEL_DATA packet may carry more than maxSize bytes;
+        // consume only what was asked and push the remainder back (front) so
+        // it is not lost, preserving stream semantics.
+        const size_t need = static_cast<size_t>(maxSize) - result.size();
+        if (chunk.size() <= need) {
+            result.append(chunk);
+        } else {
+            result.append(chunk, 0, need);
+            incoming.returns(chunk.substr(need));
+            break;
+        }
     }
     return result;
 }
@@ -382,6 +395,7 @@ SshConnectionPrivate::SshConnectionPrivate()
     , error(Socket::NoError)
     , kexStarted(false)
     , kexDone(false)
+    , peerExtInfoC(false)
     , sendSeq(0)
     , recvSeq(0)
     , blockSize(8)
@@ -391,6 +405,7 @@ SshConnectionPrivate::SshConnectionPrivate()
     , maxAuthTries(6)
     , authTries(0)
     , authenticated(false)
+    , bannerSent(false)
     , nextLocalChannelId(0)
     , authOk(false)
     , authFinished(false)
@@ -652,6 +667,7 @@ bool SshConnectionPrivate::negotiateAlgorithms()
     peer.getNameList(&peerEnc);
     peer.getNameList(&peerMac);
     peer.getNameList(&peerMac);
+    peerExtInfoC = std::find(peerKex.begin(), peerKex.end(), "ext-info-c") != peerKex.end();
 
     // RFC 4253 §7.1: the first algorithm on the *client's* list that also
     // appears on the server's list is chosen, so each side must search the
@@ -704,26 +720,27 @@ void SshConnectionPrivate::computeExchangeHash(const string &serverHostKeyBlob)
     // OpenSSH stores the identification strings WITHOUT the trailing CRLF
     // (it trims it after sending, and strips it while reading), so V_C/V_S
     // must not include the CRLF to interoperate.
-    const string vsStr = sshString(peerVersion);   // V_C
-    const string vcStr = sshString(localVersion);  // V_S
-    const string icStr = sshString(peerKexInitPayload);     // I_C
-    const string isStr = sshString(myKexInitPayload);       // I_S
+    const string peerVersionStr = sshString(peerVersion);       // the peer's identification string
+    const string localVersionStr = sshString(localVersion);     // our identification string
+    const string peerKexStr = sshString(peerKexInitPayload);    // the peer's KEXINIT payload
+    const string localKexStr = sshString(myKexInitPayload);     // our KEXINIT payload
     const string ksStr = sshString(serverHostKeyBlob);      // K_S
     const string qcStr = sshString(clientEphPub);           // Q_C
     const string qsStr = sshString(serverEphPub);           // Q_S
     const string kMpint = sshMpintString(sharedSecret);  // K
+
+    // RFC 4253 §8 hashes V_C, V_S, I_C, I_S in that order: the client's
+    // identification/KEXINIT first, then the server's.
+    const string vc = serverSide ? peerVersionStr : localVersionStr;  // V_C
+    const string vs = serverSide ? localVersionStr : peerVersionStr;  // V_S
+    const string ic = serverSide ? peerKexStr : localKexStr;          // I_C
+    const string is = serverSide ? localKexStr : peerKexStr;          // I_S
+
     MessageDigest md(MessageDigest::Sha256);
-    if (serverSide) {
-        md.addData(vsStr.data(), static_cast<int>(vsStr.size()));  // V_C
-        md.addData(vcStr.data(), static_cast<int>(vcStr.size()));  // V_S
-        md.addData(icStr.data(), static_cast<int>(icStr.size()));  // I_C
-        md.addData(isStr.data(), static_cast<int>(isStr.size()));  // I_S
-    } else {
-        md.addData(vcStr.data(), static_cast<int>(vcStr.size()));  // V_C
-        md.addData(vsStr.data(), static_cast<int>(vsStr.size()));  // V_S
-        md.addData(isStr.data(), static_cast<int>(isStr.size()));  // I_C
-        md.addData(icStr.data(), static_cast<int>(icStr.size()));  // I_S
-    }
+    md.addData(vc.data(), static_cast<int>(vc.size()));
+    md.addData(vs.data(), static_cast<int>(vs.size()));
+    md.addData(ic.data(), static_cast<int>(ic.size()));
+    md.addData(is.data(), static_cast<int>(is.size()));
     md.addData(ksStr.data(), static_cast<int>(ksStr.size()));  // K_S
     md.addData(qcStr.data(), static_cast<int>(qcStr.size()));  // Q_C
     md.addData(qsStr.data(), static_cast<int>(qsStr.size()));  // Q_S
@@ -731,33 +748,6 @@ void SshConnectionPrivate::computeExchangeHash(const string &serverHostKeyBlob)
     exchangeHash = md.result();
     if (sessionId.empty()) {
         sessionId = exchangeHash;
-    }
-    auto hx = [](const string &s) {
-        string out;
-        static const char *digits = "0123456789abcdef";
-        for (char c : s) {
-            out.push_back(digits[(static_cast<uint8_t>(c) >> 4) & 0xf]);
-            out.push_back(digits[static_cast<uint8_t>(c) & 0xf]);
-        }
-        return out;
-    };
-    FILE *df = fopen("/tmp/hseg_dump.txt", "a");
-    if (df) {
-        fprintf(df, "VC %zu %s\n", vsStr.size(), hx(vsStr).c_str());
-        fprintf(df, "VS %zu %s\n", vcStr.size(), hx(vcStr).c_str());
-        fprintf(df, "IC %zu %s\n", icStr.size(), hx(icStr).c_str());
-        fprintf(df, "IS %zu %s\n", isStr.size(), hx(isStr).c_str());
-        fprintf(df, "KS %zu %s\n", ksStr.size(), hx(ksStr).c_str());
-        fprintf(df, "QC %zu %s\n", qcStr.size(), hx(qcStr).c_str());
-        fprintf(df, "QS %zu %s\n", qsStr.size(), hx(qsStr).c_str());
-        fprintf(df, "KM %zu %s\n", kMpint.size(), hx(kMpint).c_str());
-        fprintf(df, "H  %zu %s\n", exchangeHash.size(), hx(exchangeHash).c_str());
-        MessageDigest md2(MessageDigest::Sha256);
-        const string all = vsStr + vcStr + icStr + isStr + ksStr + qcStr + qsStr + kMpint;
-        md2.addData(all.data(), static_cast<int>(all.size()));
-        fprintf(df, "H2 %zu %s\n", md2.result().size(), hx(md2.result()).c_str());
-        fprintf(df, "---\n");
-        fclose(df);
     }
 }
 
@@ -826,24 +816,6 @@ bool SshConnectionPrivate::handleKexEcdhInit(const string &payload)
     if (signature.empty()) {
         setError("host key signing failed");
         return false;
-    }
-    {
-        auto hx = [](const string &s) {
-            string out;
-            static const char *digits = "0123456789abcdef";
-            for (char c : s) {
-                out.push_back(digits[(static_cast<uint8_t>(c) >> 4) & 0xf]);
-                out.push_back(digits[static_cast<uint8_t>(c) & 0xf]);
-            }
-            return out;
-        };
-        FILE *df = fopen("/tmp/hseg_dump.txt", "a");
-        if (df) {
-            fprintf(df, "SP %zu %s\n", serverEphPriv.size(), hx(serverEphPriv).c_str());
-            fprintf(df, "SIG %zu %s\n", signature.size(), hx(signature).c_str());
-            fprintf(df, "ALG %s\n", hostKeyAlgo.c_str());
-            fclose(df);
-        }
     }
     SshBuffer sigMsg;
     sigMsg.putString(hostKeyAlgo);
@@ -955,6 +927,20 @@ bool SshConnectionPrivate::sendNewKeys()
         }
         sendMacKey = serverSide ? macS2C : macC2S;
         sendEncrypted = true;
+    }
+    // RFC 8308: a server that advertises support for ext-info-c in its peer's
+    // KEXINIT must send SSH_MSG_EXT_INFO as the first packet after NEWKEYS.
+    // Advertise the RSA signature algorithms so OpenSSH clients can pick a
+    // SHA-2 based signature instead of ssh-rsa (often disabled by policy).
+    if (serverSide && peerExtInfoC) {
+        SshBuffer ext;
+        ext.putByte(SSH_MSG_EXT_INFO);
+        ext.putUint32(1);
+        ext.putString("server-sig-algs");
+        ext.putString("rsa-sha2-512,rsa-sha2-256");
+        if (!sendPacket(ext.raw())) {
+            return false;
+        }
     }
     return true;
 }
@@ -1193,6 +1179,8 @@ void SshConnectionPrivate::readLoop(bool untilAuthenticated)
             break;
         case SSH_MSG_USERAUTH_BANNER:
             break;
+        case SSH_MSG_EXT_INFO:
+            break;
         case SSH_MSG_USERAUTH_PK_OK:
             if (!serverSide) {
                 authOk = true;
@@ -1312,6 +1300,7 @@ void SshConnectionPrivate::handleChannelOpen(const string &payload)
     if (app) {
         shared_ptr<Coroutine> c = shared_ptr<Coroutine>(Coroutine::spawn([this, self, channel] {
             app->run(channel.get());
+            channel->sendExitStatus(0);
             channel->close();
         }));
         appCoroutines.push_back(c);
@@ -1656,12 +1645,13 @@ void SshConnectionPrivate::handleAuthRequest(const string &payload)
 bool SshConnectionPrivate::sendAuthFailure()
 {
     ++authTries;
-    if (!banner.empty()) {
+    if (!banner.empty() && !bannerSent) {
         SshBuffer b;
         b.putByte(SSH_MSG_USERAUTH_BANNER);
         b.putString(banner);
         b.putString("en");
         sendPacket(b.raw());
+        bannerSent = true;
     }
     if (authTries >= maxAuthTries) {
         sendDisconnect(14, "too many authentication failures");
@@ -1709,7 +1699,7 @@ bool SshConnectionPrivate::verifyPublicKeySignature(const string &user, const st
         return false;
     }
     SshBuffer dataBuf;
-    dataBuf.putBytes(sessionId);
+    dataBuf.putString(sessionId);
     dataBuf.putByte(SSH_MSG_USERAUTH_REQUEST);
     dataBuf.putString(user);
     dataBuf.putString("ssh-connection");
@@ -1717,7 +1707,7 @@ bool SshConnectionPrivate::verifyPublicKeySignature(const string &user, const st
     dataBuf.putBoolean(true);
     dataBuf.putString(algo);
     dataBuf.putString(blob);
-    return key.verify(dataBuf.raw(), sig, rsaHashForAlgo(algo));
+    return key.verify(dataBuf.raw(), sig, rsaHashForAlgo(sigAlgo));
 }
 
 void SshConnectionPrivate::handleServiceRequest(const string &payload)
@@ -1796,7 +1786,7 @@ bool SshConnectionPrivate::startClientPublicKeyAuth(const string &user, const Pr
     authFinished = false;
     authEvent.clear();
     SshBuffer dataBuf;
-    dataBuf.putBytes(sessionId);
+    dataBuf.putString(sessionId);
     dataBuf.putByte(SSH_MSG_USERAUTH_REQUEST);
     dataBuf.putString(user);
     dataBuf.putString("ssh-connection");
@@ -1960,6 +1950,20 @@ bool SshChannel::sendSignal(const string &signalName)
     SshBuffer extra;
     extra.putString(signalName);
     return d->conn->sendChannelRequest(d.get(), "signal", extra, true) && d->conn->waitRequestReply();
+}
+
+bool SshChannel::sendExitStatus(uint32_t status)
+{
+    if (!d || d->exitStatusSent) {
+        return false;
+    }
+    SshBuffer extra;
+    extra.putUint32(status);
+    const bool ok = d->conn->sendChannelRequest(d.get(), "exit-status", extra, false);
+    if (ok) {
+        d->exitStatusSent = true;
+    }
+    return ok;
 }
 
 // ---- SshServer ----
