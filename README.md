@@ -42,6 +42,7 @@ Features
 * `DhtNode` implements BitTorrent DHT (BEP-5) with pluggable `DhtStore` (memory / LMDB).
 * `TorrentSession` implements a BitTorrent core download stack (peer wire, HTTP/UDP trackers, DHT + µTP/TCP) in `qtng/bt.h`.
 * `Cipher`, `MessageDigest`, `PublicKey`, `PrivateKey` wrap OpenSSL/LibreSSL APIs.
+* `SshServer` / `SshClient` / `SshChannel` implement the SSH protocol (RFC 4251–4254) for hosting interactive terminal applications over `session` channels; `SshApplication` runs TUIs in-process (no fork/exec).
 
 Examples
 --------
@@ -130,6 +131,7 @@ Optional protocol toggles (default **OFF**; enable incomplete/optional stacks wh
 * `-DQTNG_WITH_QUIC=ON` — build QUICv1 transport MVP (forced off without crypto)
 * `-DQTNG_WITH_HTTP3=ON` — build HTTP/3 stub (forced off without QUIC)
 * `-DQTNG_WITH_BT=ON` — build BitTorrent download stack (`TorrentSession` / `qtng/bt.h`; bencode and DHT remain available)
+* `-DQTNG_WITH_SSH=ON` — build the SSH protocol (`SshServer` / `SshClient` / `qtng/ssh.h`; forced off without crypto)
 
 Optional test-only dependency:
 

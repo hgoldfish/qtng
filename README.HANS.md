@@ -42,6 +42,7 @@ Qt 应用可选用 [`qt/`](qt/) 兼容层，以旧版 [qtnetworkng](https://gith
 * `DhtNode` 实现 BitTorrent DHT（BEP-5），存储可插拔（`MemoryDhtStore` / `LmdbDhtStore`）。
 * `TorrentSession` 实现 BitTorrent 核心下载栈（peer wire、HTTP/UDP tracker、DHT + µTP/TCP），见 ``qtng/bt.h``。
 * `Cipher`、`MessageDigest`、`PublicKey`、`PrivateKey` 封装 OpenSSL/LibreSSL API。
+* `SshServer` / `SshClient` / `SshChannel` 实现 SSH 协议（RFC 4251–4254），可在 `session` 通道上托管交互式终端应用；`SshApplication` 让 TUI 在进程内运行（不 fork/exec）。
 
 示例
 ----
@@ -130,6 +131,7 @@ qtng 以 LGPL 3.0 许可证发布。
 * `-DQTNG_WITH_QUIC=ON` — 编译 QUICv1 传输层 MVP（无加密时也会强制关闭）
 * `-DQTNG_WITH_HTTP3=ON` — 编译 HTTP/3 占位实现（无 QUIC 时也会强制关闭）
 * `-DQTNG_WITH_BT=ON` — 编译 BitTorrent 下载栈（`TorrentSession` / `qtng/bt.h`；bencode 与 DHT 仍默认可用）
+* `-DQTNG_WITH_SSH=ON` — 编译 SSH 协议（`SshServer` / `SshClient` / `qtng/ssh.h`；无加密时强制关闭）
 
 
 

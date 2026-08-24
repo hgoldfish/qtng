@@ -4071,7 +4071,8 @@ shell：``SshApplication`` 回调收到终端字节流以及 resize/信号通知
   用 ``setMaxAuthTries()`` / ``setLoginTimeout()`` 限制认证阶段。
 * ``SshChannel`` — 单个 session 通道。``send()``/``recv()`` 传输终端字节流；
   ``requestPty()`` / ``requestShell()`` / ``requestWindowChange()`` / ``sendSignal()``
-  是客户端通道请求。
+  是客户端通道请求；``sendExitStatus()`` 向对端上报会话退出状态（服务器在
+  ``SshApplication::run()`` 返回后会自动发送 ``exit-status`` 0）。
 * ``SshChannelCallback`` — 连接读循环投递的 resize / 信号 / 关闭通知
   （服务器端；通过 ``SshChannel::setCallback()`` 安装）。
 * ``SshAuthenticator`` — ``checkPassword()`` 和/或 ``checkPublicKey()``

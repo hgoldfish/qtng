@@ -4426,7 +4426,9 @@ terminal byte stream plus resize/signal notifications, so a TUI runs in-process.
   ``setMaxAuthTries()`` / ``setLoginTimeout()``.
 * ``SshChannel`` — one session channel. ``send()``/``recv()`` carry the terminal
   byte stream; ``requestPty()`` / ``requestShell()`` / ``requestWindowChange()`` /
-  ``sendSignal()`` are the client-side channel requests.
+  ``sendSignal()`` are the client-side channel requests, and ``sendExitStatus()``
+  reports the session exit status back to the peer (the server sends an
+  ``exit-status`` of 0 automatically when ``SshApplication::run()`` returns).
 * ``SshChannelCallback`` — resize / signal / close notifications delivered from
   the connection read loop (server side; install via ``SshChannel::setCallback()``).
 * ``SshAuthenticator`` — ``checkPassword()`` and/or ``checkPublicKey()`` (the raw
