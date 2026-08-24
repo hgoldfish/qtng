@@ -1,13 +1,14 @@
 #include "qtng/private/quic_tls.h"
 
 #include <cstring>
-#include <openssl/hmac.h>
 #include <openssl/rsa.h>
 
 #include "qtng/aead.h"
 #include "qtng/md.h"
+#include "qtng/noise.h"
 #include "qtng/private/openssl_raii.h"
 #include "qtng/random.h"
+#include "qtng/utils/platform.h"
 
 using namespace std;
 
@@ -27,118 +28,36 @@ const uint16_t kGroupX25519 = 0x001d;
 const uint16_t kSigEcdsaSecp256r1Sha256 = 0x0403;
 const uint16_t kSigRsaPssRsaeSha256 = 0x0804;
 
-void writeUint16(string *o, uint16_t v)
+// Append a big-endian field to a packet being assembled.  The string grows by
+// exactly the field size first, so the caller always owns enough space for
+// ngToBigEndian to overwrite.
+void putUint16(string *out, uint16_t v)
 {
-    o->push_back(static_cast<char>((v >> 8) & 0xff));
-    o->push_back(static_cast<char>(v & 0xff));
+    const size_t pos = out->size();
+    out->append(2, '\0');
+    ngToBigEndian(v, &(*out)[pos]);
 }
 
-void writeUint24(string *o, uint32_t v)
+void putUint24(string *out, uint32_t v)
 {
-    o->push_back(static_cast<char>((v >> 16) & 0xff));
-    o->push_back(static_cast<char>((v >> 8) & 0xff));
-    o->push_back(static_cast<char>(v & 0xff));
-}
-
-void writeUint32(string *o, uint32_t v)
-{
-    o->push_back(static_cast<char>((v >> 24) & 0xff));
-    o->push_back(static_cast<char>((v >> 16) & 0xff));
-    o->push_back(static_cast<char>((v >> 8) & 0xff));
-    o->push_back(static_cast<char>(v & 0xff));
-}
-
-bool readUint16(const char *d, size_t n, size_t *off, uint16_t *v)
-{
-    if (*off + 2 > n) {
-        return false;
-    }
-    *v = (static_cast<uint16_t>(static_cast<unsigned char>(d[*off])) << 8)
-            | static_cast<uint16_t>(static_cast<unsigned char>(d[*off + 1]));
-    *off += 2;
-    return true;
-}
-
-bool readUint24(const char *d, size_t n, size_t *off, uint32_t *v)
-{
-    if (*off + 3 > n) {
-        return false;
-    }
-    *v = (static_cast<uint32_t>(static_cast<unsigned char>(d[*off])) << 16)
-            | (static_cast<uint32_t>(static_cast<unsigned char>(d[*off + 1])) << 8)
-            | static_cast<uint32_t>(static_cast<unsigned char>(d[*off + 2]));
-    *off += 3;
-    return true;
+    const size_t pos = out->size();
+    out->append(3, '\0');
+    ngToBigEndian24(v, &(*out)[pos]);
 }
 
 string handshakeRecord(uint8_t type, const string &body)
 {
     string m;
     m.push_back(static_cast<char>(type));
-    writeUint24(&m, static_cast<uint32_t>(body.size()));
+    putUint24(&m, static_cast<uint32_t>(body.size()));
     m.append(body);
     return m;
-}
-
-bool generateX25519(string *priv, string *pub)
-{
-    EvpPkeyCtxPtr pctx(EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr));
-    if (!pctx) {
-        return false;
-    }
-    EVP_PKEY *rawPkey = nullptr;
-    if (EVP_PKEY_keygen_init(pctx.get()) <= 0 || EVP_PKEY_keygen(pctx.get(), &rawPkey) <= 0) {
-        return false;
-    }
-    EvpPkeyPtr pkey(rawPkey);
-    priv->resize(32);
-    pub->resize(32);
-    size_t privLen = 32, pubLen = 32;
-    return EVP_PKEY_get_raw_private_key(pkey.get(), reinterpret_cast<unsigned char *>(&(*priv)[0]), &privLen) == 1
-            && privLen == 32
-            && EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<unsigned char *>(&(*pub)[0]), &pubLen) == 1
-            && pubLen == 32;
-}
-
-string x25519Shared(const string &priv, const string &peerPub)
-{
-    if (priv.size() != 32 || peerPub.size() != 32) {
-        return string();
-    }
-    EvpPkeyPtr ours(EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
-                                                   reinterpret_cast<const unsigned char *>(priv.data()), 32));
-    EvpPkeyPtr theirs(EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr,
-                                                    reinterpret_cast<const unsigned char *>(peerPub.data()), 32));
-    if (!ours || !theirs) {
-        return string();
-    }
-    EvpPkeyCtxPtr ctx(EVP_PKEY_CTX_new(ours.get(), nullptr));
-    if (!ctx || EVP_PKEY_derive_init(ctx.get()) <= 0 || EVP_PKEY_derive_set_peer(ctx.get(), theirs.get()) <= 0) {
-        return string();
-    }
-    string shared(32, '\0');
-    size_t len = 32;
-    if (EVP_PKEY_derive(ctx.get(), reinterpret_cast<unsigned char *>(&shared[0]), &len) <= 0 || len != 32) {
-        return string();
-    }
-    return shared;
 }
 
 string deriveSecret(const string &secret, const string &label, const string &messages, size_t outLen)
 {
     const string ctx = MessageDigest::digest(messages, MessageDigest::Sha256);
     return hkdfExpandLabel(MessageDigest::Sha256, secret, label, ctx, outLen);
-}
-
-string hmacSha256(const string &key, const string &data)
-{
-    unsigned int len = 0;
-    unsigned char out[EVP_MAX_MD_SIZE];
-    if (!HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
-              reinterpret_cast<const unsigned char *>(data.data()), data.size(), out, &len)) {
-        return string();
-    }
-    return string(reinterpret_cast<char *>(out), len);
 }
 
 string rsaPssSign(EVP_PKEY *pkey, const string &data)
@@ -379,60 +298,62 @@ bool QuicTlsHandshake::decodeTransportParams(const string &data, QuicTransportPa
 string QuicTlsHandshake::buildClientHello()
 {
     m_clientRandom = randomBytes(32);
-    generateX25519(&m_clientKeySharePriv, &m_clientKeySharePub);
+    const NoiseKey clientKey = NoiseKey::generate();
+    m_clientKeySharePriv = clientKey.privateKey;
+    m_clientKeySharePub = clientKey.publicKey;
 
     string legacySessionId;  // empty for QUIC
     string cipherSuites;
-    writeUint16(&cipherSuites, 0x1301);  // TLS_AES_128_GCM_SHA256
+    putUint16(&cipherSuites, 0x1301);  // TLS_AES_128_GCM_SHA256
 
     string extensions;
     // supported_versions
     {
         string body;
         body.push_back(2);
-        writeUint16(&body, 0x0304);
-        writeUint16(&extensions, kExtSupportedVersions);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&body, 0x0304);
+        putUint16(&extensions, kExtSupportedVersions);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
     // supported_groups
     {
         string body;
-        writeUint16(&body, 2);
-        writeUint16(&body, kGroupX25519);
-        writeUint16(&extensions, kExtSupportedGroups);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&body, 2);
+        putUint16(&body, kGroupX25519);
+        putUint16(&extensions, kExtSupportedGroups);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
     // key_share
     {
         string body;
-        writeUint16(&body, static_cast<uint16_t>(2 + 2 + m_clientKeySharePub.size()));
-        writeUint16(&body, kGroupX25519);
-        writeUint16(&body, static_cast<uint16_t>(m_clientKeySharePub.size()));
+        putUint16(&body, static_cast<uint16_t>(2 + 2 + m_clientKeySharePub.size()));
+        putUint16(&body, kGroupX25519);
+        putUint16(&body, static_cast<uint16_t>(m_clientKeySharePub.size()));
         body.append(m_clientKeySharePub);
-        writeUint16(&extensions, kExtKeyShare);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&extensions, kExtKeyShare);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
     // signature_algorithms
     {
         string body;
-        writeUint16(&body, 4);
-        writeUint16(&body, kSigRsaPssRsaeSha256);
-        writeUint16(&body, kSigEcdsaSecp256r1Sha256);
-        writeUint16(&extensions, kExtSignatureAlgorithms);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&body, 4);
+        putUint16(&body, kSigRsaPssRsaeSha256);
+        putUint16(&body, kSigEcdsaSecp256r1Sha256);
+        putUint16(&extensions, kExtSignatureAlgorithms);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
     if (!m_sni.empty()) {
         string body;
-        writeUint16(&body, static_cast<uint16_t>(m_sni.size() + 3));
+        putUint16(&body, static_cast<uint16_t>(m_sni.size() + 3));
         body.push_back(0);  // host_name
-        writeUint16(&body, static_cast<uint16_t>(m_sni.size()));
+        putUint16(&body, static_cast<uint16_t>(m_sni.size()));
         body.append(m_sni);
-        writeUint16(&extensions, kExtServerName);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&extensions, kExtServerName);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
     if (!m_alpn.empty()) {
@@ -442,29 +363,29 @@ string QuicTlsHandshake::buildClientHello()
             list.append(p);
         }
         string body;
-        writeUint16(&body, static_cast<uint16_t>(list.size()));
+        putUint16(&body, static_cast<uint16_t>(list.size()));
         body.append(list);
-        writeUint16(&extensions, kExtAlpn);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&extensions, kExtAlpn);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
     {
         string tp = encodeTransportParams(true);
-        writeUint16(&extensions, kExtQuicTp);
-        writeUint16(&extensions, static_cast<uint16_t>(tp.size()));
+        putUint16(&extensions, kExtQuicTp);
+        putUint16(&extensions, static_cast<uint16_t>(tp.size()));
         extensions.append(tp);
     }
 
     string body;
-    writeUint16(&body, 0x0303);  // legacy_version
+    putUint16(&body, 0x0303);  // legacy_version
     body.append(m_clientRandom);
     body.push_back(static_cast<char>(legacySessionId.size()));
     body.append(legacySessionId);
-    writeUint16(&body, static_cast<uint16_t>(cipherSuites.size()));
+    putUint16(&body, static_cast<uint16_t>(cipherSuites.size()));
     body.append(cipherSuites);
     body.push_back(1);
     body.push_back(0);  // null compression
-    writeUint16(&body, static_cast<uint16_t>(extensions.size()));
+    putUint16(&body, static_cast<uint16_t>(extensions.size()));
     body.append(extensions);
     return handshakeRecord(1, body);  // client_hello
 }
@@ -472,33 +393,35 @@ string QuicTlsHandshake::buildClientHello()
 string QuicTlsHandshake::buildServerHello()
 {
     m_serverRandom = randomBytes(32);
-    generateX25519(&m_serverKeySharePriv, &m_serverKeySharePub);
+    const NoiseKey serverKey = NoiseKey::generate();
+    m_serverKeySharePriv = serverKey.privateKey;
+    m_serverKeySharePub = serverKey.publicKey;
 
     string extensions;
     {
         string body;
-        writeUint16(&body, 0x0304);
-        writeUint16(&extensions, kExtSupportedVersions);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&body, 0x0304);
+        putUint16(&extensions, kExtSupportedVersions);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
     {
         string body;
-        writeUint16(&body, kGroupX25519);
-        writeUint16(&body, static_cast<uint16_t>(m_serverKeySharePub.size()));
+        putUint16(&body, kGroupX25519);
+        putUint16(&body, static_cast<uint16_t>(m_serverKeySharePub.size()));
         body.append(m_serverKeySharePub);
-        writeUint16(&extensions, kExtKeyShare);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&extensions, kExtKeyShare);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
 
     string body;
-    writeUint16(&body, 0x0303);
+        putUint16(&body, 0x0303);
     body.append(m_serverRandom);
     body.push_back(0);  // legacy_session_id_echo empty
-    writeUint16(&body, 0x1301);
+    putUint16(&body, 0x1301);
     body.push_back(0);  // null compression
-    writeUint16(&body, static_cast<uint16_t>(extensions.size()));
+    putUint16(&body, static_cast<uint16_t>(extensions.size()));
     body.append(extensions);
     return handshakeRecord(2, body);
 }
@@ -512,20 +435,20 @@ string QuicTlsHandshake::buildEncryptedExtensions()
         list.push_back(static_cast<char>(m_negotiatedAlpn.size()));
         list.append(m_negotiatedAlpn);
         string body;
-        writeUint16(&body, static_cast<uint16_t>(list.size()));
+        putUint16(&body, static_cast<uint16_t>(list.size()));
         body.append(list);
-        writeUint16(&extensions, kExtAlpn);
-        writeUint16(&extensions, static_cast<uint16_t>(body.size()));
+        putUint16(&extensions, kExtAlpn);
+        putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
     }
     {
         string tp = encodeTransportParams(false);
-        writeUint16(&extensions, kExtQuicTp);
-        writeUint16(&extensions, static_cast<uint16_t>(tp.size()));
+        putUint16(&extensions, kExtQuicTp);
+        putUint16(&extensions, static_cast<uint16_t>(tp.size()));
         extensions.append(tp);
     }
     string body;
-    writeUint16(&body, static_cast<uint16_t>(extensions.size()));
+    putUint16(&body, static_cast<uint16_t>(extensions.size()));
     body.append(extensions);
     return handshakeRecord(8, body);
 }
@@ -534,12 +457,12 @@ string QuicTlsHandshake::buildCertificate()
 {
     string certDer = m_cert.save(Ssl::Der);
     string certList;
-    writeUint24(&certList, static_cast<uint32_t>(certDer.size()));
+    putUint24(&certList, static_cast<uint32_t>(certDer.size()));
     certList.append(certDer);
-    writeUint16(&certList, 0);  // extensions
+    putUint16(&certList, 0);  // extensions
     string body;
     body.push_back(0);  // certificate_request_context
-    writeUint24(&body, static_cast<uint32_t>(certList.size()));
+    putUint24(&body, static_cast<uint32_t>(certList.size()));
     body.append(certList);
     return handshakeRecord(11, body);
 }
@@ -562,8 +485,8 @@ string QuicTlsHandshake::buildCertificateVerify()
         sig = rsaPssSign(pkey, toSign);
     }
     string body;
-    writeUint16(&body, scheme);
-    writeUint16(&body, static_cast<uint16_t>(sig.size()));
+    putUint16(&body, scheme);
+    putUint16(&body, static_cast<uint16_t>(sig.size()));
     body.append(sig);
     return handshakeRecord(15, body);
 }
@@ -572,7 +495,7 @@ string QuicTlsHandshake::buildFinished(bool isClient)
 {
     const string &base = isClient ? m_clientHandshakeTrafficSecret : m_serverHandshakeTrafficSecret;
     const string finishedKey = hkdfExpandLabel(MessageDigest::Sha256, base, "finished", string(), 32);
-    const string verifyData = hmacSha256(finishedKey, transcriptHash());
+    const string verifyData = hmac(MessageDigest::Sha256, finishedKey, transcriptHash());
     return handshakeRecord(20, verifyData);
 }
 
@@ -701,7 +624,7 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
         return false;
     }
     uint16_t csLen = 0;
-    readUint16(msg.data(), msg.size(), &off, &csLen);
+    ngFromBigEndian(msg.data(), msg.size(), &off, &csLen);
     off += csLen;
     if (off >= msg.size()) {
         return false;
@@ -709,14 +632,14 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
     const size_t compLen = static_cast<unsigned char>(msg[off++]);
     off += compLen;
     uint16_t extLen = 0;
-    if (!readUint16(msg.data(), msg.size(), &off, &extLen) || off + extLen > msg.size()) {
+    if (!ngFromBigEndian(msg.data(), msg.size(), &off, &extLen) || off + extLen > msg.size()) {
         return false;
     }
     const size_t extEnd = off + extLen;
     while (off + 4 <= extEnd) {
         uint16_t et = 0, el = 0;
-        readUint16(msg.data(), msg.size(), &off, &et);
-        readUint16(msg.data(), msg.size(), &off, &el);
+        ngFromBigEndian(msg.data(), msg.size(), &off, &et);
+        ngFromBigEndian(msg.data(), msg.size(), &off, &el);
         if (off + el > extEnd) {
             return false;
         }
@@ -725,11 +648,11 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
         if (et == kExtKeyShare && ed.size() >= 6) {
             size_t i = 0;
             uint16_t listLen = 0;
-            readUint16(ed.data(), ed.size(), &i, &listLen);
+            ngFromBigEndian(ed.data(), ed.size(), &i, &listLen);
             while (i + 4 <= ed.size()) {
                 uint16_t group = 0, klen = 0;
-                readUint16(ed.data(), ed.size(), &i, &group);
-                readUint16(ed.data(), ed.size(), &i, &klen);
+                ngFromBigEndian(ed.data(), ed.size(), &i, &group);
+                ngFromBigEndian(ed.data(), ed.size(), &i, &klen);
                 if (i + klen > ed.size()) {
                     break;
                 }
@@ -741,7 +664,7 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
         } else if (et == kExtAlpn) {
             size_t i = 0;
             uint16_t listLen = 0;
-            if (readUint16(ed.data(), ed.size(), &i, &listLen)) {
+            if (ngFromBigEndian(ed.data(), ed.size(), &i, &listLen)) {
                 while (i < ed.size()) {
                     size_t l = static_cast<unsigned char>(ed[i++]);
                     if (i + l > ed.size()) {
@@ -764,7 +687,7 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
 
     const string sh = buildServerHello();
     appendTranscript(sh);
-    const string shared = x25519Shared(m_serverKeySharePriv, m_clientKeySharePub);
+    const string shared = NoiseKey::dh(m_serverKeySharePriv, m_clientKeySharePub);
     if (shared.empty()) {
         if (error) {
             *error = "x25519 failed";
@@ -805,21 +728,21 @@ bool QuicTlsHandshake::handleServerHello(const string &msg, string *error)
     const size_t sidLen = static_cast<unsigned char>(msg[off++]);
     off += sidLen + 2 + 1;  // cipher + compression
     uint16_t extLen = 0;
-    if (!readUint16(msg.data(), msg.size(), &off, &extLen)) {
+    if (!ngFromBigEndian(msg.data(), msg.size(), &off, &extLen)) {
         return false;
     }
     const size_t extEnd = off + extLen;
     while (off + 4 <= extEnd) {
         uint16_t et = 0, el = 0;
-        readUint16(msg.data(), msg.size(), &off, &et);
-        readUint16(msg.data(), msg.size(), &off, &el);
+        ngFromBigEndian(msg.data(), msg.size(), &off, &et);
+        ngFromBigEndian(msg.data(), msg.size(), &off, &el);
         string ed = msg.substr(off, el);
         off += el;
         if (et == kExtKeyShare && ed.size() >= 4) {
             size_t i = 0;
             uint16_t group = 0, klen = 0;
-            readUint16(ed.data(), ed.size(), &i, &group);
-            readUint16(ed.data(), ed.size(), &i, &klen);
+            ngFromBigEndian(ed.data(), ed.size(), &i, &group);
+            ngFromBigEndian(ed.data(), ed.size(), &i, &klen);
             if (group == kGroupX25519 && klen == 32 && i + 32 <= ed.size()) {
                 m_serverKeySharePub = ed.substr(i, 32);
             }
@@ -831,7 +754,7 @@ bool QuicTlsHandshake::handleServerHello(const string &msg, string *error)
         }
         return false;
     }
-    const string shared = x25519Shared(m_clientKeySharePriv, m_serverKeySharePub);
+    const string shared = NoiseKey::dh(m_clientKeySharePriv, m_serverKeySharePub);
     if (shared.empty()) {
         if (error) {
             *error = "x25519 failed";
@@ -849,20 +772,20 @@ bool QuicTlsHandshake::handleEncryptedExtensions(const string &msg, string *erro
     appendTranscript(msg);
     size_t off = 4;
     uint16_t extLen = 0;
-    if (!readUint16(msg.data(), msg.size(), &off, &extLen)) {
+    if (!ngFromBigEndian(msg.data(), msg.size(), &off, &extLen)) {
         return false;
     }
     const size_t extEnd = off + extLen;
     while (off + 4 <= extEnd) {
         uint16_t et = 0, el = 0;
-        readUint16(msg.data(), msg.size(), &off, &et);
-        readUint16(msg.data(), msg.size(), &off, &el);
+        ngFromBigEndian(msg.data(), msg.size(), &off, &et);
+        ngFromBigEndian(msg.data(), msg.size(), &off, &el);
         string ed = msg.substr(off, el);
         off += el;
         if (et == kExtAlpn && ed.size() >= 3) {
             size_t i = 0;
             uint16_t listLen = 0;
-            readUint16(ed.data(), ed.size(), &i, &listLen);
+            ngFromBigEndian(ed.data(), ed.size(), &i, &listLen);
             if (i < ed.size()) {
                 size_t l = static_cast<unsigned char>(ed[i++]);
                 if (i + l <= ed.size()) {
@@ -887,7 +810,7 @@ bool QuicTlsHandshake::handleCertificate(const string &msg, string *error)
     const size_t ctxLen = static_cast<unsigned char>(msg[off++]);
     off += ctxLen;
     uint32_t certsLen = 0;
-    if (!readUint24(msg.data(), msg.size(), &off, &certsLen)) {
+    if (!ngFromBigEndian24(msg.data(), msg.size(), &off, &certsLen)) {
         return false;
     }
     if (certsLen == 0) {
@@ -897,7 +820,7 @@ bool QuicTlsHandshake::handleCertificate(const string &msg, string *error)
         return false;
     }
     uint32_t certLen = 0;
-    if (!readUint24(msg.data(), msg.size(), &off, &certLen) || off + certLen > msg.size()) {
+    if (!ngFromBigEndian24(msg.data(), msg.size(), &off, &certLen) || off + certLen > msg.size()) {
         return false;
     }
     string der = msg.substr(off, certLen);
@@ -922,7 +845,7 @@ bool QuicTlsHandshake::handleCertificateVerify(const string &msg, string *error)
 
     size_t off = 4;
     uint16_t scheme = 0, sigLen = 0;
-    if (!readUint16(msg.data(), msg.size(), &off, &scheme) || !readUint16(msg.data(), msg.size(), &off, &sigLen)
+    if (!ngFromBigEndian(msg.data(), msg.size(), &off, &scheme) || !ngFromBigEndian(msg.data(), msg.size(), &off, &sigLen)
         || off + sigLen > msg.size()) {
         return false;
     }
@@ -950,7 +873,7 @@ bool QuicTlsHandshake::handleFinished(const string &msg, string *error)
     const bool peerIsClient = (m_role == Server);
     const string &base = peerIsClient ? m_clientHandshakeTrafficSecret : m_serverHandshakeTrafficSecret;
     const string finishedKey = hkdfExpandLabel(MessageDigest::Sha256, base, "finished", string(), 32);
-    const string expected = hmacSha256(finishedKey, transcriptHash());
+    const string expected = hmac(MessageDigest::Sha256, finishedKey, transcriptHash());
     const string verifyData = msg.substr(4);
     if (verifyData != expected) {
         if (error) {
