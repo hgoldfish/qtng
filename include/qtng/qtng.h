@@ -36,6 +36,9 @@
 #  include "qtng/certificate.h"
 #  include "qtng/noise.h"
 #  include "qtng/aead.h"
+#  ifndef QTNG_NO_SSH
+#    include "qtng/ssh.h"
+#  endif
 #endif
 #include "qtng/md.h"
 

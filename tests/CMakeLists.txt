@@ -256,3 +256,13 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/3rdparty/libutp/utp.h")
 else()
     message(STATUS "3rdparty/libutp not initialized: skipping uTP libutp interoperability tests")
 endif()
+
+if(QTNG_WITH_SSH)
+    add_executable(qtng_test_ssh
+        test_ssh.cpp
+    )
+    target_link_libraries(qtng_test_ssh PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_ssh PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}")
+    set_target_properties(qtng_test_ssh PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_ssh)
+endif()

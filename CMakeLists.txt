@@ -13,6 +13,7 @@ option(QTNG_WITH_HTTP2 "Build HTTP/2 client support (still incomplete)" OFF)
 option(QTNG_WITH_QUIC "Build QUICv1 transport MVP (still incomplete)" OFF)
 option(QTNG_WITH_HTTP3 "Build HTTP/3 support (stub / still incomplete)" OFF)
 option(QTNG_WITH_BT "Build BitTorrent download stack (TorrentSession)" OFF)
+option(QTNG_WITH_SSH "Build SSH protocol (SshServer/SshClient)" OFF)
 # Force-disable TLS even when LibreSSL/OpenSSL is present (also used for CI/no-crypto builds).
 option(QTNG_DISABLE_CRYPTO "Force-disable the crypto/TLS module" OFF)
 
@@ -80,9 +81,13 @@ if(QTNG_WITH_HTTP3 AND NOT QTNG_WITH_QUIC)
     message(STATUS "HTTP/3 requires QUIC; disabling QTNG_WITH_HTTP3 for this build")
     set(QTNG_WITH_HTTP3 OFF)
 endif()
+if(QTNG_WITH_SSH AND NOT QTNG_HAVE_CRYPTO)
+    message(STATUS "SSH requires crypto/TLS; disabling QTNG_WITH_SSH for this build")
+    set(QTNG_WITH_SSH OFF)
+endif()
 
 message(STATUS "qtng features: CRYPTO=${QTNG_HAVE_CRYPTO} HTTP2=${QTNG_WITH_HTTP2} "
-               "QUIC=${QTNG_WITH_QUIC} HTTP3=${QTNG_WITH_HTTP3} BT=${QTNG_WITH_BT}")
+               "QUIC=${QTNG_WITH_QUIC} HTTP3=${QTNG_WITH_HTTP3} BT=${QTNG_WITH_BT} SSH=${QTNG_WITH_SSH}")
 
 find_package(ZLIB REQUIRED)
 
@@ -225,6 +230,18 @@ set(QTNG_CRYPTO_INCLUDE
 
 set(QTNG_QUIC_INCLUDE
     include/qtng/quic.h
+)
+
+set(QTNG_SSH_SRC
+    src/ssh.cpp
+)
+
+set(QTNG_SSH_INCLUDE
+    include/qtng/ssh.h
+)
+
+set(QTNG_SSH_PRIVATE_INCLUDE
+    include/qtng/private/ssh_p.h
 )
 
 set(QTNG_CRYPTO_PRIVATE_INCLUDE
@@ -410,6 +427,13 @@ if(QTNG_WITH_QUIC)
         ${QTNG_QUIC_PRIVATE_INCLUDE}
     )
 endif()
+if(QTNG_WITH_SSH)
+    list(APPEND QTNG_LIB_SOURCES
+        ${QTNG_SSH_SRC}
+        ${QTNG_SSH_INCLUDE}
+        ${QTNG_SSH_PRIVATE_INCLUDE}
+    )
+endif()
 if(QTNG_WITH_BT)
     list(APPEND QTNG_LIB_SOURCES
         src/bt.cpp
@@ -460,6 +484,9 @@ if(NOT QTNG_WITH_HTTP3)
 endif()
 if(NOT QTNG_WITH_BT)
     target_compile_definitions(qtng PUBLIC QTNG_NO_BT)
+endif()
+if(NOT QTNG_WITH_SSH)
+    target_compile_definitions(qtng PUBLIC QTNG_NO_SSH)
 endif()
 
 # Platform-specific compile definitions
