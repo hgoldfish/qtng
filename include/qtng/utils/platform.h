@@ -1,6 +1,7 @@
 #ifndef QTNG_UTILS_PLATFORM_H
 #define QTNG_UTILS_PLATFORM_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -143,6 +144,45 @@ inline T ngToLittleEndian(T src)
     T result = 0;
     ngToLittleEndian(src, &result);
     return result;
+}
+
+// Bounds-checked reader: advances *offset on success and returns false when
+// the buffer is too short (leaving *offset untouched in that case).
+template<typename T>
+inline bool ngFromBigEndian(const char *data, std::size_t size, std::size_t *offset, T *v)
+{
+    if (*offset + sizeof(T) > size) {
+        return false;
+    }
+    *v = ngFromBigEndian<T>(data + *offset);
+    *offset += sizeof(T);
+    return true;
+}
+
+// 24-bit (three-octet) values have no native integer type, so they need
+// dedicated helpers (TLS/QUIC/SSH framing uses them for length fields).
+inline void ngToBigEndian24(std::uint32_t src, void *dest)
+{
+    unsigned char *d = static_cast<unsigned char *>(dest);
+    d[0] = static_cast<unsigned char>((src >> 16) & 0xFFu);
+    d[1] = static_cast<unsigned char>((src >> 8) & 0xFFu);
+    d[2] = static_cast<unsigned char>(src & 0xFFu);
+}
+
+inline std::uint32_t ngFromBigEndian24(const void *src)
+{
+    const unsigned char *s = static_cast<const unsigned char *>(src);
+    return (static_cast<std::uint32_t>(s[0]) << 16) | (static_cast<std::uint32_t>(s[1]) << 8) | s[2];
+}
+
+inline bool ngFromBigEndian24(const char *data, std::size_t size, std::size_t *offset, std::uint32_t *v)
+{
+    if (*offset + 3 > size) {
+        return false;
+    }
+    *v = ngFromBigEndian24(data + *offset);
+    *offset += 3;
+    return true;
 }
 
 #define NG_DISABLE_COPY(Class) \
