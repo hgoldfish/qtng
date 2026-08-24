@@ -99,6 +99,7 @@ public:
         while (true) {
             const string chunk = channel->recv(1);
             if (chunk.empty()) {
+                eof = true;
                 break;
             }
             const char c = chunk[0];
@@ -127,6 +128,7 @@ public:
     }
 
     bool interrupted = false;
+    bool eof = false;
 
 private:
     SshChannel *channel;
@@ -152,6 +154,9 @@ public:
             screen.print(" 3. Quit\r\n");
             screen.print("\r\n> ");
             const string choice = screen.readLine();
+            if (screen.eof) {
+                break;
+            }
             if (screen.interrupted || choice == "3" || choice == "q") {
                 break;
             } else if (choice == "1") {
@@ -227,6 +232,9 @@ private:
         while (true) {
             screen.print("  echo> ");
             const string line = screen.readLine();
+            if (screen.eof) {
+                break;
+            }
             if (screen.interrupted || line.empty()) {
                 break;
             }
