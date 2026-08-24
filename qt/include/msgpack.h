@@ -276,6 +276,8 @@ MsgPackStream &operator<<(MsgPackStream &s, const QSet<T> &set)
     return s;
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// QVector is an alias of QList since Qt6, so these overloads would collide with the QList ones.
 template<typename T>
 MsgPackStream &operator<<(MsgPackStream &s, const QVector<T> &list)
 {
@@ -290,6 +292,7 @@ MsgPackStream &operator<<(MsgPackStream &s, const QVector<T> &list)
     }
     return s;
 }
+#endif
 
 template<typename K, typename V>
 MsgPackStream &operator<<(MsgPackStream &s, const QMap<K, V> &map)
@@ -395,6 +398,8 @@ MsgPackStream &operator>>(MsgPackStream &s, QSet<T> &set)
     return s;
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// QVector is an alias of QList since Qt6, so these overloads would collide with the QList ones.
 template<typename T>
 MsgPackStream &operator>>(MsgPackStream &s, QVector<T> &list)
 {
@@ -417,6 +422,7 @@ MsgPackStream &operator>>(MsgPackStream &s, QVector<T> &list)
     }
     return s;
 }
+#endif
 
 template<typename K, typename V>
 MsgPackStream &operator>>(MsgPackStream &s, QMap<K, V> &map)

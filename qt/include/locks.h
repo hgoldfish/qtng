@@ -1,6 +1,7 @@
 #ifndef QTNG_LOCKS_H
 #define QTNG_LOCKS_H
 
+#include <climits>
 #include <functional>
 #include <QtCore/qqueue.h>
 #include <QtCore/qsharedpointer.h>

@@ -3,16 +3,13 @@ project(eventloop_qt_tests)
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../CMakeLists.txt")
 
-find_package(Qt5 REQUIRED COMPONENTS Core)
-
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# qt/CMakeLists.txt already set CMAKE_CXX_STANDARD to match the selected Qt version.
 
 function(add_loop_test name)
     add_executable(${name} ${name}.cpp)
     target_include_directories(${name} PRIVATE "${QTNG_ROOT}/include")
-    target_link_libraries(${name} PRIVATE qtnetworkng Qt5::Core)
+    target_link_libraries(${name} PRIVATE qtnetworkng ${QTNG_QT_LIB})
 endfunction()
 
 add_loop_test(t_loop_basic)

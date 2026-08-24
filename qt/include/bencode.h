@@ -81,6 +81,8 @@ BencodeStream &operator<<(BencodeStream &s, const QList<T> &list)
     return s;
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// QVector is an alias of QList since Qt6, so these overloads would collide with the QList ones.
 template<typename T>
 BencodeStream &operator<<(BencodeStream &s, const QVector<T> &list)
 {
@@ -96,6 +98,7 @@ BencodeStream &operator<<(BencodeStream &s, const QVector<T> &list)
     s.writeArrayEnd();
     return s;
 }
+#endif
 
 template<typename T>
 BencodeStream &operator<<(BencodeStream &s, const QSet<T> &set)
@@ -170,6 +173,8 @@ BencodeStream &operator>>(BencodeStream &s, QList<T> &list)
     return s;
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// QVector is an alias of QList since Qt6, so these overloads would collide with the QList ones.
 template<typename T>
 BencodeStream &operator>>(BencodeStream &s, QVector<T> &list)
 {
@@ -190,6 +195,7 @@ BencodeStream &operator>>(BencodeStream &s, QVector<T> &list)
     s.readArrayEnd();
     return s;
 }
+#endif
 
 template<typename T>
 BencodeStream &operator>>(BencodeStream &s, QSet<T> &set)

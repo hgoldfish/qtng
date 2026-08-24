@@ -521,7 +521,11 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
 {
     Q_D(MsgPackStream);
     qtng_core::MsgPackStream &s = d->core;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    switch (v.typeId()) {
+#else
     switch (static_cast<QMetaType::Type>(v.type())) {
+#endif
     case QMetaType::Bool:
         s << v.toBool();
         break;
@@ -607,12 +611,20 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
         break;
     }
     default:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        if (v.metaType().id() == QMetaType::UnknownType) {
+#else
         if (v.type() == QVariant::Invalid) {
+#endif
             static const char nilByte[1] = {static_cast<char>(qtng_core::FirstByte::NIL)};
             s.writeBytes(nilByte, 1);
         } else {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            qWarning() << "msgpack cannot write QVariant type:" << v.metaType().id() << "name:" << v.typeName();
+#else
             qWarning() << "msgpack cannot write QVariant type:" << v.type() << "userType:" << v.userType()
                        << "name:" << v.typeName();
+#endif
             s.setStatus(qtng_core::MsgPackStream::WriteFailed);
         }
         break;
