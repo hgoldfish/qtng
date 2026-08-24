@@ -2503,6 +2503,10 @@ MD4 and Whirlpool are not provided. SHA-3, SHA-512/224, SHA-512/256, BLAKE2, SM3
 
     Calls OpenSSL's PKCS5_PBKDF2_HMAC function to generate the key.
 
+.. function:: std::string hmac(const MessageDigest::Algorithm hashAlgo, const std::string &key, const std::string &data)
+
+    Computes an HMAC (RFC 2104) of ``data`` with the given ``key`` using the specified digest. Returns an empty string on failure (unsupported digest or empty key). Requires OpenSSL/LibreSSL; not available in the ``QTNG_NO_CRYPTO`` software fallback.
+
 .. method:: std::string scrypt(int keylen, const std::string &password, const std::string &salt, int n = 1048576, int r = 8, int p = 1)
 
     Not yet implemented.
@@ -2860,15 +2864,15 @@ Responsible for loading private/public keys from files or memory data. Supports 
 
 .. method:: PrivateKeyReader &setFormat(Ssl::EncodingFormat format)
 
-    Specifies input data encoding format (currently only PEM supported).
+    Specifies the input data encoding format. ``readPublic()`` accepts both ``Ssl::Pem`` and ``Ssl::Der``; private-key reads remain PEM-only.
 
 .. method:: PrivateKey read(const std::string &data)
 
-    Reads private key from in-memory byte array.
+    Reads private key from in-memory byte array (PEM).
 
 .. method:: PublicKey readPublic(const std::string &data)
 
-    Reads public key from in-memory byte array.
+    Reads public key from in-memory byte array (PEM or DER).
 
 .. method:: PrivateKey read(const std::string &filePath)
 
@@ -3232,6 +3236,7 @@ Optional protocol modules (default OFF; enable with ``-DQTNG_WITH_*=ON``):
 * ``QTNG_WITH_QUIC`` — QUICv1 transport MVP (forced off without crypto)
 * ``QTNG_WITH_HTTP3`` — HTTP/3 stub (forced off without QUIC)
 * ``QTNG_WITH_BT`` — BitTorrent download stack (``TorrentSession``; bencode and DHT stay in the default build)
+* ``QTNG_WITH_SSH`` — SSH protocol (``SshServer``/``SshClient``; forced off without crypto)
 
 Install development packages on Debian/Ubuntu with ``libssl-dev`` when not using bundled LibreSSL.
 
@@ -4400,4 +4405,48 @@ Example::
 
 A Qt Widgets demo lives under ``examples/btclient/`` (accepts ``.torrent`` paths or
 magnet URIs).
+
+8.5 SSH protocol
+----------------
+
+``SshServer`` / ``SshClient`` / ``SshChannel`` (header ``qtng/ssh.h``, implementation
+``src/ssh.cpp``) provide an SSH protocol implementation for hosting interactive
+terminal applications and for connecting to SSH servers. Enable with
+``-DQTNG_WITH_SSH=ON`` (off by default; defines ``QTNG_NO_SSH`` when disabled and
+is forced off without crypto).
+
+The **server** side hosts interactive "session" channels. Unlike a full ``sshd``
+it does not fork/exec a shell: an ``SshApplication`` callback receives the
+terminal byte stream plus resize/signal notifications, so a TUI runs in-process.
+
+* ``SshServer`` — a ``BaseStreamServer`` subclass. Configure the host key with
+  ``setHostKey()``, authentication with ``setAuthenticator()`` (password and/or
+  public key), the interactive application with ``setApplication()``, an optional
+  ``SSH_MSG_USERAUTH_BANNER`` with ``setBanner()``, and the auth-phase limits with
+  ``setMaxAuthTries()`` / ``setLoginTimeout()``.
+* ``SshChannel`` — one session channel. ``send()``/``recv()`` carry the terminal
+  byte stream; ``requestPty()`` / ``requestShell()`` / ``requestWindowChange()`` /
+  ``sendSignal()`` are the client-side channel requests.
+* ``SshChannelCallback`` — resize / signal / close notifications delivered from
+  the connection read loop (server side; install via ``SshChannel::setCallback()``).
+* ``SshAuthenticator`` — ``checkPassword()`` and/or ``checkPublicKey()`` (the raw
+  SSH key blob, e.g. ``"ssh-rsa" || e || n``).
+
+The **client** side is a protocol client (not a TUI): ``SshClient::connect()``
+connects to a host, ``SshHostKeyVerifier`` performs known_hosts-style host-key
+verification, ``authenticate()`` / ``authenticateWithPublicKey()`` log in, and
+``openSessionChannel()`` returns a session channel.
+
+A runnable example lives under ``examples/ssh-bbs/`` — a BBS-style server-side
+terminal application over SSH that exercises PTY allocation, window-change
+resizing and signal delivery::
+
+    SshServer server(HostAddress::Any, 2222);
+    server.setHostKey(hostKey);                        // PrivateKey
+    server.setAuthenticator(std::make_shared<DemoAuthenticator>());
+    server.setApplication(std::make_shared<BbsApplication>());
+    server.setBanner("Welcome to the qtng SSH BBS.\r\n");
+    server.setMaxAuthTries(3);
+    server.setLoginTimeout(60.0f);
+    server.serveForever();                             // coroutine-blocking
 

@@ -2227,6 +2227,10 @@ MessageDigest
 
     调用 OpenSSL 的 PKCS5_PBKDF2_HMAC 函数生成密钥。
 
+.. function:: std::string hmac(const MessageDigest::Algorithm hashAlgo, const std::string &key, const std::string &data)
+
+    使用指定摘要算法计算 ``data`` 的 HMAC（RFC 2104）。失败时（摘要不受支持或密钥为空）返回空字符串。需要 OpenSSL/LibreSSL；``QTNG_NO_CRYPTO`` 软件实现中不可用。
+
 .. method:: std::string scrypt(int keylen, const std::string &password, const std::string &salt, int n = 1048576, int r = 8, int p = 1)
 
     暂未进行实现
@@ -2598,15 +2602,15 @@ RSA 在数学上允许四种不同的原始运算（对应旧版 ``RSA_public_en
 
 .. method:: PrivateKeyReader &setFormat(Ssl::EncodingFormat format)
 
-    指定输入数据的编码格式（目前仅支持 PEM）。
+    指定输入数据的编码格式。``readPublic()`` 同时支持 ``Ssl::Pem`` 与 ``Ssl::Der``；私钥读取仍仅支持 PEM。
 
 .. method:: PrivateKey read(const std::string &data)
 
-    从内存中的字节数组读取私钥。
+    从内存中的字节数组读取私钥（PEM）。
 
 .. method:: PublicKey readPublic(const std::string &data)
 
-    从内存中的字节数组读取公钥。
+    从内存中的字节数组读取公钥（PEM 或 DER）。
 
 .. method:: PrivateKey read(const std::string &filePath)
 
@@ -2943,6 +2947,7 @@ CMake 按如下顺序选择 TLS/加密库：
 * ``QTNG_WITH_QUIC`` — QUICv1 传输层 MVP（无加密时强制关闭）
 * ``QTNG_WITH_HTTP3`` — HTTP/3 占位实现（无 QUIC 时强制关闭）
 * ``QTNG_WITH_BT`` — BitTorrent 下载栈（``TorrentSession``；bencode 与 DHT 仍在默认构建中）
+* ``QTNG_WITH_SSH`` — SSH 协议（``SshServer``/``SshClient``；无加密时强制关闭）
 
 未使用内置 LibreSSL 时，Debian/Ubuntu 可安装 ``libssl-dev`` 开发包。
 
@@ -4049,4 +4054,42 @@ API 相同）。
     // st.progress, st.peersConnected, st.state, ...
 
 Qt Widgets 演示见 ``examples/btclient/``（支持 ``.torrent`` 路径或 magnet URI）。
+
+8.5 SSH 协议
+------------
+
+``SshServer`` / ``SshClient`` / ``SshChannel``（头文件 ``qtng/ssh.h``，实现
+``src/ssh.cpp``）提供 SSH 协议实现，用于托管交互式终端应用，或连接 SSH 服务器。
+需用 ``-DQTNG_WITH_SSH=ON`` 启用（默认关闭；关闭时定义 ``QTNG_NO_SSH``，无加密时强制关闭）。
+
+**服务器**端托管交互式 "session" 通道。与完整的 ``sshd`` 不同，它不会 fork/exec
+shell：``SshApplication`` 回调收到终端字节流以及 resize/信号通知，因此 TUI 在进程内运行。
+
+* ``SshServer`` — ``BaseStreamServer`` 子类。用 ``setHostKey()`` 配置主机密钥，
+  用 ``setAuthenticator()`` 配置认证（密码和/或公钥），用 ``setApplication()`` 设置
+  交互式应用，用 ``setBanner()`` 设置认证阶段的 ``SSH_MSG_USERAUTH_BANNER``，
+  用 ``setMaxAuthTries()`` / ``setLoginTimeout()`` 限制认证阶段。
+* ``SshChannel`` — 单个 session 通道。``send()``/``recv()`` 传输终端字节流；
+  ``requestPty()`` / ``requestShell()`` / ``requestWindowChange()`` / ``sendSignal()``
+  是客户端通道请求。
+* ``SshChannelCallback`` — 连接读循环投递的 resize / 信号 / 关闭通知
+  （服务器端；通过 ``SshChannel::setCallback()`` 安装）。
+* ``SshAuthenticator`` — ``checkPassword()`` 和/或 ``checkPublicKey()``
+  （后者接收原始 SSH 公钥 blob，如 ``"ssh-rsa" || e || n``）。
+
+**客户端**是协议客户端（非 TUI）：``SshClient::connect()`` 连接主机，
+``SshHostKeyVerifier`` 进行 known_hosts 式主机密钥校验，``authenticate()`` /
+``authenticateWithPublicKey()`` 完成登录，``openSessionChannel()`` 返回 session 通道。
+
+可运行示例见 ``examples/ssh-bbs/``——一个基于 SSH 的 BBS 式服务器端终端应用，
+演示了 PTY 分配、窗口尺寸变更与信号投递::
+
+    SshServer server(HostAddress::Any, 2222);
+    server.setHostKey(hostKey);                        // PrivateKey
+    server.setAuthenticator(std::make_shared<DemoAuthenticator>());
+    server.setApplication(std::make_shared<BbsApplication>());
+    server.setBanner("Welcome to the qtng SSH BBS.\r\n");
+    server.setMaxAuthTries(3);
+    server.setLoginTimeout(60.0f);
+    server.serveForever();                             // 协程内阻塞
 
