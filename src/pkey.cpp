@@ -609,19 +609,22 @@ PrivateKey PrivateKeyReaderPrivate::readFile(const string &filePath)
 PublicKey PrivateKeyReaderPrivate::readPublic(const string &data)
 {
     PublicKey key;
-    if (format != Ssl::Pem) {
-        return key;
-    }
-
     BIO *bio = BIO_new_mem_buf(data.data(), data.size());
     EVP_PKEY *rawPkey = nullptr;
-    if (!password.empty()) {
-        shared_ptr<SimplePasswordCallback> cb = make_shared<SimplePasswordCallback>(password);
-        PEM_read_bio_PUBKEY(bio, &rawPkey, pem_password_cb, cb.get());
-    } else if (callback) {
-        PEM_read_bio_PUBKEY(bio, &rawPkey, pem_password_cb, callback.get());
+    if (format == Ssl::Pem) {
+        if (!password.empty()) {
+            shared_ptr<SimplePasswordCallback> cb = make_shared<SimplePasswordCallback>(password);
+            PEM_read_bio_PUBKEY(bio, &rawPkey, pem_password_cb, cb.get());
+        } else if (callback) {
+            PEM_read_bio_PUBKEY(bio, &rawPkey, pem_password_cb, callback.get());
+        } else {
+            PEM_read_bio_PUBKEY(bio, &rawPkey, nullptr, nullptr);
+        }
+    } else if (format == Ssl::Der) {
+        d2i_PUBKEY_bio(bio, &rawPkey);
     } else {
-        PEM_read_bio_PUBKEY(bio, &rawPkey, nullptr, nullptr);
+        BIO_free(bio);
+        return key;
     }
     if (!rawPkey) {
         BIO_free(bio);
