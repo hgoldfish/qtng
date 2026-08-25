@@ -138,6 +138,23 @@ target_include_directories(qtng_test_replay_counter PRIVATE "${CMAKE_SOURCE_DIR}
 set_target_properties(qtng_test_replay_counter PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 catch_discover_tests(qtng_test_replay_counter)
 
+# Coroutine stack-pool benchmark. Hidden [!benchmark] tag: not registered with
+# ctest; run manually with `./qtng_test_coroutine_bench "[benchmark]"`.
+add_executable(qtng_test_coroutine_bench
+    test_coroutine_bench.cpp
+)
+target_link_libraries(qtng_test_coroutine_bench PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_coroutine_bench PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_coroutine_bench PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+add_executable(qtng_test_pipe
+    test_pipe.cpp
+)
+target_link_libraries(qtng_test_pipe PRIVATE qtng Catch2::Catch2WithMain)
+target_include_directories(qtng_test_pipe PRIVATE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(qtng_test_pipe PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+catch_discover_tests(qtng_test_pipe)
+
 add_executable(qtng_test_multi_stream
     test_multi_stream.cpp
 )
@@ -184,6 +201,17 @@ if(QTNG_HAVE_CRYPTO)
     target_include_directories(qtng_test_noise PRIVATE "${CMAKE_SOURCE_DIR}/include")
     set_target_properties(qtng_test_noise PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
     catch_discover_tests(qtng_test_noise)
+
+    add_executable(qtng_test_ssl_upload
+        test_ssl_upload.cpp
+    )
+    target_link_libraries(qtng_test_ssl_upload PRIVATE qtng Catch2::Catch2WithMain)
+    target_include_directories(qtng_test_ssl_upload PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    if(QTNG_SSL_INCLUDE)
+        target_include_directories(qtng_test_ssl_upload PRIVATE "${QTNG_SSL_INCLUDE}")
+    endif()
+    set_target_properties(qtng_test_ssl_upload PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    catch_discover_tests(qtng_test_ssl_upload)
 endif()
 
 add_executable(qtng_test_mqtt

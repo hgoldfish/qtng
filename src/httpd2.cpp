@@ -106,7 +106,7 @@ void BaseHttpProxyRequestHandler::doProxy()
     newRequest.setBody(bodyFile);
 
     for (const HttpHeader &header : allHeaders()) {
-        const string &hn = utils::toLower(header.name);
+        const string &hn = utils::toLower(header.name());
         if (utils::startsWith(hn, "proxy-") || hn == "connection") {
             continue;
         }
@@ -124,11 +124,11 @@ void BaseHttpProxyRequestHandler::doProxy()
     sendCommandLine(static_cast<HttpStatus>(response->statusCode()), response->statusText());
 
     for (const HttpHeader &header : response->allHeaders()) {
-        const string &hn = utils::toLower(header.name);
+        const string &hn = utils::toLower(header.name());
         if (utils::startsWith(hn, "proxy-") || hn == "connection") {
             continue;
         }
-        sendHeader(header.name, header.value);
+        sendHeader(header.name(), header.value());
     }
     if (!endHeader()) {
         return;

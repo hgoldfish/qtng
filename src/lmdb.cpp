@@ -65,7 +65,7 @@ public:
     {
     }
 public:
-    Database &open(const string &name);
+    std::shared_ptr<Database> open(const string &name);
 public:
     map<string, shared_ptr<Database>> dbs;
     MDB_env * const env;
@@ -719,34 +719,32 @@ Database::iterator Database::upperBound(const string &key)
     return itor;
 }
 
-Database &TransactionPrivate::open(const string &name)
+std::shared_ptr<Database> TransactionPrivate::open(const string &name)
 {
-    static Database empty(nullptr);
-
     if (finished) {
         if (readOnly) {
             mdb_txn_renew(txn);
             finished = false;
         } else {
-            return empty;
+            return std::shared_ptr<Database>();
         }
     }
 
     map<string, shared_ptr<Database>>::const_iterator itor = dbs.find(name);
     if (itor != dbs.end()) {
-        return *itor->second;
+        return itor->second;
     }
 
     MDB_dbi dbi;
     unsigned int flags = readOnly ? 0 : MDB_CREATE;
     int rt = mdb_dbi_open(txn, name.c_str(), flags, &dbi);
     if (rt < 0) {
-        return empty;
+        return std::shared_ptr<Database>();
     }
     unique_ptr<DatabasePrivate> d = make_unique<DatabasePrivate>(txn, dbi, readOnly);
     shared_ptr<Database> db(new Database(d.release()));
     dbs[name] = db;
-    return *db;
+    return db;
 }
 
 Transaction::~Transaction()
@@ -762,12 +760,12 @@ Transaction::~Transaction()
     delete d_ptr;
 }
 
-const Database &Transaction::db(const string &name) const
+std::shared_ptr<const Database> Transaction::db(const string &name) const
 {
     return d_ptr->open(name);
 }
 
-Database &Transaction::db(const string &name)
+std::shared_ptr<Database> Transaction::db(const string &name)
 {
     return d_ptr->open(name);
 }

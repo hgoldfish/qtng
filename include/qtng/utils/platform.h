@@ -189,6 +189,11 @@ inline bool ngFromBigEndian24(const char *data, std::size_t size, std::size_t *o
     Class(const Class &) = delete; \
     Class &operator=(const Class &) = delete;
 
+#define NG_DISABLE_COPY_MOVE(Class) \
+    NG_DISABLE_COPY(Class) \
+    Class(Class &&) = delete; \
+    Class &operator=(Class &&) = delete;
+
 #define NG_DECLARE_PRIVATE(Class) \
     friend class Class##Private; \
     inline Class##Private *d_func() \

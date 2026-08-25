@@ -10,6 +10,12 @@
 namespace qtng {
 namespace utils {
 
+// WARNING: std::shared_mutex::unlock() releases an exclusive lock only. The
+// mode-agnostic SharedReadWriteLock::unlock() therefore cannot be used with
+// this type on the lockForRead() path. qtng core compiles as C++11 (the
+// pthread_rwlock branch below), so this branch is dead today; do not switch
+// the core standard to C++14/17 without giving SharedMutex a mode-aware
+// unlock() first.
 using SharedMutex = std::shared_mutex;
 
 }  // namespace utils
@@ -22,6 +28,7 @@ using SharedMutex = std::shared_mutex;
 namespace qtng {
 namespace utils {
 
+// WARNING: same mode-agnostic unlock() mismatch as the C++17 branch above.
 using SharedMutex = std::shared_timed_mutex;
 
 }  // namespace utils
@@ -31,38 +38,11 @@ using SharedMutex = std::shared_timed_mutex;
 
 #  ifdef NG_OS_WIN
 
-#    if defined(_WIN32_WINNT) && (_WIN32_WINNT >= 0x0600)
-
-#      ifndef WIN32_LEAN_AND_MEAN
-#        define WIN32_LEAN_AND_MEAN
-#      endif
-#      include <windows.h>
-
-namespace qtng {
-namespace utils {
-
-class SharedMutex
-{
-public:
-    SharedMutex() { InitializeSRWLock(&lock_); }
-    void lock_shared() { AcquireSRWLockShared(&lock_); }
-    void unlock_shared() { ReleaseSRWLockShared(&lock_); }
-    void lock() { AcquireSRWLockExclusive(&lock_); }
-    void unlock() { ReleaseSRWLockExclusive(&lock_); }
-
-private:
-    NG_DISABLE_COPY(SharedMutex);
-    SRWLOCK lock_;
-};
-
-}  // namespace utils
-}  // namespace qtng
-
-#    else
-
-// SRWLOCK requires Vista+. On XP, fall back to exclusive std::mutex for both
-// shared and exclusive locking (correct, less concurrent).
-#      include <mutex>
+// Pre-C++14 Windows cannot rely on SRWLOCK: its release API must match the
+// acquired mode, and tracking that with a per-lock field is shared non-atomic
+// state that breaks under concurrent readers. Fall back to exclusive
+// std::mutex for both shared and exclusive locking (correct, less concurrent).
+#    include <mutex>
 
 namespace qtng {
 namespace utils {
@@ -83,8 +63,6 @@ private:
 
 }  // namespace utils
 }  // namespace qtng
-
-#    endif
 
 #  else
 

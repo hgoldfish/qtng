@@ -35,6 +35,45 @@ public:
     static std::string makeBoundary();
     std::string toByteArray() const;
 
+    struct Query
+    {
+        Query(const std::string &name, const std::string &value)
+            : name_(name)
+            , value_(value)
+        {
+        }
+        std::string name() const { return name_; }
+        void setName(const std::string &name) { name_ = name; }
+        std::string value() const { return value_; }
+        void setValue(const std::string &value) { value_ = value; }
+    private:
+        std::string name_;
+        std::string value_;
+    };
+    struct File
+    {
+        File(const std::string &name, const std::string &filename, const std::string &data, const std::string &contentType)
+            : name_(name)
+            , filename_(filename)
+            , data_(data)
+            , contentType_(contentType)
+        {
+        }
+        std::string name() const { return name_; }
+        void setName(const std::string &name) { name_ = name; }
+        std::string filename() const { return filename_; }
+        void setFilename(const std::string &filename) { filename_ = filename; }
+        std::string data() const { return data_; }
+        void setData(const std::string &data) { data_ = data; }
+        std::string contentType() const { return contentType_; }
+        void setContentType(const std::string &contentType) { contentType_ = contentType; }
+    private:
+        std::string name_;
+        std::string filename_;
+        std::string data_;
+        std::string contentType_;
+    };
+
     void addFile(const std::string &name, const std::string &filename, const std::string &data,
                  const std::string &contentType = std::string())
     {
@@ -49,39 +88,22 @@ public:
         if (newContentType.empty()) {
             newContentType = "application/octet-stream";
         }
-        files.push_back(File(name, filename, data, newContentType));
+        files_.push_back(File(name, filename, data, newContentType));
     }
 
-    void addQuery(const std::string &key, const std::string &value) { queries.push_back(Query(key, value)); }
-public:
-    struct Query
-    {
-        Query(const std::string &name, const std::string &value)
-            : name(name)
-            , value(value)
-        {
-        }
-        std::string name;
-        std::string value;
-    };
-    struct File
-    {
-        File(const std::string &name, const std::string &filename, const std::string &data, const std::string &contentType)
-            : name(name)
-            , filename(filename)
-            , data(data)
-            , contentType(contentType)
-        {
-        }
-        std::string name;
-        std::string filename;
-        std::string data;
-        std::string contentType;
-    };
-
-    std::vector<Query> queries;
-    std::vector<File> files;
-    std::string boundary;
+    void addQuery(const std::string &key, const std::string &value) { queries_.push_back(Query(key, value)); }
+    std::vector<Query> &queries() { return queries_; }
+    const std::vector<Query> &queries() const { return queries_; }
+    void setQueries(const std::vector<Query> &queries) { queries_ = queries; }
+    std::vector<File> &files() { return files_; }
+    const std::vector<File> &files() const { return files_; }
+    void setFiles(const std::vector<File> &files) { files_ = files; }
+    std::string boundary() const { return boundary_; }
+    void setBoundary(const std::string &boundary) { boundary_ = boundary; }
+private:
+    std::vector<Query> queries_;
+    std::vector<File> files_;
+    std::string boundary_;
 };
 
 class HttpRequestPrivate;
@@ -104,6 +126,8 @@ public:
         setUrl(url);
     }
     virtual ~HttpRequest();
+    // Intentional: copyable. Copies share HttpRequestPrivate (including body/connection) via shared_ptr.
+    // 有意可拷贝：拷贝通过 shared_ptr 共享 HttpRequestPrivate（含 body/connection）。
     HttpRequest(const HttpRequest &other);
     HttpRequest(HttpRequest &&other);
     HttpRequest &operator=(const HttpRequest &other);
@@ -121,6 +145,12 @@ public:
     std::shared_ptr<FileLike> body() const;
     void setBody(const std::string &body);
     void setBody(std::shared_ptr<FileLike> body);
+    // Full body content, independent of any read position. Only BytesIO
+    // (what setBody(string) and its map/UrlQuery/FormData helpers construct)
+    // can provide this; other FileLike streams are consumed by the first send
+    // attempt and return an empty string. Lets HttpSession resend QUERY/POST
+    // bodies after a redirect instead of re-reading an already-consumed stream.
+    std::string bodyAsString() const;
     std::string userAgent() const;
     void setUserAgent(const std::string &userAgent);
     std::int64_t maxBodySize() const;
@@ -168,6 +198,8 @@ class HttpResponse : public HttpHeaderManager
 public:
     HttpResponse();
     virtual ~HttpResponse();
+    // Intentional: copyable. Copies share HttpResponsePrivate (including stream/consumed) via shared_ptr.
+    // 有意可拷贝：拷贝通过 shared_ptr 共享 HttpResponsePrivate（含 stream/consumed）。
     HttpResponse(const HttpResponse &other);
     HttpResponse(HttpResponse &&other);
     HttpResponse &operator=(const HttpResponse &other);
@@ -224,6 +256,8 @@ class HttpProxy;
 class HttpSessionPrivate;
 class HttpCacheManager;
 class WebSocketConnection;
+class SslConfiguration;
+class WebSocketConfiguration;
 class HttpSession
 {
 public:
@@ -268,6 +302,21 @@ public:
     HttpResponse post(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
     HttpResponse post(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
+    // RFC 10008 (The HTTP QUERY Method): a safe and idempotent request that
+    // carries its input as request content, like POST on the wire but with GET
+    // semantics, so caches and automatic retries may treat it as harmless.
+    // The query content is passed as the body; a Content-Type is required.
+    HttpResponse query(const std::string &url, const std::string &body);
+    HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body);
+    HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body);
+    HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body);
+    HttpResponse query(const std::string &url, const FormData &body);
+    HttpResponse query(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
+    HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
+    HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
+    HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+    HttpResponse query(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
+
     HttpResponse patch(const std::string &url, const std::string &body);
     HttpResponse patch(const std::string &url, std::shared_ptr<FileLike> body);
     HttpResponse patch(const std::string &url, const std::map<std::string, std::string> &body);
@@ -302,7 +351,7 @@ public:
     std::string webSocketErrorReason() const;
 
     HttpResponse send(HttpRequest &request);
-    HttpCookieJar &cookieJar();
+    std::shared_ptr<HttpCookieJar> cookieJar();
     HttpCookie cookie(const std::string &url, const std::string &name);
     void setManagingCookies(bool managingCookies);
 
@@ -333,12 +382,15 @@ public:
     std::shared_ptr<HttpCacheManager> cacheManager() const;
     void setCacheManager(std::shared_ptr<HttpCacheManager> cacheManager);
 #ifndef QTNG_NO_CRYPTO
-    class SslConfiguration &sslConfiguration();
+    std::shared_ptr<SslConfiguration> sslConfiguration();
+    void setSslConfiguration(const std::shared_ptr<SslConfiguration> &configuration);
 #endif
-    class WebSocketConfiguration &webSocketConfiguration();
+    std::shared_ptr<WebSocketConfiguration> webSocketConfiguration();
+    void setWebSocketConfiguration(const std::shared_ptr<WebSocketConfiguration> &configuration);
 private:
     HttpSessionPrivate *d_ptr;
     NG_DECLARE_PRIVATE(HttpSession)
+    NG_DISABLE_COPY_MOVE(HttpSession)
 };
 
 class HttpCacheManager
@@ -370,6 +422,7 @@ protected:
 private:
     HttpMemoryCacheManagerPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(HttpMemoryCacheManager)
+    NG_DISABLE_COPY_MOVE(HttpMemoryCacheManager)
 };
 
 class HttpDiskCacheManager : public HttpCacheManager
@@ -394,12 +447,13 @@ class HTTPError : public RequestError
 {
 public:
     HTTPError(int statusCode)
-        : statusCode(statusCode)
+        : statusCode_(statusCode)
     {
     }
     virtual std::string what() const;
-public:
-    int statusCode;
+    int statusCode() const { return statusCode_; }
+private:
+    int statusCode_;
 };
 
 class ConnectionError : public RequestError

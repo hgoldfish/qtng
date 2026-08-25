@@ -257,9 +257,9 @@ void MainWindow::startDownload()
                         break;
                     }
                     TorrentStats st = handle.stats();
-                    if (st.state == TorrentStats::Error) {
+                    if (st.state() == TorrentStats::Error) {
                         QMetaObject::invokeMethod(this, [this, st]() {
-                            appendLog(QStringLiteral("Error: %1").arg(QString::fromStdString(st.errorString)));
+                            appendLog(QStringLiteral("Error: %1").arg(QString::fromStdString(st.errorString())));
                         }, Qt::QueuedConnection);
                         break;
                     }
@@ -333,18 +333,18 @@ void MainWindow::refreshStats()
         return;
     }
     TorrentStats st = handle.stats();
-    m_progress->setValue(static_cast<int>(st.progress * 1000.0));
+    m_progress->setValue(static_cast<int>(st.progress() * 1000.0));
     m_statusLabel->setText(QStringLiteral("State: %1  progress %2%")
-                                   .arg(stateName(st.state))
-                                   .arg(st.progress * 100.0, 0, 'f', 1));
+                                   .arg(stateName(st.state()))
+                                   .arg(st.progress() * 100.0, 0, 'f', 1));
     m_peersLabel->setText(QStringLiteral("Peers: %1 connected / %2 known")
-                                  .arg(st.peersConnected)
-                                  .arg(st.peersTotal));
+                                  .arg(st.peersConnected())
+                                  .arg(st.peersTotal()));
     m_rateLabel->setText(QStringLiteral("↓ %1  ↑ %2  left %3")
-                                 .arg(formatRate(st.downloadRate))
-                                 .arg(formatRate(st.uploadRate))
-                                 .arg(st.left));
-    if (!st.errorString.empty()) {
-        appendLog(QString::fromStdString(st.errorString));
+                                 .arg(formatRate(st.downloadRate()))
+                                 .arg(formatRate(st.uploadRate()))
+                                 .arg(st.left()));
+    if (!st.errorString().empty()) {
+        appendLog(QString::fromStdString(st.errorString()));
     }
 }

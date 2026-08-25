@@ -97,8 +97,8 @@ TEST_CASE("magnet parse hex and trackers", "[bt]")
     REQUIRE(m.trackers()[0] == "http://tracker.example/announce");
     REQUIRE(m.trackers()[1] == "udp://tracker2.example:80");
     REQUIRE(m.peers().size() == 1);
-    REQUIRE(m.peers()[0].host == "1.2.3.4");
-    REQUIRE(m.peers()[0].port == 6881);
+    REQUIRE(m.peers()[0].host() == "1.2.3.4");
+    REQUIRE(m.peers()[0].port() == 6881);
 }
 
 TEST_CASE("magnet parse base32", "[bt]")
@@ -141,7 +141,7 @@ TEST_CASE("bt compact peer list", "[bt]")
     compact.push_back(static_cast<char>(0xe1));
     vector<BtPeerAddr> peers = btDecodeCompactPeerList(compact, false);
     REQUIRE(peers.size() == 1);
-    REQUIRE(peers[0].port == 6881);
+    REQUIRE(peers[0].port() == 6881);
     REQUIRE(peers[0].address.toString() == "1.2.3.4");
 }
 

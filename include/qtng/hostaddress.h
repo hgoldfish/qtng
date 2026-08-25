@@ -19,6 +19,9 @@ struct IPv6Address
 {
     inline std::uint8_t &operator[](int index) { return c[index]; }
     inline std::uint8_t operator[](int index) const { return c[index]; }
+    inline std::uint8_t *data() { return c; }
+    inline const std::uint8_t *data() const { return c; }
+private:
     std::uint8_t c[16];
 };
 

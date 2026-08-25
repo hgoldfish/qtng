@@ -282,8 +282,8 @@ TEST_CASE("Ssh loopback: password auth, echo, pty, resize and signal", "[ssh]")
             Coroutine::msleep(20);
         }
         REQUIRE(state->resized);
-        REQUIRE(state->size.columns == 120);
-        REQUIRE(state->size.rows == 50);
+        REQUIRE(state->size.columns() == 120);
+        REQUIRE(state->size.rows() == 50);
         REQUIRE(state->signalled);
         REQUIRE(state->signalName == "INT");
 

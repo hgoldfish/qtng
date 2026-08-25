@@ -121,7 +121,8 @@ public:
     void close();
     void abort();
 
-    Event handshakeDone;
+    // Returns the event fired when the TLS handshake completes.
+    std::shared_ptr<Event> handshakeDone() const;
 private:
     explicit QuicConnection(QuicConnectionPrivate *d);
     friend class QuicConnectionPrivate;

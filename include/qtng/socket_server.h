@@ -65,6 +65,7 @@ protected:
     BaseStreamServerPrivate * const d_ptr;
 private:
     NG_DECLARE_PRIVATE(BaseStreamServer)
+    NG_DISABLE_COPY_MOVE(BaseStreamServer)
 };
 
 template<typename RequestHandler>

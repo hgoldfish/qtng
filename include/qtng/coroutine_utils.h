@@ -136,6 +136,7 @@ public:
 private:
     CoroutineThreadPrivate * const dd_ptr;
     NG_DECLARE_PRIVATE_D(dd_ptr, CoroutineThread)
+    NG_DISABLE_COPY_MOVE(CoroutineThread)
 };
 
 inline std::shared_ptr<Deferred<std::shared_ptr<Coroutine>>> waitForAny()
@@ -262,6 +263,7 @@ private:
     void deleteCoroutine(BaseCoroutine *coroutine);
     std::unordered_set<std::shared_ptr<Coroutine>> coroutines;
     std::shared_ptr<std::atomic<bool>> alive;
+    NG_DISABLE_COPY_MOVE(CoroutineGroup)
 };
 
 std::shared_ptr<Coroutine> CoroutineGroup::spawnWithName(const std::string &name, const std::function<void()> &func,
@@ -342,6 +344,7 @@ private:
     std::vector<std::shared_ptr<WorkThread>> threads;
     std::shared_ptr<Semaphore> semaphore;
     std::shared_ptr<std::atomic<bool>> alive;
+    NG_DISABLE_COPY_MOVE(ThreadPool)
 };
 
 template<typename T, typename S>

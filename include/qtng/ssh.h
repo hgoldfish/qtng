@@ -19,8 +19,17 @@ class SshConnectionPrivate;
 // Terminal size of the SSH session channel (updated by window-change requests).
 struct SshTerminalSize
 {
-    std::uint32_t columns = 80;
-    std::uint32_t rows = 24;
+public:
+    SshTerminalSize() = default;
+
+    std::uint32_t columns() const { return columns_; }
+    void setColumns(std::uint32_t columns) { columns_ = columns; }
+    std::uint32_t rows() const { return rows_; }
+    void setRows(std::uint32_t rows) { rows_ = rows; }
+
+private:
+    std::uint32_t columns_ = 80;
+    std::uint32_t rows_ = 24;
 };
 
 // Notifications delivered from the connection's read-loop coroutine.

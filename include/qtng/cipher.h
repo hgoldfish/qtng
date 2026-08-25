@@ -78,6 +78,7 @@ public:
 private:
     CipherPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(Cipher)
+    NG_DISABLE_COPY_MOVE(Cipher)
 };
 
 }  // namespace qtng

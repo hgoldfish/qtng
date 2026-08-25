@@ -187,12 +187,9 @@ private:
     friend class LmdbIteratorPrivate;
     friend class TransactionPrivate;
 private:
+    NG_DISABLE_COPY_MOVE(Database)
     DatabasePrivate * const d_ptr;
     NG_DECLARE_PRIVATE(Database)
-private:
-    NG_DISABLE_COPY(Database)
-    Database(Database &&) = delete;
-    Database &operator=(Database &&) = delete;
 };
 
 class TransactionPrivate;
@@ -201,8 +198,8 @@ class Transaction
 public:
     ~Transaction();
 public:
-    const Database &db(const std::string &name) const;
-    Database &db(const std::string &name);
+    std::shared_ptr<const Database> db(const std::string &name) const;
+    std::shared_ptr<Database> db(const std::string &name);
     std::shared_ptr<Transaction> sub();
     std::shared_ptr<const Transaction> sub() const;
     std::shared_ptr<Transaction> fork();
@@ -217,10 +214,7 @@ private:
     TransactionPrivate * const d_ptr;
     friend class TransactionPrivate;
     friend class Lmdb;
-private:
-    NG_DISABLE_COPY(Transaction)
-    Transaction(Transaction &&) = delete;
-    Transaction &operator=(Transaction &&) = delete;
+    NG_DISABLE_COPY_MOVE(Transaction)
 };
 
 class LmdbPrivate;
@@ -244,10 +238,7 @@ private:
     LmdbPrivate * const d_ptr;
     NG_DECLARE_PRIVATE_D(d_ptr, Lmdb)
     friend class LmdbBuilder;
-private:
-    NG_DISABLE_COPY(Lmdb)
-    Lmdb(Lmdb &&) = delete;
-    Lmdb &operator=(Lmdb &&) = delete;
+    NG_DISABLE_COPY_MOVE(Lmdb)
 };
 
 class LmdbBuilder
@@ -270,9 +261,7 @@ private:
     bool m_writeMap = false;
     bool m_noSubDir = true;
 private:
-    NG_DISABLE_COPY(LmdbBuilder)
-    LmdbBuilder(LmdbBuilder &&) = delete;
-    LmdbBuilder &operator=(LmdbBuilder &&) = delete;
+    NG_DISABLE_COPY_MOVE(LmdbBuilder)
 };
 
 }  // namespace qtng

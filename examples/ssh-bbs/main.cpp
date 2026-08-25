@@ -201,9 +201,9 @@ private:
         string out = "\x1b[1;36m";
         out += "  ================== qtng SSH BBS ==================\r\n";
         out += "\x1b[0m\r\n";
-        out += "  terminal " + to_string(size.columns) + "x" + to_string(size.rows) + "\r\n";
+        out += "  terminal " + to_string(size.columns()) + "x" + to_string(size.rows()) + "\r\n";
         if (resized) {
-            out += "  last resize: " + to_string(lastResize.columns) + "x" + to_string(lastResize.rows) + "\r\n";
+            out += "  last resize: " + to_string(lastResize.columns()) + "x" + to_string(lastResize.rows()) + "\r\n";
         }
         if (signalled) {
             out += "  last signal: " + lastSignal + "\r\n";
@@ -219,7 +219,7 @@ private:
         screen.print("\x1b[0m");
         screen.print("\r\n");
         screen.print("  Server     : qtng ssh-bbs example\r\n");
-        screen.print("  Terminal   : " + to_string(size.columns) + "x" + to_string(size.rows) + "\r\n");
+        screen.print("  Terminal   : " + to_string(size.columns()) + "x" + to_string(size.rows()) + "\r\n");
         screen.print("  Channel    : session (no pty/exec)\r\n");
         screen.print("\r\n  Press Enter to return to the menu.");
         screen.readLine();

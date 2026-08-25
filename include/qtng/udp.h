@@ -39,8 +39,6 @@ public:
     std::uint32_t payloadSizeHint() const;
     void setTearDownTime(float secs);
     float tearDownTime() const;
-    Event busy;
-    Event notBusy;
 public:
     Socket::SocketError error() const;
     std::string errorString() const;
@@ -111,6 +109,7 @@ private:
 private:
     KcpSocketPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(KcpSocket)
+    NG_DISABLE_COPY_MOVE(KcpSocket)
 };
 
 // Wrap an existing KcpStream (any DatagramLink) as a KcpSocket. UDP-only helpers
@@ -147,8 +146,6 @@ public:
     std::uint32_t receiveBufferSize() const;
     void setIdleTimeout(float seconds);
     float idleTimeout() const;
-    Event busy;
-    Event notBusy;
 public:
     Socket::SocketError error() const;
     std::string errorString() const;
@@ -215,6 +212,7 @@ private:
 private:
     UtpSocketPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(UtpSocket)
+    NG_DISABLE_COPY_MOVE(UtpSocket)
 };
 
 UtpSocket *wrapUtpStreamAsSocket(std::shared_ptr<UtpStream> stream);

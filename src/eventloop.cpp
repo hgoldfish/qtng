@@ -8,6 +8,7 @@
 #include "qtng/private/eventloop_p.h"
 #include "qtng/locks.h"
 #include "qtng/utils/logging.h"
+#include "stack_pool.h"
 
 using namespace std;
 
@@ -22,6 +23,18 @@ CurrentLoopStorage *currentLoopStorageInstance()
     static CurrentLoopStorage storage;
     return &storage;
 }
+
+#ifdef NG_OS_UNIX
+class StackSweepFunctor : public Functor
+{
+public:
+    bool operator()() override
+    {
+        stack_pool::sweep();
+        return true;
+    }
+};
+#endif
 
 }  // namespace
 
@@ -108,7 +121,17 @@ EventLoopCoroutine *EventLoopCoroutine::get()
 void EventLoopCoroutine::run()
 {
     EventLoopCoroutinePrivate *d = d_func();
+#ifdef NG_OS_UNIX
+    // Reclaim stacks that have been idle for more than kStackIdleTimeoutMs. The
+    // sweep timer lives for exactly as long as the loop does, so without an
+    // event loop the pool is never swept (cached stacks then stay until the
+    // thread exits or a capacity limit is hit).
+    const int sweepId = callRepeat(static_cast<uint32_t>(stack_pool::kStackIdleTimeoutMs), new StackSweepFunctor());
     d->run();
+    cancelCall(sweepId);
+#else
+    d->run();
+#endif
 }
 
 int EventLoopCoroutine::createWatcher(EventType event, intptr_t fd, Functor *callback)

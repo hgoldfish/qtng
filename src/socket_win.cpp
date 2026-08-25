@@ -182,7 +182,7 @@ static inline void qt_socket_getPortAndAddress(SOCKET socketDescriptor, const qt
         const sockaddr_in6 *sa6 = &sa->a6;
         IPv6Address tmp;
         for (int i = 0; i < 16; ++i)
-            tmp.c[i] = sa6->sin6_addr.s6_addr[i];
+            tmp.data()[i] = sa6->sin6_addr.s6_addr[i];
         if (address) {
             HostAddress a;
             a.setAddress(tmp);

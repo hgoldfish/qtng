@@ -197,34 +197,4 @@ string PBKDF2_HMAC(int keylen, const string &password, const string &salt,
     }
 }
 
-// string scrypt(const string &password, int keylen, const string &salt,
-//                   int n, int r, int p)
-//{
-//     EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_SCRYPT, nullptr);
-
-//    if(!pctx || password.empty() || salt.empty()) {
-//        return string();
-//    }
-
-//    string key;
-//    key.resize(keylen);
-
-//    int rvalue = EVP_PKEY_derive_init(pctx);
-//    if (rvalue <= 0) {
-//        ngDebug() << "can not init scrypt kdf.";
-//        return string();
-//    }
-//    rvalue = EVP_PKEY_CTX_set1_pbe_pass(pctx, password.get(), password.size());
-//    if (rvalue <= 0) {
-//        ngDebug() << "can not set scrypt password.";
-//        return string();
-//    }
-//    rvalue = EVP_PKEY_CTX_set1_scrypt_salt(pctx, salt.data(), salt.size());
-//    if (rvalue <= 0) {
-//        ngDebug() << "can not set scrypt salt.";
-//        return string();
-//    }
-
-//}
-
 }  // namespace qtng

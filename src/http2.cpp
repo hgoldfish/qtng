@@ -1173,12 +1173,12 @@ void Http2ClientSessionPrivate::exchange(HttpSessionPrivate *session, HttpReques
         headers.push_back(HpackHeader{"cookie", cookieHeader});
     }
     for (const HttpHeader &h : request.allHeaders()) {
-        string name = utils::toLower(h.name);
+        string name = utils::toLower(h.name());
         if (name == "connection" || name == "keep-alive" || name == "proxy-connection" || name == "transfer-encoding"
             || name == "upgrade" || name == "host" || name == "http2-settings") {
             continue;
         }
-        headers.push_back(HpackHeader{name, h.value});
+        headers.push_back(HpackHeader{name, h.value()});
     }
     if (request.d->body && request.d->body->size() >= 0 && !request.hasHeader("content-length")) {
         headers.push_back(
@@ -1242,7 +1242,7 @@ void Http2ClientSessionPrivate::exchange(HttpSessionPrivate *session, HttpReques
             const vector<HttpCookie> &cookies = HttpCookie::parseCookies(value);
             response.d->cookies.insert(response.d->cookies.end(), cookies.begin(), cookies.end());
         }
-        session->cookieJar.setCookiesFromUrl(response.d->cookies, response.d->url.toString());
+        session->cookieJar->setCookiesFromUrl(response.d->cookies, response.d->url.toString());
     }
 
     if (utils::toUpper(request.method()) == "HEAD") {

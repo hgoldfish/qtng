@@ -142,6 +142,7 @@ public:
     bool save(const std::string &filePath);
 private:
     NG_DECLARE_PRIVATE(PrivateKeyWriter)
+    NG_DISABLE_COPY_MOVE(PrivateKeyWriter)
     PrivateKeyWriterPrivate * const d_ptr;
 };
 
@@ -160,6 +161,7 @@ public:
     PublicKey readPublicFile(const std::string &filePath);
 private:
     NG_DECLARE_PRIVATE(PrivateKeyReader)
+    NG_DISABLE_COPY_MOVE(PrivateKeyReader)
     PrivateKeyReaderPrivate * const d_ptr;
 };
 

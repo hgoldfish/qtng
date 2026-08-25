@@ -112,18 +112,22 @@ static inline string joinLines(const vector<string> &lines)
 
 inline MsgPackStream &operator<<(MsgPackStream &ds, const HttpHeader &header)
 {
-    return ds << header.name << header.value;
+    return ds << header.name() << header.value();
 }
 
 inline MsgPackStream &operator>>(MsgPackStream &ds, HttpHeader &header)
 {
-    ds.readString(header.name);
-    ds.readString(header.value);
+    string name;
+    string value;
+    ds.readString(name);
+    ds.readString(value);
+    header.setName(name);
+    header.setValue(value);
     return ds;
 }
 
 FormData::FormData()
-    : boundary(makeBoundary())
+    : boundary_(makeBoundary())
 {
 }
 
@@ -150,33 +154,33 @@ string formatHeaderParam(const string &name, const string &value)
 string FormData::toByteArray() const
 {
     string body;
-    for (vector<FormData::Query>::const_iterator itor = queries.cbegin(); itor != queries.cend(); ++itor) {
+    for (vector<FormData::Query>::const_iterator itor = queries().cbegin(); itor != queries().cend(); ++itor) {
         body.append("--");
-        body.append(boundary);
+        body.append(boundary());
         body.append("\r\n");
         body.append("Content-Disposition: form-data;");
-        body.append(formatHeaderParam("name", itor->name));
+        body.append(formatHeaderParam("name", itor->name()));
         body.append("\r\n\r\n");
-        body.append(itor->value);
+        body.append(itor->value());
         body.append("\r\n");
     }
-    for (vector<FormData::File>::const_iterator itor = files.cbegin(); itor != files.cend(); ++itor) {
+    for (vector<FormData::File>::const_iterator itor = files().cbegin(); itor != files().cend(); ++itor) {
         body.append("--");
-        body.append(boundary);
+        body.append(boundary());
         body.append("\r\n");
         body.append("Content-Disposition: form-data;");
-        body.append(formatHeaderParam("name", itor->name));
+        body.append(formatHeaderParam("name", itor->name()));
         body.append("; ");
-        body.append(formatHeaderParam("filename", itor->filename));
+        body.append(formatHeaderParam("filename", itor->filename()));
         body.append("\r\n");
         body.append("Content-Type: ");
-        body.append(itor->contentType);
+        body.append(itor->contentType());
         body.append("\r\n\r\n");
-        body.append(itor->data);
+        body.append(itor->data());
         body.append("\r\n");
     }
     body.append("--");
-    body.append(boundary);
+    body.append(boundary());
     body.append("--");
     return body;
 }
@@ -304,6 +308,17 @@ void HttpRequest::setBody(shared_ptr<FileLike> body)
     d->body = body;
 }
 
+string HttpRequest::bodyAsString() const
+{
+    // BytesIO is the only FileLike that exposes its full content and ignores
+    // the read position, which is what setBody(string) and its helpers
+    // construct. Any other stream is consumed by the first send attempt and
+    // cannot be re-read for a redirect, so we report empty and let the caller
+    // handle re-transmission explicitly.
+    shared_ptr<BytesIO> bytes = dynamic_pointer_cast<BytesIO>(d->body);
+    return bytes ? bytes->data() : string();
+}
+
 string HttpRequest::userAgent() const
 {
     return d->userAgent;
@@ -398,7 +413,7 @@ void HttpRequest::useConnection(shared_ptr<SocketLike> connection)
 void HttpRequest::setBody(const FormData &formData)
 {
     string contentType =
-            utils::formatMessage("multipart/form-data; boundary=%1", {formData.boundary});
+            utils::formatMessage("multipart/form-data; boundary=%1", {formData.boundary()});
     setHeader("Content-Type", contentType);
     const string mimeHeader("MIME-Version");
     if (!hasHeader(mimeHeader)) {
@@ -571,7 +586,7 @@ shared_ptr<FileLike> HttpResponse::bodyAsFile(bool processGzip, bool processChun
 
     // XXX if not consumed and body is not empty, it must be from the header splitter.
     // read it from stream
-    int64_t contentLength = getContentLength();
+    int64_t contentLength = this->contentLength();
     shared_ptr<FileLike> bodyFile;
     if (contentLength >= 0) {
         if (contentLength > INT_MAX || (d->request.maxBodySize() >= 0 && contentLength > d->request.maxBodySize())) {
@@ -647,7 +662,7 @@ string HttpResponse::body()
 #endif
                 if (dynamic_pointer_cast<ChunkedBodyFile>(bodyFile)) {
             RequestError *error = nullptr;
-            error = toRequestError(dynamic_pointer_cast<ChunkedBodyFile>(bodyFile)->error);
+            error = toRequestError(dynamic_pointer_cast<ChunkedBodyFile>(bodyFile)->error());
             if (error) {
                 setError(error);
             } else {
@@ -739,6 +754,8 @@ HttpSessionPrivate::HttpSessionPrivate(HttpSession *q_ptr)
     , debugLevel(0)
     , managingCookies(true)
     , keepAlive(true)
+    , cookieJar(make_shared<HttpCookieJar>())
+    , webSocketConfiguration(make_shared<WebSocketConfiguration>())
     , webSocketErrorCode(0)
 {
     defaultUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0";
@@ -763,6 +780,9 @@ ConnectionPool::ConnectionPool()
     , defaultConnectionTimeout(10.0)
     , defaultTimeout(20.0)
     , operations(new CoroutineGroup)
+#ifndef QTNG_NO_CRYPTO
+    , sslConfig(make_shared<SslConfiguration>())
+#endif
 {
 #ifndef QTNG_NO_CRYPTO
     vector<string> alpn;
@@ -770,7 +790,7 @@ ConnectionPool::ConnectionPool()
     alpn.push_back("h2");
 #  endif
     alpn.push_back("http/1.1");
-    sslConfig.setAllowedNextProtocols(alpn);
+    sslConfig->setAllowedNextProtocols(alpn);
 #endif
     operations->spawnWithName("removeUnusedConnections", [this] { removeUnusedConnections(); });
 }
@@ -865,7 +885,7 @@ shared_ptr<SocketLike> ConnectionPool::newConnectionForUrl(const string &urlStr,
 
     if (url.scheme() == "https" || url.scheme() == "wss") {
 #ifndef QTNG_NO_CRYPTO
-        shared_ptr<SslSocket> ssl = make_shared<SslSocket>(connection, sslConfig);
+        shared_ptr<SslSocket> ssl = make_shared<SslSocket>(connection, *sslConfig);
         if (!ssl->handshake(false, url.host())) {
             *error = new ConnectionError();
             return shared_ptr<SocketLike>();
@@ -1174,7 +1194,7 @@ void HttpSessionPrivate::mergeCookies(HttpRequest &request, const string &urlStr
     if (!managingCookies) {
         return;
     }
-    vector<HttpCookie> cookies = cookieJar.cookiesForUrl(urlStr);
+    vector<HttpCookie> cookies = cookieJar->cookiesForUrl(urlStr);
     if (cookies.empty()) {
         return;
     }
@@ -1203,14 +1223,14 @@ void HttpSessionPrivate::prepareWebSocketRequest(HttpRequest &request, string &s
     request.addHeader(ConnectionHeader, "Upgrade");
     request.addHeader("Sec-WebSocket-Key", secKey);
     request.addHeader("Sec-WebSocket-Version", "13");
-    vector<string> ps = webSocketConfiguration.protocols();
+    vector<string> ps = webSocketConfiguration->protocols();
     if (!ps.empty()) {
         request.addHeader("Sec-WebSocket-Protocol", utils::join(ps, ", "));
     }
 }
 
 // implemented in websocket.cpp
-void setWebSocketConnectionPrivateResponse(WebSocketConnectionPrivate *d, HttpResponse response);
+void setWebSocketConnectionPrivateResponse(WebSocketConnectionPrivate *d, const HttpResponse &response);
 
 shared_ptr<WebSocketConnection> HttpSessionPrivate::makeWebSocketConnection(HttpResponse &response,
                                                                                 const string &secKey)
@@ -1253,7 +1273,7 @@ shared_ptr<WebSocketConnection> HttpSessionPrivate::makeWebSocketConnection(Http
 
     const string uuid("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
     const string &t = secKey + uuid;
-    const string &myKey = utils::bytesToBase64(MessageDigest::hash(t, MessageDigest::Sha1));
+    const string &myKey = utils::bytesToBase64(MessageDigest::digest(t, MessageDigest::Sha1));
     const string &itsKey = response.header("Sec-WebSocket-Accept");
     if (myKey != itsKey) {
         return fail(WebSocketConnection::ProtocolError, "Sec-WebSocket-Accept mismatch");
@@ -1266,7 +1286,7 @@ shared_ptr<WebSocketConnection> HttpSessionPrivate::makeWebSocketConnection(Http
     }
 
     shared_ptr<WebSocketConnection> connection =
-            make_shared<WebSocketConnection>(raw, headBytes, WebSocketConnection::Client, webSocketConfiguration);
+            make_shared<WebSocketConnection>(raw, headBytes, WebSocketConnection::Client, *webSocketConfiguration);
     connection->setDebugLevel(this->debugLevel);
     setWebSocketConnectionPrivateResponse(connection->d_func(), response);
     return connection;
@@ -1568,6 +1588,101 @@ HttpResponse HttpSession::post(const string &url, const FormData &body, const ma
 {
     HttpRequest request;
     request.setMethod("POST");
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, const string &body)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, shared_ptr<FileLike> body)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, const map<string, string> &body)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, const utils::UrlQuery &body)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, const FormData &body)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, const string &body, const map<string, string> &headers)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, shared_ptr<FileLike> body, const map<string, string> &headers)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, const map<string, string> &body, const map<string, string> &headers)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, const utils::UrlQuery &body, const map<string, string> &headers)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
+}
+
+HttpResponse HttpSession::query(const string &url, const FormData &body, const map<string, string> &headers)
+{
+    HttpRequest request;
+    request.setMethod("QUERY");
     request.setUrl(url);
     request.setHeaders(headers);
     request.setBody(body);
@@ -1882,14 +1997,28 @@ HttpResponse HttpSession::send(HttpRequest &request)
             }
             HttpRequest newRequest = request;
             newRequest.setMaxRedirects(request.maxRedirects() - tries - 1);
-            if (response.statusCode() == 303 || response.statusCode() == 307) {
+            const bool isQuery = utils::toUpper(request.method()) == "QUERY";
+            // RFC 10008 section 2.5: QUERY keeps its method and content on
+            // 301/302/307/308 and only degrades to a plain GET on 303.
+            // Other methods keep them on 303/307 only.
+            const bool keepMethodAndBody =
+                    isQuery ? response.statusCode() != 303
+                            : (response.statusCode() == 303 || response.statusCode() == 307);
+            if (keepMethodAndBody) {
                 newRequest.setMethod(request.method());
-                newRequest.setBody(request.body());
+                // Rebuild the content from the rewindable snapshot when
+                // possible; the FileLike stream was consumed by the first
+                // attempt and cannot be read twice.
+                if (!request.bodyAsString().empty()) {
+                    newRequest.setBody(request.bodyAsString());
+                } else {
+                    newRequest.setBody(request.body());
+                }
             } else {
-                newRequest.setMethod("GET");  // not rfc behavior, but many browser do this.
+                newRequest.setMethod("GET");  // browsers also do this for non-QUERY redirects.
                 newRequest.setBody(string());
             }
-            newRequest.setUrl(resolveRelativeUrl(request.url(), response.getLocation()));
+            newRequest.setUrl(resolveRelativeUrl(request.url(), response.location()));
             if (!newRequest.url().isValid()) {
                 response.setError(new InvalidURL());
                 return response;
@@ -1914,7 +2043,7 @@ HttpResponse HttpSession::send(HttpRequest &request)
     return response;
 }
 
-HttpCookieJar &HttpSession::cookieJar()
+std::shared_ptr<HttpCookieJar> HttpSession::cookieJar()
 {
     NG_D(HttpSession);
     return d->cookieJar;
@@ -1923,7 +2052,7 @@ HttpCookieJar &HttpSession::cookieJar()
 HttpCookie HttpSession::cookie(const string &url, const string &name)
 {
     NG_D(HttpSession);
-    const HttpCookieJar &jar = d->cookieJar;
+    const HttpCookieJar &jar = *d->cookieJar;
     vector<HttpCookie> cookies = jar.cookiesForUrl(url);
     for (int i = 0; i < cookies.size(); ++i) {
         const HttpCookie &cookie = cookies.at(i);
@@ -2078,18 +2207,30 @@ void HttpSession::setCacheManager(shared_ptr<HttpCacheManager> cacheManager)
 
 #ifndef QTNG_NO_CRYPTO
 
-SslConfiguration &HttpSession::sslConfiguration()
+std::shared_ptr<SslConfiguration> HttpSession::sslConfiguration()
 {
     NG_D(HttpSession);
     return d->sslConfig;
 }
 
+void HttpSession::setSslConfiguration(const std::shared_ptr<SslConfiguration> &configuration)
+{
+    NG_D(HttpSession);
+    d->sslConfig = configuration;
+}
+
 #endif
 
-WebSocketConfiguration &HttpSession::webSocketConfiguration()
+std::shared_ptr<WebSocketConfiguration> HttpSession::webSocketConfiguration()
 {
     NG_D(HttpSession);
     return d->webSocketConfiguration;
+}
+
+void HttpSession::setWebSocketConfiguration(const std::shared_ptr<WebSocketConfiguration> &configuration)
+{
+    NG_D(HttpSession);
+    d->webSocketConfiguration = configuration;
 }
 
 HttpCacheManager::HttpCacheManager() { }
@@ -2233,7 +2374,7 @@ string RequestError::what() const
 
 string HTTPError::what() const
 {
-    return utils::formatMessage("server respond error. httpCode:%1", {utils::number(statusCode)});
+    return utils::formatMessage("server respond error. httpCode:%1", {utils::number(statusCode())});
 }
 
 string ConnectionError::what() const

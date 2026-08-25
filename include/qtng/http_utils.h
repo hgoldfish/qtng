@@ -102,6 +102,7 @@ enum KnownHeader {
     UserAgentHeader,
     AcceptHeader,
     AcceptLanguageHeader,
+    AcceptQueryHeader,  // RFC 10008: media types a resource accepts for QUERY requests
     AcceptEncodingHeader,
     PragmaHeader,
     CacheControlHeader,
@@ -123,14 +124,19 @@ std::string toString(KnownHeader knownHeader);
 struct HttpHeader
 {
     HttpHeader(const std::string &name, const std::string &value)
-        : name(name)
-        , value(value)
+        : name_(name)
+        , value_(value)
     {
     }
     HttpHeader() { }
-    bool isValid() const { return !name.empty(); }
-    std::string name;
-    std::string value;
+    bool isValid() const { return !name_.empty(); }
+    std::string name() const { return name_; }
+    void setName(const std::string &name) { name_ = name; }
+    std::string value() const { return value_; }
+    void setValue(const std::string &value) { value_ = value; }
+private:
+    std::string name_;
+    std::string value_;
 };
 
 template<typename Base>
@@ -138,15 +144,15 @@ class WithHttpHeaders : public Base
 {
 public:
     void setContentType(const std::string &contentType);
-    std::string getContentType() const;
+    std::string contentType() const;
     void setContentLength(std::int64_t contentLength);
-    std::int64_t getContentLength() const;
+    std::int64_t contentLength() const;
     void setLocation(const std::string &url);
-    std::string getLocation() const;
+    std::string location() const;
     void setLastModified(const qtng::utils::DateTime &lastModified);
-    qtng::utils::DateTime getLastModified() const;
+    qtng::utils::DateTime lastModified() const;
     void setModifiedSince(const qtng::utils::DateTime &modifiedSince);
-    qtng::utils::DateTime getModifedSince() const;
+    qtng::utils::DateTime modifiedSince() const;
 
     void setHeader(const std::string &name, const std::string &value);
     void addHeader(const std::string &name, const std::string &value);
@@ -181,7 +187,7 @@ void WithHttpHeaders<Base>::setContentLength(std::int64_t contentLength)
 }
 
 template<typename Base>
-std::int64_t WithHttpHeaders<Base>::getContentLength() const
+std::int64_t WithHttpHeaders<Base>::contentLength() const
 {
     bool ok = false;
     std::string s = header("Content-Length");
@@ -205,13 +211,13 @@ void WithHttpHeaders<Base>::setContentType(const std::string &contentType)
 }
 
 template<typename Base>
-std::string WithHttpHeaders<Base>::getContentType() const
+std::string WithHttpHeaders<Base>::contentType() const
 {
     return header("Content-Type", "text/plain");
 }
 
 template<typename Base>
-std::string WithHttpHeaders<Base>::getLocation() const
+std::string WithHttpHeaders<Base>::location() const
 {
     const std::string &value = header("Location");
     if (value.empty()) {
@@ -227,7 +233,7 @@ void WithHttpHeaders<Base>::setLocation(const std::string &url)
 }
 
 template<typename Base>
-qtng::utils::DateTime WithHttpHeaders<Base>::getLastModified() const
+qtng::utils::DateTime WithHttpHeaders<Base>::lastModified() const
 {
     const std::string &value = header("Last-Modified");
     if (value.empty()) {
@@ -249,7 +255,7 @@ void WithHttpHeaders<Base>::setModifiedSince(const qtng::utils::DateTime &modifi
 }
 
 template<typename Base>
-qtng::utils::DateTime WithHttpHeaders<Base>::getModifedSince() const
+qtng::utils::DateTime WithHttpHeaders<Base>::modifiedSince() const
 {
     const std::string &value = header("Modified-Since");
     if (value.empty()) {
@@ -263,7 +269,7 @@ bool WithHttpHeaders<Base>::hasHeader(const std::string &headerName) const
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers[i];
-        if (qtng::utils::equalsIgnoreCase(header.name, headerName)) {
+        if (qtng::utils::equalsIgnoreCase(header.name(), headerName)) {
             return true;
         }
     }
@@ -275,7 +281,7 @@ bool WithHttpHeaders<Base>::removeHeader(const std::string &headerName)
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers[i];
-        if (qtng::utils::equalsIgnoreCase(header.name, headerName)) {
+        if (qtng::utils::equalsIgnoreCase(header.name(), headerName)) {
             headers.erase(headers.begin() + i);
             return true;
         }
@@ -331,8 +337,8 @@ std::string WithHttpHeaders<Base>::header(const std::string &headerName, const s
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers[i];
-        if (qtng::utils::equalsIgnoreCase(header.name, headerName)) {
-            return header.value;
+        if (qtng::utils::equalsIgnoreCase(header.name(), headerName)) {
+            return header.value();
         }
     }
     return defaultValue;
@@ -350,8 +356,8 @@ std::vector<std::string> WithHttpHeaders<Base>::multiHeader(const std::string &h
     std::vector<std::string> values;
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers[i];
-        if (qtng::utils::equalsIgnoreCase(header.name, headerName)) {
-            values.push_back(header.value);
+        if (qtng::utils::equalsIgnoreCase(header.name(), headerName)) {
+            values.push_back(header.value());
         }
     }
     return values;
@@ -386,23 +392,26 @@ public:
     };
 public:
     HeaderSplitter(std::shared_ptr<SocketLike> connection, const std::string &buf, int debugLevel = 0)
-        : connection(connection)
-        , buf(buf)
-        , debugLevel(debugLevel)
+        : connection_(connection)
+        , buf_(buf)
+        , debugLevel_(debugLevel)
     {
     }
     HeaderSplitter(std::shared_ptr<SocketLike> connection, int debugLevel = 0)
-        : connection(connection)
-        , debugLevel(debugLevel)
+        : connection_(connection)
+        , debugLevel_(debugLevel)
     {
     }
     std::string nextLine(Error *error);
     HttpHeader nextHeader(Error *error);
     std::vector<HttpHeader> headers(int maxHeaders, Error *error);
-public:
-    std::shared_ptr<SocketLike> connection;
-    std::string buf;
-    int debugLevel;
+    std::string buf() const { return buf_; }
+    void setBuf(const std::string &buf) { buf_ = buf; }
+private:
+    NG_DISABLE_COPY_MOVE(HeaderSplitter)
+    std::shared_ptr<SocketLike> connection_;
+    std::string buf_;
+    int debugLevel_;
 };
 
 class ChunkedBlockReader
@@ -416,16 +425,16 @@ public:
     };
 public:
     ChunkedBlockReader(std::shared_ptr<FileLike> connection, const std::string &buf)
-        : connection(connection)
-        , buf(buf)
+        : connection_(connection)
+        , buf_(buf)
     {
     }
 public:
     std::string nextBlock(std::int64_t leftBytes, Error *error);
-public:
-    int debugLevel;
-    std::shared_ptr<FileLike> connection;
-    std::string buf;
+private:
+    NG_DISABLE_COPY_MOVE(ChunkedBlockReader)
+    std::shared_ptr<FileLike> connection_;
+    std::string buf_;
 };
 
 class PlainBodyFile : public FileLike
@@ -435,12 +444,14 @@ public:
     virtual std::int32_t read(char *data, std::int32_t size) override;
     virtual std::int32_t write(const char *, std::int32_t) override { return -1; }
     virtual void close() override { }
-    virtual std::int64_t size() override { return contentLength; }
-public:
-    const std::int64_t contentLength;
-    const std::shared_ptr<SocketLike> stream;
-    std::string partialBody;
-    std::int64_t count;
+    virtual std::int64_t size() override { return contentLength(); }
+    std::int64_t contentLength() const { return contentLength_; }
+private:
+    NG_DISABLE_COPY_MOVE(PlainBodyFile)
+    const std::int64_t contentLength_;
+    const std::shared_ptr<SocketLike> stream_;
+    std::string partialBody_;
+    std::int64_t count_;
 };
 
 class ChunkedBodyFile : public FileLike
@@ -451,27 +462,30 @@ public:
     virtual std::int32_t write(const char *, std::int32_t) override { return -1; }
     virtual void close() override { }
     virtual std::int64_t size() override { return -1; }
-public:
-    ChunkedBlockReader reader;
-    ChunkedBlockReader::Error error;
-    std::string buf;
-    std::int64_t maxBodySize;
-    std::int64_t count;
-    bool eof;
+    ChunkedBlockReader::Error error() const { return error_; }
+private:
+    NG_DISABLE_COPY_MOVE(ChunkedBodyFile)
+    ChunkedBlockReader reader_;
+    ChunkedBlockReader::Error error_;
+    std::string buf_;
+    std::int64_t maxBodySize_;
+    std::int64_t count_;
+    bool eof_;
 };
 
 class ChunkedWriter: public FileLike
 {
 public:
     ChunkedWriter(std::shared_ptr<FileLike> stream)
-        : stream(stream) {}
+        : stream_(stream) {}
     virtual ~ChunkedWriter() override;
     virtual std::int32_t read(char *, std::int32_t) override { return -1; }
     virtual std::int32_t write(const char *data, std::int32_t size) override;
     virtual void close() override;
     virtual std::int64_t size() override { return -1; }
-public:
-    std::shared_ptr<FileLike> stream;
+private:
+    NG_DISABLE_COPY_MOVE(ChunkedWriter)
+    std::shared_ptr<FileLike> stream_;
 };
 }  // namespace qtng
 

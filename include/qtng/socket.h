@@ -158,7 +158,7 @@ public:
 private:
     SocketPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(Socket)
-    NG_DISABLE_COPY(Socket)
+    NG_DISABLE_COPY_MOVE(Socket)
 };
 
 class PollPrivate;
@@ -180,6 +180,7 @@ public:
 private:
     PollPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(Poll)
+    NG_DISABLE_COPY_MOVE(Poll)
 };
 
 class SocketDnsCachePrivate;
@@ -198,6 +199,7 @@ public:
 private:
     SocketDnsCachePrivate * const d_ptr;
     NG_DECLARE_PRIVATE(SocketDnsCache)
+    NG_DISABLE_COPY_MOVE(SocketDnsCache)
 };
 
 template<typename SocketType>

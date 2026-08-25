@@ -69,9 +69,9 @@ NoiseConfig makeConfig(NoisePattern pattern, NoiseRole role, const NoiseKey &loc
                        const string &remoteStatic = string())
 {
     NoiseConfig cfg(local);
-    cfg.pattern = pattern;
-    cfg.role = role;
-    cfg.remoteStaticPublic = remoteStatic;
+    cfg.setPattern(pattern);
+    cfg.setRole(role);
+    cfg.setRemoteStaticPublic(remoteStatic);
     return cfg;
 }
 
@@ -97,18 +97,18 @@ void checkHashHandshake(NoiseHash hash, size_t expectedHashLen)
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
     NoiseConfig initCfg = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    initCfg.hash = hash;
+    initCfg.setHash(hash);
     const bool ok = initiator.initialize(initCfg);
     if (!ok) {
         REQUIRE(initiator.errorString().find("unavailable") != string::npos);
         NoiseConfig respCfg = makeConfig(NoisePattern::XX, NoiseRole::Responder, bob);
-        respCfg.hash = hash;
+        respCfg.setHash(hash);
         REQUIRE_FALSE(responder.initialize(respCfg));
         REQUIRE(responder.errorString().find("unavailable") != string::npos);
         return;
     }
     NoiseConfig respCfg = makeConfig(NoisePattern::XX, NoiseRole::Responder, bob);
-    respCfg.hash = hash;
+    respCfg.setHash(hash);
     REQUIRE(responder.initialize(respCfg));
     runHandshake(&initiator, &responder, "hi", "hello");
     REQUIRE(initiator.handshakeHash() == responder.handshakeHash());
@@ -152,45 +152,45 @@ TEST_CASE("NoiseKey generate and DH", "[noise]")
     const NoiseKey b = NoiseKey::generate();
     REQUIRE(a.isValid());
     REQUIRE(b.isValid());
-    const string ab = NoiseKey::dh(a.privateKey, b.publicKey);
-    const string ba = NoiseKey::dh(b.privateKey, a.publicKey);
+    const string ab = NoiseKey::dh(a.privateKey(), b.publicKey());
+    const string ba = NoiseKey::dh(b.privateKey(), a.publicKey());
     REQUIRE(ab.size() == 32);
     REQUIRE(ab == ba);
 
-    const NoiseKey restored = NoiseKey::fromPrivateKey(a.privateKey);
+    const NoiseKey restored = NoiseKey::fromPrivateKey(a.privateKey());
     REQUIRE(restored.isValid());
-    REQUIRE(restored.publicKey == a.publicKey);
+    REQUIRE(restored.publicKey() == a.publicKey());
 }
 
 TEST_CASE("NoiseConfig generates local static when private key is empty", "[noise]")
 {
     NoiseConfig aliceCfg;
     NoiseConfig bobCfg;
-    aliceCfg.role = NoiseRole::Initiator;
-    bobCfg.role = NoiseRole::Responder;
-    REQUIRE(aliceCfg.localStatic.isValid());
-    REQUIRE(bobCfg.localStatic.isValid());
-    REQUIRE(aliceCfg.localStatic.publicKey != bobCfg.localStatic.publicKey);
+    aliceCfg.setRole(NoiseRole::Initiator);
+    bobCfg.setRole(NoiseRole::Responder);
+    REQUIRE(aliceCfg.localStatic().isValid());
+    REQUIRE(bobCfg.localStatic().isValid());
+    REQUIRE(aliceCfg.localStatic().publicKey() != bobCfg.localStatic().publicKey());
 
-    NoiseConfig copied(aliceCfg.localStatic);
-    REQUIRE(copied.localStatic.publicKey == aliceCfg.localStatic.publicKey);
+    NoiseConfig copied(aliceCfg.localStatic());
+    REQUIRE(copied.localStatic().publicKey() == aliceCfg.localStatic().publicKey());
 
     NoiseConfig emptyKey{NoiseKey{}};
-    REQUIRE_FALSE(emptyKey.localStatic.isValid());
+    REQUIRE_FALSE(emptyKey.localStatic().isValid());
 
     NoiseConfig fromBad(string(16, 'x'));
-    REQUIRE_FALSE(fromBad.localStatic.isValid());
+    REQUIRE_FALSE(fromBad.localStatic().isValid());
 
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
     REQUIRE(initiator.initialize(aliceCfg));
     REQUIRE(responder.initialize(bobCfg));
     runHandshake(&initiator, &responder, "hi", "hello");
-    REQUIRE(initiator.remoteStaticPublic() == bobCfg.localStatic.publicKey);
-    REQUIRE(responder.remoteStaticPublic() == aliceCfg.localStatic.publicKey);
+    REQUIRE(initiator.remoteStaticPublic() == bobCfg.localStatic().publicKey());
+    REQUIRE(responder.remoteStaticPublic() == aliceCfg.localStatic().publicKey());
 
     NoiseHandshakeState bad;
-    fromBad.role = NoiseRole::Initiator;
+    fromBad.setRole(NoiseRole::Initiator);
     REQUIRE_FALSE(bad.initialize(fromBad));
     REQUIRE(bad.errorString().find("invalid") != string::npos);
 }
@@ -221,10 +221,10 @@ TEST_CASE("parseNoiseProtocolName is the inverse of noiseProtocolName", "[noise]
 
     NoiseConfig cfg;
     REQUIRE(applyNoiseProtocolName("Noise_XXpsk0_25519_ChaChaPoly_SHA256", &cfg, &err));
-    REQUIRE(cfg.pattern == NoisePattern::XX);
-    REQUIRE(cfg.pskModifier == NoisePskModifier::Psk0);
-    REQUIRE(cfg.cipher == Aead::ChaCha20Poly1305);
-    REQUIRE(cfg.hash == NoiseHash::Sha256);
+    REQUIRE(cfg.pattern() == NoisePattern::XX);
+    REQUIRE(cfg.pskModifier() == NoisePskModifier::Psk0);
+    REQUIRE(cfg.cipher() == Aead::ChaCha20Poly1305);
+    REQUIRE(cfg.hash() == NoiseHash::Sha256);
 
     REQUIRE_FALSE(parseNoiseProtocolName("XX", &pattern, &mod, &cipher, &hash, &err));
     REQUIRE_FALSE(parseNoiseProtocolName("Noise_IKpsk3_25519_ChaChaPoly_SHA256", &pattern, &mod,
@@ -243,8 +243,8 @@ TEST_CASE("Noise XX handshake and transport", "[noise]")
     REQUIRE(responder.initialize(makeConfig(NoisePattern::XX, NoiseRole::Responder, bob)));
 
     runHandshake(&initiator, &responder, "hi", "hello");
-    REQUIRE(initiator.remoteStaticPublic() == bob.publicKey);
-    REQUIRE(responder.remoteStaticPublic() == alice.publicKey);
+    REQUIRE(initiator.remoteStaticPublic() == bob.publicKey());
+    REQUIRE(responder.remoteStaticPublic() == alice.publicKey());
     REQUIRE(initiator.handshakeHash() == responder.handshakeHash());
 
     NoiseCipherState sendI, recvI, sendR, recvR;
@@ -261,9 +261,9 @@ TEST_CASE("Noise XX AESGCM handshake and transport", "[noise][aead]")
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
     NoiseConfig initCfg = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    initCfg.cipher = Aead::Aes256Gcm;
+    initCfg.setCipher(Aead::Aes256Gcm);
     NoiseConfig respCfg = makeConfig(NoisePattern::XX, NoiseRole::Responder, bob);
-    respCfg.cipher = Aead::Aes256Gcm;
+    respCfg.setCipher(Aead::Aes256Gcm);
     REQUIRE(initiator.initialize(initCfg));
     REQUIRE(responder.initialize(respCfg));
 
@@ -290,7 +290,7 @@ TEST_CASE("Noise rejects AES-128-GCM and cipher mismatch", "[noise][aead]")
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
     NoiseConfig badCfg = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    badCfg.cipher = Aead::Aes128Gcm;
+    badCfg.setCipher(Aead::Aes128Gcm);
     REQUIRE_FALSE(initiator.initialize(badCfg));
     REQUIRE(initiator.errorString().find("AEAD") != string::npos);
 
@@ -299,7 +299,7 @@ TEST_CASE("Noise rejects AES-128-GCM and cipher mismatch", "[noise][aead]")
     REQUIRE_FALSE(bad.hasKey());
 
     NoiseConfig gcmCfg = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    gcmCfg.cipher = Aead::Aes256Gcm;
+    gcmCfg.setCipher(Aead::Aes256Gcm);
     REQUIRE(initiator.initialize(gcmCfg));
     REQUIRE(responder.initialize(makeConfig(NoisePattern::XX, NoiseRole::Responder, bob)));
     REQUIRE(initiator.handshakeHash() != responder.handshakeHash());
@@ -334,7 +334,7 @@ TEST_CASE("Noise rejects hash mismatch", "[noise]")
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
     NoiseConfig initCfg = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    initCfg.hash = NoiseHash::Sha512;
+    initCfg.setHash(NoiseHash::Sha512);
     REQUIRE(initiator.initialize(initCfg));
     REQUIRE(responder.initialize(makeConfig(NoisePattern::XX, NoiseRole::Responder, bob)));
     REQUIRE(initiator.handshakeHash() != responder.handshakeHash());
@@ -356,19 +356,19 @@ TEST_CASE("Noise IKpsk2 BLAKE2s handshake", "[noise][blake2]")
     const string psk(32, 'w');
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
-    NoiseConfig initCfg = makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey);
-    initCfg.psk = psk;
-    initCfg.pskModifier = NoisePskModifier::Psk2;
-    initCfg.hash = NoiseHash::Blake2s;
+    NoiseConfig initCfg = makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey());
+    initCfg.setPsk(psk);
+    initCfg.setPskModifier(NoisePskModifier::Psk2);
+    initCfg.setHash(NoiseHash::Blake2s);
     const bool ok = initiator.initialize(initCfg);
     if (!ok) {
         REQUIRE(initiator.errorString().find("unavailable") != string::npos);
         return;
     }
     NoiseConfig respCfg = makeConfig(NoisePattern::IK, NoiseRole::Responder, bob);
-    respCfg.psk = psk;
-    respCfg.pskModifier = NoisePskModifier::Psk2;
-    respCfg.hash = NoiseHash::Blake2s;
+    respCfg.setPsk(psk);
+    respCfg.setPskModifier(NoisePskModifier::Psk2);
+    respCfg.setHash(NoiseHash::Blake2s);
     REQUIRE(responder.initialize(respCfg));
     runHandshake(&initiator, &responder, "init", "resp");
     REQUIRE(initiator.handshakeHash().size() == 32);
@@ -387,11 +387,11 @@ TEST_CASE("Noise XXpsk0 handshake", "[noise]")
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
     NoiseConfig initCfg = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    initCfg.psk = psk;
-    initCfg.pskModifier = NoisePskModifier::Psk0;
+    initCfg.setPsk(psk);
+    initCfg.setPskModifier(NoisePskModifier::Psk0);
     NoiseConfig respCfg = makeConfig(NoisePattern::XX, NoiseRole::Responder, bob);
-    respCfg.psk = psk;
-    respCfg.pskModifier = NoisePskModifier::Psk0;
+    respCfg.setPsk(psk);
+    respCfg.setPskModifier(NoisePskModifier::Psk0);
     REQUIRE(initiator.initialize(initCfg));
     REQUIRE(responder.initialize(respCfg));
 
@@ -409,18 +409,18 @@ TEST_CASE("Noise PSK modifier validation", "[noise]")
     const string psk(32, 'p');
     NoiseHandshakeState hs;
     NoiseConfig pskNoMod = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    pskNoMod.psk = psk;
+    pskNoMod.setPsk(psk);
     REQUIRE_FALSE(hs.initialize(pskNoMod));
     REQUIRE(hs.errorString().find("modifier") != string::npos);
 
     NoiseConfig modNoPsk = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    modNoPsk.pskModifier = NoisePskModifier::Psk0;
+    modNoPsk.setPskModifier(NoisePskModifier::Psk0);
     REQUIRE_FALSE(hs.initialize(modNoPsk));
     REQUIRE(hs.errorString().find("32") != string::npos);
 
-    NoiseConfig badSlot = makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, alice.publicKey);
-    badSlot.psk = psk;
-    badSlot.pskModifier = NoisePskModifier::Psk3;
+    NoiseConfig badSlot = makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, alice.publicKey());
+    badSlot.setPsk(psk);
+    badSlot.setPskModifier(NoisePskModifier::Psk3);
     REQUIRE_FALSE(hs.initialize(badSlot));
     REQUIRE(hs.errorString().find("modifier") != string::npos);
 }
@@ -431,11 +431,11 @@ TEST_CASE("Noise IK handshake", "[noise]")
     const NoiseKey bob = NoiseKey::generate();
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
-    REQUIRE(initiator.initialize(makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey)));
+    REQUIRE(initiator.initialize(makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey())));
     REQUIRE(responder.initialize(makeConfig(NoisePattern::IK, NoiseRole::Responder, bob)));
 
     runHandshake(&initiator, &responder, "init", "resp");
-    REQUIRE(responder.remoteStaticPublic() == alice.publicKey);
+    REQUIRE(responder.remoteStaticPublic() == alice.publicKey());
 
     NoiseCipherState sendI, recvI, sendR, recvR;
     REQUIRE(initiator.split(&sendI, &recvI));
@@ -449,11 +449,11 @@ TEST_CASE("Noise XK handshake", "[noise]")
     const NoiseKey bob = NoiseKey::generate();
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
-    REQUIRE(initiator.initialize(makeConfig(NoisePattern::XK, NoiseRole::Initiator, alice, bob.publicKey)));
+    REQUIRE(initiator.initialize(makeConfig(NoisePattern::XK, NoiseRole::Initiator, alice, bob.publicKey())));
     REQUIRE(responder.initialize(makeConfig(NoisePattern::XK, NoiseRole::Responder, bob)));
 
     runHandshake(&initiator, &responder, "init", "resp");
-    REQUIRE(responder.remoteStaticPublic() == alice.publicKey);
+    REQUIRE(responder.remoteStaticPublic() == alice.publicKey());
     REQUIRE(initiator.handshakeHash() == responder.handshakeHash());
 
     NoiseCipherState sendI, recvI, sendR, recvR;
@@ -468,12 +468,12 @@ TEST_CASE("Noise KK handshake", "[noise]")
     const NoiseKey bob = NoiseKey::generate();
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
-    REQUIRE(initiator.initialize(makeConfig(NoisePattern::KK, NoiseRole::Initiator, alice, bob.publicKey)));
-    REQUIRE(responder.initialize(makeConfig(NoisePattern::KK, NoiseRole::Responder, bob, alice.publicKey)));
+    REQUIRE(initiator.initialize(makeConfig(NoisePattern::KK, NoiseRole::Initiator, alice, bob.publicKey())));
+    REQUIRE(responder.initialize(makeConfig(NoisePattern::KK, NoiseRole::Responder, bob, alice.publicKey())));
 
     runHandshake(&initiator, &responder, "init", "resp");
-    REQUIRE(initiator.remoteStaticPublic() == bob.publicKey);
-    REQUIRE(responder.remoteStaticPublic() == alice.publicKey);
+    REQUIRE(initiator.remoteStaticPublic() == bob.publicKey());
+    REQUIRE(responder.remoteStaticPublic() == alice.publicKey());
 
     NoiseCipherState sendI, recvI, sendR, recvR;
     REQUIRE(initiator.split(&sendI, &recvI));
@@ -488,12 +488,12 @@ TEST_CASE("Noise IKpsk2 and XXpsk3 handshake", "[noise]")
     const string psk(32, 'k');
 
     NoiseHandshakeState ikI, ikR;
-    NoiseConfig ikICfg = makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey);
-    ikICfg.psk = psk;
-    ikICfg.pskModifier = NoisePskModifier::Psk2;
+    NoiseConfig ikICfg = makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey());
+    ikICfg.setPsk(psk);
+    ikICfg.setPskModifier(NoisePskModifier::Psk2);
     NoiseConfig ikRCfg = makeConfig(NoisePattern::IK, NoiseRole::Responder, bob);
-    ikRCfg.psk = psk;
-    ikRCfg.pskModifier = NoisePskModifier::Psk2;
+    ikRCfg.setPsk(psk);
+    ikRCfg.setPskModifier(NoisePskModifier::Psk2);
     REQUIRE(ikI.initialize(ikICfg));
     REQUIRE(ikR.initialize(ikRCfg));
     runHandshake(&ikI, &ikR, "i", "r");
@@ -504,11 +504,11 @@ TEST_CASE("Noise IKpsk2 and XXpsk3 handshake", "[noise]")
 
     NoiseHandshakeState xxI, xxR;
     NoiseConfig xxICfg = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    xxICfg.psk = psk;
-    xxICfg.pskModifier = NoisePskModifier::Psk3;
+    xxICfg.setPsk(psk);
+    xxICfg.setPskModifier(NoisePskModifier::Psk3);
     NoiseConfig xxRCfg = makeConfig(NoisePattern::XX, NoiseRole::Responder, bob);
-    xxRCfg.psk = psk;
-    xxRCfg.pskModifier = NoisePskModifier::Psk3;
+    xxRCfg.setPsk(psk);
+    xxRCfg.setPskModifier(NoisePskModifier::Psk3);
     REQUIRE(xxI.initialize(xxICfg));
     REQUIRE(xxR.initialize(xxRCfg));
     runHandshake(&xxI, &xxR, "a", "b");
@@ -516,11 +516,11 @@ TEST_CASE("Noise IKpsk2 and XXpsk3 handshake", "[noise]")
 
     NoiseHandshakeState badI, badR;
     NoiseConfig badICfg = makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice);
-    badICfg.psk = psk;
-    badICfg.pskModifier = NoisePskModifier::Psk0;
+    badICfg.setPsk(psk);
+    badICfg.setPskModifier(NoisePskModifier::Psk0);
     NoiseConfig badRCfg = makeConfig(NoisePattern::XX, NoiseRole::Responder, bob);
-    badRCfg.psk = string(32, 'x');
-    badRCfg.pskModifier = NoisePskModifier::Psk0;
+    badRCfg.setPsk(string(32, 'x'));
+    badRCfg.setPskModifier(NoisePskModifier::Psk0);
     REQUIRE(badI.initialize(badICfg));
     REQUIRE(badR.initialize(badRCfg));
     string msg;
@@ -536,7 +536,7 @@ TEST_CASE("Noise rejects remote static mismatch", "[noise]")
     const NoiseKey impostor = NoiseKey::generate();
     NoiseHandshakeState initiator;
     NoiseHandshakeState responder;
-    REQUIRE(initiator.initialize(makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice, impostor.publicKey)));
+    REQUIRE(initiator.initialize(makeConfig(NoisePattern::XX, NoiseRole::Initiator, alice, impostor.publicKey())));
     REQUIRE(responder.initialize(makeConfig(NoisePattern::XX, NoiseRole::Responder, bob)));
 
     string msg;
@@ -605,9 +605,8 @@ TEST_CASE("NoiseCipherState rekey and nonce exhaustion", "[noise]")
     REQUIRE(limitedRecv.decryptWithAd(string(), last, NoiseCipherState::MaxNonce + 1).empty());
 
     REQUIRE(limited.rekey());
-    REQUIRE(limited.encryptWithAd(string(), "after-exhaust").empty());
-    limited.setNonce(NoiseCipherState::MaxNonce);
-    REQUIRE_FALSE(limited.encryptWithAd(string(), "rekeyed-last").empty());
+    REQUIRE(limited.nonce() == 0);
+    REQUIRE_FALSE(limited.encryptWithAd(string(), "after-rekey").empty());
 }
 
 TEST_CASE("NoiseSocket XX over TCP", "[noise]")
@@ -653,7 +652,7 @@ TEST_CASE("NoiseSocket IK over TCP", "[noise]")
 
     shared_ptr<NoiseSocket> client(new NoiseSocket(asSocketLike(sockets.clientSide)));
     shared_ptr<NoiseSocket> server(new NoiseSocket(asSocketLike(sockets.serverSide)));
-    REQUIRE(client->initialize(makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey)));
+    REQUIRE(client->initialize(makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey())));
     REQUIRE(server->initialize(makeConfig(NoisePattern::IK, NoiseRole::Responder, bob)));
 
     bool serverOk = false;
@@ -675,7 +674,7 @@ TEST_CASE("NoiseSocket XK over TCP", "[noise]")
 
     shared_ptr<NoiseSocket> client(new NoiseSocket(asSocketLike(sockets.clientSide)));
     shared_ptr<NoiseSocket> server(new NoiseSocket(asSocketLike(sockets.serverSide)));
-    REQUIRE(client->initialize(makeConfig(NoisePattern::XK, NoiseRole::Initiator, alice, bob.publicKey)));
+    REQUIRE(client->initialize(makeConfig(NoisePattern::XK, NoiseRole::Initiator, alice, bob.publicKey())));
     REQUIRE(server->initialize(makeConfig(NoisePattern::XK, NoiseRole::Responder, bob)));
 
     bool serverOk = false;
@@ -685,7 +684,7 @@ TEST_CASE("NoiseSocket XK over TCP", "[noise]")
     REQUIRE(client->handshake());
     serverHs->join();
     REQUIRE(serverOk);
-    REQUIRE(server->remoteStaticPublic() == alice.publicKey);
+    REQUIRE(server->remoteStaticPublic() == alice.publicKey());
     REQUIRE(client->sendall("xk-data") == 7);
     REQUIRE(server->recvall(7) == "xk-data");
 }
@@ -703,8 +702,8 @@ TEST_CASE("NoiseDatagram XX handshake and transport", "[noise][datagram]")
     REQUIRE(initiator.peerHandshakePayload() == "server-hello");
     REQUIRE(responder.peerHandshakePayload() == "client-hello");
     REQUIRE(initiator.handshakeHash() == responder.handshakeHash());
-    REQUIRE(initiator.remoteStaticPublic() == bob.publicKey);
-    REQUIRE(responder.remoteStaticPublic() == alice.publicKey);
+    REQUIRE(initiator.remoteStaticPublic() == bob.publicKey());
+    REQUIRE(responder.remoteStaticPublic() == alice.publicKey());
 
     const string ping = initiator.encrypt("ping");
     REQUIRE_FALSE(ping.empty());
@@ -743,7 +742,7 @@ TEST_CASE("NoiseDatagram IK and reordered transport", "[noise][datagram]")
     const NoiseKey bob = NoiseKey::generate();
     NoiseDatagram initiator;
     NoiseDatagram responder;
-    REQUIRE(initiator.initialize(makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey)));
+    REQUIRE(initiator.initialize(makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey())));
     REQUIRE(responder.initialize(makeConfig(NoisePattern::IK, NoiseRole::Responder, bob)));
     runDatagramHandshake(&initiator, &responder, "init", "resp");
 
@@ -764,8 +763,8 @@ TEST_CASE("NoiseDatagram KK handshake", "[noise][datagram]")
     const NoiseKey bob = NoiseKey::generate();
     NoiseDatagram initiator;
     NoiseDatagram responder;
-    REQUIRE(initiator.initialize(makeConfig(NoisePattern::KK, NoiseRole::Initiator, alice, bob.publicKey)));
-    REQUIRE(responder.initialize(makeConfig(NoisePattern::KK, NoiseRole::Responder, bob, alice.publicKey)));
+    REQUIRE(initiator.initialize(makeConfig(NoisePattern::KK, NoiseRole::Initiator, alice, bob.publicKey())));
+    REQUIRE(responder.initialize(makeConfig(NoisePattern::KK, NoiseRole::Responder, bob, alice.publicKey())));
     runDatagramHandshake(&initiator, &responder, "init", "resp");
     REQUIRE(initiator.encrypt("k").size() >= 8 + 16);
     REQUIRE(responder.decrypt(initiator.encrypt("kk")) == "kk");
@@ -777,7 +776,7 @@ TEST_CASE("NoiseDatagram WireGuard replay window", "[noise][datagram]")
     const NoiseKey bob = NoiseKey::generate();
     NoiseDatagram initiator;
     NoiseDatagram responder;
-    REQUIRE(initiator.initialize(makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey)));
+    REQUIRE(initiator.initialize(makeConfig(NoisePattern::IK, NoiseRole::Initiator, alice, bob.publicKey())));
     REQUIRE(responder.initialize(makeConfig(NoisePattern::IK, NoiseRole::Responder, bob)));
     runDatagramHandshake(&initiator, &responder, string(), string());
 

@@ -17,37 +17,48 @@ using InfoHash = NodeId;
 
 struct TorrentFileInfo
 {
-    std::string path;
-    std::int64_t length;
-
+public:
     TorrentFileInfo()
-        : length(0)
+        : m_length(0)
     {
     }
     TorrentFileInfo(const std::string &p, std::int64_t len)
-        : path(p)
-        , length(len)
+        : m_path(p)
+        , m_length(len)
     {
     }
+
+    const std::string &path() const { return m_path; }
+    void setPath(const std::string &p) { m_path = p; }
+    std::int64_t length() const { return m_length; }
+    void setLength(std::int64_t len) { m_length = len; }
+private:
+    std::string m_path;
+    std::int64_t m_length;
 };
 
 // Optional peer address from magnet ``x.pe`` (BEP-9).
 struct MagnetPeerHint
 {
-    std::string host;
-    std::uint16_t port;
-
+public:
     MagnetPeerHint()
-        : port(0)
+        : m_port(0)
     {
     }
     MagnetPeerHint(const std::string &h, std::uint16_t p)
-        : host(h)
-        , port(p)
+        : m_host(h)
+        , m_port(p)
     {
     }
 
-    bool isValid() const { return !host.empty() && port != 0; }
+    bool isValid() const { return !m_host.empty() && m_port != 0; }
+    const std::string &host() const { return m_host; }
+    void setHost(const std::string &h) { m_host = h; }
+    std::uint16_t port() const { return m_port; }
+    void setPort(std::uint16_t p) { m_port = p; }
+private:
+    std::string m_host;
+    std::uint16_t m_port;
 };
 
 class MagnetLinkPrivate;
@@ -106,31 +117,53 @@ private:
 
 struct TorrentStats
 {
+public:
     enum State { Stopped = 0, Checking, Metadata, Downloading, Seeding, Error };
 
-    std::int64_t downloaded;
-    std::int64_t uploaded;
-    std::int64_t left;
-    double progress;  // 0..1
-    double downloadRate;
-    double uploadRate;
-    int peersConnected;
-    int peersTotal;
-    State state;
-    std::string errorString;
-
     TorrentStats()
-        : downloaded(0)
-        , uploaded(0)
-        , left(0)
-        , progress(0.0)
-        , downloadRate(0.0)
-        , uploadRate(0.0)
-        , peersConnected(0)
-        , peersTotal(0)
-        , state(Stopped)
+        : m_downloaded(0)
+        , m_uploaded(0)
+        , m_left(0)
+        , m_progress(0.0)
+        , m_downloadRate(0.0)
+        , m_uploadRate(0.0)
+        , m_peersConnected(0)
+        , m_peersTotal(0)
+        , m_state(Stopped)
     {
     }
+
+    std::int64_t downloaded() const { return m_downloaded; }
+    void setDownloaded(std::int64_t v) { m_downloaded = v; }
+    std::int64_t uploaded() const { return m_uploaded; }
+    void setUploaded(std::int64_t v) { m_uploaded = v; }
+    std::int64_t left() const { return m_left; }
+    void setLeft(std::int64_t v) { m_left = v; }
+    double progress() const { return m_progress; }  // 0..1
+    void setProgress(double v) { m_progress = v; }
+    double downloadRate() const { return m_downloadRate; }
+    void setDownloadRate(double v) { m_downloadRate = v; }
+    double uploadRate() const { return m_uploadRate; }
+    void setUploadRate(double v) { m_uploadRate = v; }
+    int peersConnected() const { return m_peersConnected; }
+    void setPeersConnected(int v) { m_peersConnected = v; }
+    int peersTotal() const { return m_peersTotal; }
+    void setPeersTotal(int v) { m_peersTotal = v; }
+    State state() const { return m_state; }
+    void setState(State st) { m_state = st; }
+    const std::string &errorString() const { return m_errorString; }
+    void setErrorString(const std::string &err) { m_errorString = err; }
+private:
+    std::int64_t m_downloaded;
+    std::int64_t m_uploaded;
+    std::int64_t m_left;
+    double m_progress;  // 0..1
+    double m_downloadRate;
+    double m_uploadRate;
+    int m_peersConnected;
+    int m_peersTotal;
+    State m_state;
+    std::string m_errorString;
 };
 
 class TorrentHandlePrivate;

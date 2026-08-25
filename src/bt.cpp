@@ -478,7 +478,7 @@ static bool parseInfoDictFields(const Bencode &info, shared_ptr<TorrentMetaPriva
                 path.append(part.toString());
             }
             TorrentFileInfo fi(d->name + "/" + path, lenIt->second.toInteger());
-            d->totalSize += fi.length;
+            d->totalSize += fi.length();
             d->files.push_back(fi);
         }
     } else {
@@ -488,7 +488,7 @@ static bool parseInfoDictFields(const Bencode &info, shared_ptr<TorrentMetaPriva
             return false;
         }
         TorrentFileInfo fi(d->name, lenIt->second.toInteger());
-        d->totalSize = fi.length;
+        d->totalSize = fi.length();
         d->files.push_back(fi);
     }
 
@@ -889,10 +889,10 @@ bool PieceStorage::open(const TorrentMeta &meta, const string &downloadDir)
     std::int64_t off = 0;
     for (const TorrentFileInfo &fi : meta.files()) {
         FileMap fm;
-        fm.path = m_root + "/" + fi.path;
+        fm.path = m_root + "/" + fi.path();
         fm.offset = off;
-        fm.length = fi.length;
-        off += fi.length;
+        fm.length = fi.length();
+        off += fi.length();
         PosixPath fp(fm.path);
         PosixPath parent = fp.parentPath();
         if (!parent.exists()) {
@@ -909,9 +909,9 @@ bool PieceStorage::open(const TorrentMeta &meta, const string &downloadDir)
             return false;
         }
 #ifdef NG_OS_WIN
-        _chsize_s(fm.fd, fi.length);
+        _chsize_s(fm.fd, fi.length());
 #else
-        if (ftruncate(fm.fd, fi.length) != 0) {
+        if (ftruncate(fm.fd, fi.length()) != 0) {
             // ignore sparse failure
         }
 #endif
@@ -1282,7 +1282,7 @@ TorrentHandlePrivate::TorrentHandlePrivate()
     , needsMetadata(false)
     , metadataSize(-1)
 {
-    stats.state = TorrentStats::Stopped;
+    stats.setState(TorrentStats::Stopped);
 }
 
 TorrentHandlePrivate::~TorrentHandlePrivate() { }
@@ -1307,20 +1307,20 @@ TorrentStats TorrentHandlePrivate::statsSnapshot() const
 {
     lock_guard<std::mutex> lock(mutex_);
     TorrentStats s = stats;
-    s.left = storage.isOpen() ? storage.bytesLeft() : (meta.isValid() ? meta.totalSize() : 0);
-    s.progress = meta.totalSize() > 0 ? static_cast<double>(meta.totalSize() - s.left) / meta.totalSize() : 0.0;
-    s.peersTotal = static_cast<int>(peers.size());
-    s.peersConnected = static_cast<int>(connectedPeers.size());
+    s.setLeft(storage.isOpen() ? storage.bytesLeft() : (meta.isValid() ? meta.totalSize() : 0));
+    s.setProgress(meta.totalSize() > 0 ? static_cast<double>(meta.totalSize() - s.left()) / meta.totalSize() : 0.0);
+    s.setPeersTotal(static_cast<int>(peers.size()));
+    s.setPeersConnected(static_cast<int>(connectedPeers.size()));
     const double now = static_cast<double>(time(nullptr));
     if (lastRateSampleSecs > 0.0 && now > lastRateSampleSecs) {
         const double dt = now - lastRateSampleSecs;
-        s.downloadRate = static_cast<double>(s.downloaded - lastDownloaded) / dt;
-        s.uploadRate = static_cast<double>(s.uploaded - lastUploaded) / dt;
+        s.setDownloadRate(static_cast<double>(s.downloaded() - lastDownloaded) / dt);
+        s.setUploadRate(static_cast<double>(s.uploaded() - lastUploaded) / dt);
     }
     // Cast away const for sample bookkeeping — statsSnapshot is logically const for callers.
     TorrentHandlePrivate *self = const_cast<TorrentHandlePrivate *>(this);
-    self->lastDownloaded = s.downloaded;
-    self->lastUploaded = s.uploaded;
+    self->lastDownloaded = s.downloaded();
+    self->lastUploaded = s.uploaded();
     self->lastRateSampleSecs = now;
     return s;
 }
@@ -1328,9 +1328,9 @@ TorrentStats TorrentHandlePrivate::statsSnapshot() const
 void TorrentHandlePrivate::setState(TorrentStats::State st, const string &err)
 {
     lock_guard<std::mutex> lock(mutex_);
-    stats.state = st;
+    stats.setState(st);
     if (!err.empty()) {
-        stats.errorString = err;
+        stats.setErrorString(err);
     }
 }
 
@@ -1346,7 +1346,7 @@ void TorrentHandlePrivate::notifyProgress()
     if (cb) {
         cb(s);
     }
-    if (s.left == 0 && s.state != TorrentStats::Error) {
+    if (s.left() == 0 && s.state() != TorrentStats::Error) {
         setState(TorrentStats::Seeding);
         finishedEvent.set();
     }
@@ -1481,9 +1481,9 @@ vector<BtPeerAddr> TorrentSessionPrivate::announceHttp(shared_ptr<TorrentHandleP
     q.addQueryItem("info_hash", btPercentEncode(h->effectiveInfoHash().toBytes()));
     q.addQueryItem("peer_id", btPercentEncode(peerId));
     q.addQueryItem("port", to_string(effectiveListenPort()));
-    q.addQueryItem("uploaded", to_string(st.uploaded));
-    q.addQueryItem("downloaded", to_string(st.downloaded));
-    q.addQueryItem("left", to_string(st.left));
+    q.addQueryItem("uploaded", to_string(st.uploaded()));
+    q.addQueryItem("downloaded", to_string(st.downloaded()));
+    q.addQueryItem("left", to_string(st.left()));
     q.addQueryItem("compact", "1");
     q.addQueryItem("numwant", "50");
     if (!event.empty()) {
@@ -1499,8 +1499,8 @@ vector<BtPeerAddr> TorrentSessionPrivate::announceHttp(shared_ptr<TorrentHandleP
     base += u.path().empty() ? "/" : u.path();
     string query = "info_hash=" + btPercentEncode(h->effectiveInfoHash().toBytes()) + "&peer_id="
             + btPercentEncode(peerId) + "&port=" + to_string(effectiveListenPort())
-            + "&uploaded=" + to_string(st.uploaded) + "&downloaded=" + to_string(st.downloaded)
-            + "&left=" + to_string(st.left) + "&compact=1&numwant=50";
+            + "&uploaded=" + to_string(st.uploaded()) + "&downloaded=" + to_string(st.downloaded())
+            + "&left=" + to_string(st.left()) + "&compact=1&numwant=50";
     if (!event.empty()) {
         query += "&event=" + event;
     }
@@ -1624,9 +1624,9 @@ vector<BtPeerAddr> TorrentSessionPrivate::announceUdp(shared_ptr<TorrentHandlePr
     btWriteBe32(&areq[12], tx);
     memcpy(&areq[16], h->effectiveInfoHash().toBytes().data(), 20);
     memcpy(&areq[36], peerId.data(), 20);
-    btWriteBe64(&areq[56], static_cast<std::uint64_t>(st.downloaded));
-    btWriteBe64(&areq[64], static_cast<std::uint64_t>(st.left));
-    btWriteBe64(&areq[72], static_cast<std::uint64_t>(st.uploaded));
+    btWriteBe64(&areq[56], static_cast<std::uint64_t>(st.downloaded()));
+    btWriteBe64(&areq[64], static_cast<std::uint64_t>(st.left()));
+    btWriteBe64(&areq[72], static_cast<std::uint64_t>(st.uploaded()));
     btWriteBe32(&areq[80], eventCode);
     btWriteBe32(&areq[84], 0);  // ip
     btWriteBe32(&areq[88], tx);
@@ -2164,7 +2164,7 @@ void TorrentSessionPrivate::runPeer(shared_ptr<TorrentHandlePrivate> h, shared_p
                         pl.append(block);
                         sock->sendall(btEncodeMessage(7, pl));
                         lock_guard<std::mutex> lock(h->mutex_);
-                        h->stats.uploaded += block.size();
+                        h->stats.setUploaded(h->stats.uploaded() + block.size());
                     }
                 }
             } else if (msgId == 7 && payload.size() >= 8) {
@@ -2181,7 +2181,7 @@ void TorrentSessionPrivate::runPeer(shared_ptr<TorrentHandlePrivate> h, shared_p
                 }
                 {
                     lock_guard<std::mutex> lock(h->mutex_);
-                    h->stats.downloaded += block.size();
+                    h->stats.setDownloaded(h->stats.downloaded() + block.size());
                 }
                 if (h->picker.isPieceDataComplete(piece)) {
                     if (h->storage.commitPiece(piece, *buf)) {
@@ -2660,13 +2660,13 @@ TorrentHandle TorrentSessionPrivate::addMagnet(const MagnetLink &magnet)
             continue;
         }
         HostAddress addr;
-        if (addr.setAddress(hint.host)) {
-            hints.push_back(BtPeerAddr(addr, hint.port));
+        if (addr.setAddress(hint.host())) {
+            hints.push_back(BtPeerAddr(addr, hint.port()));
         } else {
-            vector<HostAddress> resolved = Socket::resolve(hint.host);
+            vector<HostAddress> resolved = Socket::resolve(hint.host());
             for (const HostAddress &a : resolved) {
                 if (!a.isNull()) {
-                    hints.push_back(BtPeerAddr(a, hint.port));
+                    hints.push_back(BtPeerAddr(a, hint.port()));
                 }
             }
         }

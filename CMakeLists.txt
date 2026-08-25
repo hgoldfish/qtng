@@ -105,6 +105,7 @@ set(QTNG_SRC
     src/socket.cpp
     src/eventloop.cpp
     src/coroutine.cpp
+    src/stack_pool.cpp
     src/locks.cpp
     src/coroutine_utils.cpp
     src/socket_utils.cpp

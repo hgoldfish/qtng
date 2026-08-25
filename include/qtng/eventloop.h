@@ -55,6 +55,7 @@ public:
 private:
     std::uint32_t msecs;
     int timeoutId;
+    NG_DISABLE_COPY_MOVE(Timeout)
 };
 
 class EventLoopCoroutine;

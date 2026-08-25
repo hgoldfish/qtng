@@ -2,6 +2,7 @@
 #define QTNG_WEBSOCKET_H
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,7 +16,9 @@ class WebSocketConfiguration
 {
 public:
     WebSocketConfiguration();
+    WebSocketConfiguration(const WebSocketConfiguration &other);
     ~WebSocketConfiguration();
+    WebSocketConfiguration &operator=(const WebSocketConfiguration &other);
 public:
     void setKeepaliveInterval(float interval);
     float keepaliveInterval() const;
@@ -69,15 +72,20 @@ public:
                         const WebSocketConfiguration &config = WebSocketConfiguration());
     ~WebSocketConnection();
 public:
-    std::shared_ptr<Event> disconnected;
+    std::shared_ptr<Event> disconnected() const;
 public:
     void setConfiguration(const WebSocketConfiguration &config);
     bool send(const std::string &packet);
     bool sendText(const std::string &text);
     bool post(const std::string &packet);
+    bool postText(const std::string &text);
     std::string recv(FrameType *type = nullptr);
     void close();
     void abort();
+    // Register a callback invoked (from the coroutine that aborts the connection) right after
+    // the built-in `disconnected` event is set. Used by bindings to forward the notification
+    // to their own event types.
+    void setDisconnectedNotifier(std::function<void()> notifier);
 public:
     std::string id() const;
     Side side() const;
@@ -91,10 +99,13 @@ public:
     bool mustMask() const;
     std::string origin() const;
     std::string url() const;
-    const HttpResponse &response() const;
+    std::shared_ptr<const HttpResponse> response() const;
+private:
+    bool putPacket(const std::string &data, FrameType type, bool waitForResult);
 private:
     WebSocketConnectionPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(WebSocketConnection);
+    NG_DISABLE_COPY_MOVE(WebSocketConnection)
     friend class HttpSessionPrivate;
 };
 

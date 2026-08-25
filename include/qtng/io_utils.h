@@ -46,6 +46,7 @@ public:
 private:
     BytesIOPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(BytesIO)
+    NG_DISABLE_COPY_MOVE(BytesIO)
 };
 
 bool sendfile(std::shared_ptr<FileLike> inputFile, std::shared_ptr<FileLike> outputFile, std::int64_t bytesToCopy = -1,
@@ -63,6 +64,8 @@ public:
     std::shared_ptr<FileLike> fileToRead(bool takePipe = false);
     std::shared_ptr<FileLike> fileToWrite(bool takePipe = false);
 private:
+    // Intentional: copyable. Copies share PipePrivate via shared_ptr (multiplex hub).
+    // 有意可拷贝：拷贝通过 shared_ptr 共享 PipePrivate（多路复用中枢）。
     const std::shared_ptr<PipePrivate> d;
 };
 

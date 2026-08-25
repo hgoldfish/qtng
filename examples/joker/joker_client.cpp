@@ -125,7 +125,7 @@ bool JokerServerConnection::connectHttp(shared_ptr<Cipher> templateCipher)
     }
     string buf;
     shared_ptr<SocketLike> tcp = response.takeStream(&buf);
-    const int64_t leftBytes = response.getContentLength() - static_cast<int64_t>(buf.size());
+    const int64_t leftBytes = response.contentLength() - static_cast<int64_t>(buf.size());
     if (leftBytes > 0) {
         const string &t = tcp->recvall(static_cast<int32_t>(leftBytes));
         if (static_cast<int64_t>(t.size()) != leftBytes) {

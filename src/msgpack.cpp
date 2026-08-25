@@ -113,6 +113,37 @@ static inline utils::DateTime unpackDatetime(const string &bs)
 
 MsgPackExtUserData::~MsgPackExtUserData() { }
 
+MsgPackExtData::MsgPackExtData()
+    : type_(0)
+{
+}
+
+MsgPackExtData::MsgPackExtData(uint8_t type, string payload)
+    : type_(type)
+    , payload_(std::move(payload))
+{
+}
+
+uint8_t MsgPackExtData::type() const
+{
+    return type_;
+}
+
+void MsgPackExtData::setType(uint8_t type)
+{
+    type_ = type;
+}
+
+const string &MsgPackExtData::payload() const
+{
+    return payload_;
+}
+
+void MsgPackExtData::setPayload(const string &payload)
+{
+    payload_ = payload;
+}
+
 class MsgPackStreamPrivate
 {
 public:
@@ -1085,7 +1116,8 @@ MsgPackStream &MsgPackStream::operator>>(MsgPackExtData &ext)
 {
     NG_D(MsgPackStream);
     uint32_t len;
-    bool success = d->readExtHeader(len, ext.type);
+    uint8_t msgpackType = 0;
+    bool success = d->readExtHeader(len, msgpackType);
     if (!success) {
         return *this;
     }
@@ -1093,8 +1125,15 @@ MsgPackStream &MsgPackStream::operator>>(MsgPackExtData &ext)
         d->status = ReadCorruptData;
         return *this;
     }
-    ext.payload.resize(static_cast<int>(len));
-    d->readBytes(&ext.payload[0], len);
+    ext.setType(msgpackType);
+    string payload;
+    if (len > 0) {
+        payload.resize(static_cast<int>(len));
+        if (!d->readBytes(&payload[0], len)) {
+            return *this;
+        }
+    }
+    ext.setPayload(std::move(payload));
     return *this;
 }
 
@@ -1341,11 +1380,11 @@ MsgPackStream &MsgPackStream::operator<<(const utils::Date &date)
 MsgPackStream &MsgPackStream::operator<<(const MsgPackExtData &ext)
 {
     CHECK_STREAM_PRECOND(*this);
-    bool success = d->writeExtHeader(static_cast<uint32_t>(ext.payload.size()), ext.type);
+    bool success = d->writeExtHeader(static_cast<uint32_t>(ext.payload().size()), ext.type());
     if (!success) {
         return *this;
     }
-    d->writeBytes(ext.payload.data(), ext.payload.size());
+    d->writeBytes(ext.payload().data(), ext.payload().size());
     return *this;
 }
 

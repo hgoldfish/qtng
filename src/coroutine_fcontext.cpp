@@ -1,13 +1,9 @@
 #include "qtng/utils/platform.h"
 
-
-#ifdef NG_OS_UNIX
-#  include <sys/mman.h>
-#endif
-
 #include "qtng/coroutine.h"
 #include "qtng/private/coroutine_p.h"
 #include "qtng/utils/logging.h"
+#include "stack_pool.h"
 
 #include <cstdlib>
 #include <typeinfo>
@@ -51,6 +47,7 @@ public:
     fcontext_t context;
     size_t stackSize;
     void *stack;
+    bool pooled;
     enum BaseCoroutine::State state;
     bool bad;
     NG_DECLARE_PUBLIC(BaseCoroutine)
@@ -106,19 +103,14 @@ BaseCoroutinePrivate::BaseCoroutinePrivate(BaseCoroutine *q, BaseCoroutine *prev
     , context(nullptr)
     , stackSize(stackSize)
     , stack(nullptr)
+    , pooled(false)
     , state(BaseCoroutine::Initialized)
     , bad(false)
 {
     if (stackSize) {
 #ifdef NG_OS_UNIX
-        int flags = MAP_PRIVATE | MAP_ANONYMOUS;
-#  ifdef MAP_STACK
-        flags |= MAP_STACK;
-#  endif
-#  ifdef MAP_GROWSDOWN
-        flags |= MAP_GROWSDOWN;
-#  endif
-        stack = mmap(nullptr, this->stackSize, PROT_READ | PROT_WRITE, flags, -1, 0);
+        stack = stack_pool::acquire(stackSize);
+        pooled = true;
 #else
         stack = operator new(stackSize);
 #endif
@@ -151,7 +143,13 @@ BaseCoroutinePrivate::~BaseCoroutinePrivate()
 
     if (stack) {
 #ifdef NG_OS_UNIX
-        munmap(stack, stackSize);
+        if (pooled) {
+            stack_pool::release(stack, stackSize);
+        } else {
+            // The main coroutine stack is allocated with new char[] in
+            // createMainCoroutine() and must not be returned to the pool.
+            delete[] static_cast<char *>(stack);
+        }
 #else
         operator delete(stack);
 #endif

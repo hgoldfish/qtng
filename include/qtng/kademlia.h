@@ -46,59 +46,74 @@ private:
 // UDP address of a DHT node (not a torrent peer).
 struct DhtEndpoint
 {
-    HostAddress address;
-    std::uint16_t port;
-
     DhtEndpoint()
-        : port(0)
+        : m_port(0)
     {
     }
     DhtEndpoint(const HostAddress &addr, std::uint16_t p)
-        : address(addr)
-        , port(p)
+        : m_address(addr)
+        , m_port(p)
     {
     }
 
-    bool isValid() const { return !address.isNull() && port != 0; }
+    bool isValid() const { return !m_address.isNull() && m_port != 0; }
+
+    HostAddress address() const { return m_address; }
+    void setAddress(const HostAddress &addr) { m_address = addr; }
+    std::uint16_t port() const { return m_port; }
+    void setPort(std::uint16_t p) { m_port = p; }
+private:
+    HostAddress m_address;
+    std::uint16_t m_port;
 };
 
 // DHT contact: node id plus UDP endpoint (routing-table entry / find_node result).
 struct DhtNodeInfo
 {
-    NodeId id;
-    DhtEndpoint endpoint;
-
     DhtNodeInfo() { }
     DhtNodeInfo(const NodeId &nid, const DhtEndpoint &ep)
-        : id(nid)
-        , endpoint(ep)
+        : m_id(nid)
+        , m_endpoint(ep)
     {
     }
 
-    bool isValid() const { return id.isValid() && endpoint.isValid(); }
+    bool isValid() const { return m_id.isValid() && m_endpoint.isValid(); }
+
+    NodeId id() const { return m_id; }
+    void setId(const NodeId &nid) { m_id = nid; }
+    DhtEndpoint endpoint() const { return m_endpoint; }
+    void setEndpoint(const DhtEndpoint &ep) { m_endpoint = ep; }
+private:
+    NodeId m_id;
+    DhtEndpoint m_endpoint;
 };
 
 // Torrent peer announced via get_peers / announce_peer (TCP/µTP download port).
 struct DhtPeer
 {
-    HostAddress address;
-    std::uint16_t port;
-
     DhtPeer()
-        : port(0)
+        : m_port(0)
     {
     }
     DhtPeer(const HostAddress &addr, std::uint16_t p)
-        : address(addr)
-        , port(p)
+        : m_address(addr)
+        , m_port(p)
     {
     }
 
-    bool isValid() const { return !address.isNull() && port != 0; }
+    bool isValid() const { return !m_address.isNull() && m_port != 0; }
     bool operator==(const DhtPeer &other) const
     {
-        return address == other.address && port == other.port;
+        return m_address == other.m_address && m_port == other.m_port;
     }
+
+    HostAddress address() const { return m_address; }
+    void setAddress(const HostAddress &addr) { m_address = addr; }
+    std::uint16_t port() const { return m_port; }
+    void setPort(std::uint16_t p) { m_port = p; }
+private:
+    HostAddress m_address;
+    std::uint16_t m_port;
 };
 
 // BEP-5 compact encodings for "nodes" / "nodes6" / "values" fields.
@@ -119,8 +134,15 @@ class DhtStore
 {
 public:
     struct StoredPeer {
-        DhtPeer peer;
-        std::int64_t expireUnix;  // unix seconds; remove when <= now
+        StoredPeer() { }
+
+        DhtPeer peer() const { return m_peer; }
+        void setPeer(const DhtPeer &p) { m_peer = p; }
+        std::int64_t expireUnix() const { return m_expireUnix; }
+        void setExpireUnix(std::int64_t t) { m_expireUnix = t; }
+    private:
+        DhtPeer m_peer;
+        std::int64_t m_expireUnix;
     };
 
     virtual ~DhtStore() { }
@@ -205,6 +227,8 @@ public:
 
     NodeId id() const;
     std::uint16_t localPort() const;
+    // Returns the store in use. Without an explicit store in open(), this is the
+    // MemoryDhtStore created internally by the node.
     std::shared_ptr<DhtStore> store() const;
 
     // Ping seeds then iterative find_node(self) to fill the routing table.

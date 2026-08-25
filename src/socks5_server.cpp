@@ -82,7 +82,7 @@ bool Socks5RequestHandler::sendConnectReply(const HostAddress &hostAddress, uint
         reply[1] = S5_SUCCESS;
         reply[2] = 0x00;
         reply[3] = S5_IP_V6;
-        memcpy(&reply[4], reinterpret_cast<char *>(ipv6.c), 16);
+        memcpy(&reply[4], reinterpret_cast<char *>(ipv6.data()), 16);
         ngToBigEndian<uint16_t>(port, &reply[20]);
     }
 

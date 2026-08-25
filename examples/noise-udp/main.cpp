@@ -103,8 +103,8 @@ shared_ptr<EndpointState> runServer(ValueEvent<uint16_t> *port)
     const shared_ptr<EndpointState> out = make_shared<EndpointState>();
     out->session = make_shared<NoiseDatagram>();
     out->key = NoiseKey::generate();
-    NoiseConfig cfg(out->key.privateKey);
-    cfg.role = NoiseRole::Responder;
+    NoiseConfig cfg(out->key.privateKey());
+    cfg.setRole(NoiseRole::Responder);
     if (!out->session->initialize(cfg)) {
         cerr << "[server] initialize failed: " << out->session->errorString() << endl;
         port->send(0);  // notify the client on failure too (port 0), so it does not wait forever
@@ -148,7 +148,7 @@ shared_ptr<EndpointState> runClient(const HostAddress &serverAddr, uint16_t serv
     const shared_ptr<EndpointState> out = make_shared<EndpointState>();
     out->session = make_shared<NoiseDatagram>();
     out->key = NoiseKey::generate();
-    NoiseConfig cfg(out->key.privateKey);
+    NoiseConfig cfg(out->key.privateKey());
     if (!out->session->initialize(cfg)) {
         cerr << "[client] initialize failed: " << out->session->errorString() << endl;
         return nullptr;
@@ -186,8 +186,8 @@ void verifySessions(const EndpointState &client, const EndpointState &server)
 {
     cout << "[ok] handshake hash matches: "
          << (client.session->handshakeHash() == server.session->handshakeHash()) << endl;
-    cout << "[ok] peer statics: " << (client.session->remoteStaticPublic() == server.key.publicKey) << "/"
-         << (server.session->remoteStaticPublic() == client.key.publicKey) << endl;
+    cout << "[ok] peer statics: " << (client.session->remoteStaticPublic() == server.key.publicKey()) << "/"
+         << (server.session->remoteStaticPublic() == client.key.publicKey()) << endl;
 
     const string a = client.session->encrypt("ping-1");
     const string b = client.session->encrypt("ping-2");

@@ -58,7 +58,7 @@ string ipv4Bytes(const HostAddress &addr)
 string ipv6Bytes(const HostAddress &addr)
 {
     IPv6Address a6 = addr.toIPv6Address();
-    return string(reinterpret_cast<const char *>(a6.c), 16);
+    return string(reinterpret_cast<const char *>(a6.data()), 16);
 }
 
 string portBytes(uint16_t port)
@@ -110,7 +110,7 @@ struct DistanceLess {
     NodeId target;
     bool operator()(const DhtNodeInfo &a, const DhtNodeInfo &b) const
     {
-        return (a.id ^ target) < (b.id ^ target);
+        return (a.id() ^ target) < (b.id() ^ target);
     }
 };
 
@@ -215,16 +215,17 @@ string encodeCompactNodes(const vector<DhtNodeInfo> &nodes)
 {
     string out;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        if (!nodes[i].isValid() || nodes[i].endpoint.address.protocol() != HostAddress::IPv4Protocol) {
+        if (!nodes[i].isValid()
+            || nodes[i].endpoint().address().protocol() != HostAddress::IPv4Protocol) {
             continue;
         }
-        string ip = ipv4Bytes(nodes[i].endpoint.address);
+        string ip = ipv4Bytes(nodes[i].endpoint().address());
         if (ip.empty()) {
             continue;
         }
-        out.append(nodes[i].id.toBytes());
+        out.append(nodes[i].id().toBytes());
         out.append(ip);
-        out.append(portBytes(nodes[i].endpoint.port));
+        out.append(portBytes(nodes[i].endpoint().port()));
     }
     return out;
 }
@@ -233,12 +234,13 @@ string encodeCompactNodes6(const vector<DhtNodeInfo> &nodes)
 {
     string out;
     for (size_t i = 0; i < nodes.size(); ++i) {
-        if (!nodes[i].isValid() || nodes[i].endpoint.address.protocol() != HostAddress::IPv6Protocol) {
+        if (!nodes[i].isValid()
+            || nodes[i].endpoint().address().protocol() != HostAddress::IPv6Protocol) {
             continue;
         }
-        out.append(nodes[i].id.toBytes());
-        out.append(ipv6Bytes(nodes[i].endpoint.address));
-        out.append(portBytes(nodes[i].endpoint.port));
+        out.append(nodes[i].id().toBytes());
+        out.append(ipv6Bytes(nodes[i].endpoint().address()));
+        out.append(portBytes(nodes[i].endpoint().port()));
     }
     return out;
 }
@@ -251,11 +253,11 @@ vector<DhtNodeInfo> decodeCompactNodes(const string &data)
     }
     for (size_t i = 0; i + 26 <= data.size(); i += 26) {
         DhtNodeInfo n;
-        n.id = NodeId::fromBytes(data.substr(i, 20));
+        n.setId(NodeId::fromBytes(data.substr(i, 20)));
         HostAddress addr;
         uint16_t port = 0;
         readIpv4(data.data() + i + 20, &addr, &port);
-        n.endpoint = DhtEndpoint(addr, port);
+        n.setEndpoint(DhtEndpoint(addr, port));
         if (n.isValid()) {
             out.push_back(n);
         }
@@ -271,11 +273,11 @@ vector<DhtNodeInfo> decodeCompactNodes6(const string &data)
     }
     for (size_t i = 0; i + 38 <= data.size(); i += 38) {
         DhtNodeInfo n;
-        n.id = NodeId::fromBytes(data.substr(i, 20));
+        n.setId(NodeId::fromBytes(data.substr(i, 20)));
         HostAddress addr;
         uint16_t port = 0;
         readIpv6(data.data() + i + 20, &addr, &port);
-        n.endpoint = DhtEndpoint(addr, port);
+        n.setEndpoint(DhtEndpoint(addr, port));
         if (n.isValid()) {
             out.push_back(n);
         }
@@ -287,15 +289,15 @@ string encodeCompactPeers(const vector<DhtPeer> &peers)
 {
     string out;
     for (size_t i = 0; i < peers.size(); ++i) {
-        if (!peers[i].isValid() || peers[i].address.protocol() != HostAddress::IPv4Protocol) {
+        if (!peers[i].isValid() || peers[i].address().protocol() != HostAddress::IPv4Protocol) {
             continue;
         }
-        string ip = ipv4Bytes(peers[i].address);
+        string ip = ipv4Bytes(peers[i].address());
         if (ip.empty()) {
             continue;
         }
         out.append(ip);
-        out.append(portBytes(peers[i].port));
+        out.append(portBytes(peers[i].port()));
     }
     return out;
 }
@@ -304,11 +306,11 @@ string encodeCompactPeers6(const vector<DhtPeer> &peers)
 {
     string out;
     for (size_t i = 0; i < peers.size(); ++i) {
-        if (!peers[i].isValid() || peers[i].address.protocol() != HostAddress::IPv6Protocol) {
+        if (!peers[i].isValid() || peers[i].address().protocol() != HostAddress::IPv6Protocol) {
             continue;
         }
-        out.append(ipv6Bytes(peers[i].address));
-        out.append(portBytes(peers[i].port));
+        out.append(ipv6Bytes(peers[i].address()));
+        out.append(portBytes(peers[i].port()));
     }
     return out;
 }
@@ -321,7 +323,11 @@ vector<DhtPeer> decodeCompactPeers(const string &data)
     }
     for (size_t i = 0; i + 6 <= data.size(); i += 6) {
         DhtPeer p;
-        readIpv4(data.data() + i, &p.address, &p.port);
+        HostAddress addr;
+        uint16_t port = 0;
+        readIpv4(data.data() + i, &addr, &port);
+        p.setAddress(addr);
+        p.setPort(port);
         if (p.isValid()) {
             out.push_back(p);
         }
@@ -337,7 +343,11 @@ vector<DhtPeer> decodeCompactPeers6(const string &data)
     }
     for (size_t i = 0; i + 18 <= data.size(); i += 18) {
         DhtPeer p;
-        readIpv6(data.data() + i, &p.address, &p.port);
+        HostAddress addr;
+        uint16_t port = 0;
+        readIpv6(data.data() + i, &addr, &port);
+        p.setAddress(addr);
+        p.setPort(port);
         if (p.isValid()) {
             out.push_back(p);
         }
@@ -366,16 +376,16 @@ int RoutingTable::bucketFor(const NodeId &id) const
 
 bool RoutingTable::offer(const DhtNodeInfo &node, DhtNodeInfo *evictCandidate)
 {
-    if (!node.isValid() || !m_selfId.isValid() || node.id == m_selfId) {
+    if (!node.isValid() || !m_selfId.isValid() || node.id() == m_selfId) {
         return false;
     }
-    int bi = bucketFor(node.id);
+    int bi = bucketFor(node.id());
     if (bi < 0) {
         return false;
     }
     list<DhtNodeInfo> &bucket = m_buckets[static_cast<size_t>(bi)];
     for (list<DhtNodeInfo>::iterator it = bucket.begin(); it != bucket.end(); ++it) {
-        if (it->id == node.id) {
+        if (it->id() == node.id()) {
             DhtNodeInfo updated = node;
             bucket.erase(it);
             bucket.push_front(updated);
@@ -394,13 +404,13 @@ bool RoutingTable::offer(const DhtNodeInfo &node, DhtNodeInfo *evictCandidate)
 
 void RoutingTable::replace(const DhtNodeInfo &evict, const DhtNodeInfo &neu)
 {
-    int bi = bucketFor(neu.id);
+    int bi = bucketFor(neu.id());
     if (bi < 0) {
         return;
     }
     list<DhtNodeInfo> &bucket = m_buckets[static_cast<size_t>(bi)];
     for (list<DhtNodeInfo>::iterator it = bucket.begin(); it != bucket.end(); ++it) {
-        if (it->id == evict.id) {
+        if (it->id() == evict.id()) {
             bucket.erase(it);
             break;
         }
@@ -416,7 +426,7 @@ void RoutingTable::remove(const NodeId &id)
     }
     list<DhtNodeInfo> &bucket = m_buckets[static_cast<size_t>(bi)];
     for (list<DhtNodeInfo>::iterator it = bucket.begin(); it != bucket.end(); ++it) {
-        if (it->id == id) {
+        if (it->id() == id) {
             bucket.erase(it);
             return;
         }
@@ -555,8 +565,8 @@ vector<DhtStore::StoredPeer> MemoryDhtStore::loadPeers(const NodeId &infoHash)
         }
         for (size_t i = 0; i < peers.size(); ++i) {
             StoredPeer sp;
-            sp.peer = peers[i];
-            sp.expireUnix = it->second;
+            sp.setPeer(peers[i]);
+            sp.setExpireUnix(it->second);
             out.push_back(sp);
         }
     }
@@ -571,7 +581,7 @@ bool MemoryDhtStore::putPeer(const NodeId &infoHash, const DhtPeer &peer, int64_
         return false;
     }
     string compact;
-    if (peer.address.protocol() == HostAddress::IPv4Protocol) {
+    if (peer.address().protocol() == HostAddress::IPv4Protocol) {
         compact = encodeCompactPeers(vector<DhtPeer>(1, peer));
     } else {
         compact = encodeCompactPeers6(vector<DhtPeer>(1, peer));
@@ -654,9 +664,12 @@ bool LmdbDhtStore::loadMeta(NodeId *id, string *tokenSecret)
         d->error = "LMDB read txn failed";
         return false;
     }
-    const Database &meta = txn->db("meta");
-    string idBytes = meta.value("id");
-    string secret = meta.value("token_secret");
+    shared_ptr<const Database> meta = txn->db("meta");
+    if (!meta) {
+        return false;
+    }
+    string idBytes = meta->value("id");
+    string secret = meta->value("token_secret");
     if (idBytes.size() != static_cast<size_t>(NodeId::Size)) {
         return false;
     }
@@ -681,9 +694,13 @@ bool LmdbDhtStore::saveMeta(const NodeId &id, const string &tokenSecret)
         d->error = "LMDB write txn failed";
         return false;
     }
-    Database &meta = txn->db("meta");
-    meta.insert("id", id.toBytes());
-    meta.insert("token_secret", tokenSecret);
+    shared_ptr<Database> meta = txn->db("meta");
+    if (!meta) {
+        d->error = "LMDB meta db open failed";
+        return false;
+    }
+    meta->insert("id", id.toBytes());
+    meta->insert("token_secret", tokenSecret);
     if (!txn->commit()) {
         d->error = "LMDB commit failed";
         return false;
@@ -702,8 +719,11 @@ vector<DhtNodeInfo> LmdbDhtStore::loadNodes()
     if (!txn) {
         return out;
     }
-    const Database &nodes = txn->db("nodes");
-    for (ConstLmdbIterator it = nodes.constBegin(); it; ++it) {
+    shared_ptr<const Database> nodes = txn->db("nodes");
+    if (!nodes) {
+        return out;
+    }
+    for (ConstLmdbIterator it = nodes->constBegin(); it; ++it) {
         string key = it.key();
         string val = it.value();
         if (key.size() != static_cast<size_t>(NodeId::Size)) {
@@ -711,17 +731,17 @@ vector<DhtNodeInfo> LmdbDhtStore::loadNodes()
         }
         // value: compact endpoint without id (4+2 or 16+2) + optional last_seen(8)
         DhtNodeInfo n;
-        n.id = NodeId::fromBytes(key);
+        n.setId(NodeId::fromBytes(key));
         if (val.size() >= 6 && (val.size() == 6 || val.size() == 14)) {
             HostAddress addr;
             uint16_t port = 0;
             readIpv4(val.data(), &addr, &port);
-            n.endpoint = DhtEndpoint(addr, port);
+            n.setEndpoint(DhtEndpoint(addr, port));
         } else if (val.size() >= 18 && (val.size() == 18 || val.size() == 26)) {
             HostAddress addr;
             uint16_t port = 0;
             readIpv6(val.data(), &addr, &port);
-            n.endpoint = DhtEndpoint(addr, port);
+            n.setEndpoint(DhtEndpoint(addr, port));
         } else {
             continue;
         }
@@ -743,21 +763,25 @@ bool LmdbDhtStore::saveNodes(const vector<DhtNodeInfo> &nodes)
         d->error = "LMDB write txn failed";
         return false;
     }
-    Database &db = txn->db("nodes");
-    db.clear();
+    shared_ptr<Database> db = txn->db("nodes");
+    if (!db) {
+        d->error = "LMDB nodes db open failed";
+        return false;
+    }
+    db->clear();
     int64_t ts = nowUnix();
     for (size_t i = 0; i < nodes.size(); ++i) {
         if (!nodes[i].isValid()) {
             continue;
         }
         string val;
-        if (nodes[i].endpoint.address.protocol() == HostAddress::IPv4Protocol) {
-            val = ipv4Bytes(nodes[i].endpoint.address) + portBytes(nodes[i].endpoint.port);
+        if (nodes[i].endpoint().address().protocol() == HostAddress::IPv4Protocol) {
+            val = ipv4Bytes(nodes[i].endpoint().address()) + portBytes(nodes[i].endpoint().port());
         } else {
-            val = ipv6Bytes(nodes[i].endpoint.address) + portBytes(nodes[i].endpoint.port);
+            val = ipv6Bytes(nodes[i].endpoint().address()) + portBytes(nodes[i].endpoint().port());
         }
         val.append(packExpire(ts));
-        db.insert(nodes[i].id.toBytes(), val);
+        db->insert(nodes[i].id().toBytes(), val);
     }
     if (!txn->commit()) {
         d->error = "LMDB commit failed";
@@ -777,9 +801,12 @@ vector<DhtStore::StoredPeer> LmdbDhtStore::loadPeers(const NodeId &infoHash)
     if (!txn) {
         return out;
     }
-    const Database &peers = txn->db("peers");
+    shared_ptr<const Database> peers = txn->db("peers");
+    if (!peers) {
+        return out;
+    }
     string prefix = infoHash.toBytes();
-    for (ConstLmdbIterator it = peers.lowerBound(prefix); it; ++it) {
+    for (ConstLmdbIterator it = peers->lowerBound(prefix); it; ++it) {
         string key = it.key();
         if (key.size() < prefix.size() || key.compare(0, prefix.size(), prefix) != 0) {
             break;
@@ -796,8 +823,8 @@ vector<DhtStore::StoredPeer> LmdbDhtStore::loadPeers(const NodeId &infoHash)
         }
         for (size_t i = 0; i < decoded.size(); ++i) {
             StoredPeer sp;
-            sp.peer = decoded[i];
-            sp.expireUnix = unpackExpire(it.value());
+            sp.setPeer(decoded[i]);
+            sp.setExpireUnix(unpackExpire(it.value()));
             out.push_back(sp);
         }
     }
@@ -812,7 +839,7 @@ bool LmdbDhtStore::putPeer(const NodeId &infoHash, const DhtPeer &peer, int64_t 
         return false;
     }
     string compact;
-    if (peer.address.protocol() == HostAddress::IPv4Protocol) {
+    if (peer.address().protocol() == HostAddress::IPv4Protocol) {
         compact = encodeCompactPeers(vector<DhtPeer>(1, peer));
     } else {
         compact = encodeCompactPeers6(vector<DhtPeer>(1, peer));
@@ -825,8 +852,12 @@ bool LmdbDhtStore::putPeer(const NodeId &infoHash, const DhtPeer &peer, int64_t 
         d->error = "LMDB write txn failed";
         return false;
     }
-    Database &peers = txn->db("peers");
-    peers.insert(infoHash.toBytes() + compact, packExpire(expireUnix));
+    shared_ptr<Database> peers = txn->db("peers");
+    if (!peers) {
+        d->error = "LMDB peers db open failed";
+        return false;
+    }
+    peers->insert(infoHash.toBytes() + compact, packExpire(expireUnix));
     if (!txn->commit()) {
         d->error = "LMDB commit failed";
         return false;
@@ -844,15 +875,18 @@ bool LmdbDhtStore::removeExpiredPeers(int64_t nowUnix)
     if (!txn) {
         return false;
     }
-    Database &peers = txn->db("peers");
+    shared_ptr<Database> peers = txn->db("peers");
+    if (!peers) {
+        return false;
+    }
     vector<string> dead;
-    for (LmdbIterator it = peers.begin(); !it.isEnd(); ++it) {
+    for (LmdbIterator it = peers->begin(); !it.isEnd(); ++it) {
         if (unpackExpire(it.value()) <= nowUnix) {
             dead.push_back(it.key());
         }
     }
     for (size_t i = 0; i < dead.size(); ++i) {
-        peers.remove(dead[i]);
+        peers->remove(dead[i]);
     }
     return txn->commit();
 }
@@ -1052,7 +1086,7 @@ void DhtNodePrivate::heardFrom(const DhtNodeInfo &node, bool allowEvictionPing)
         return;
     }
     NodeId remote;
-    if (!ping(evict.endpoint, &remote) || remote != evict.id) {
+    if (!ping(evict.endpoint(), &remote) || remote != evict.id()) {
         table->replace(evict, node);
     }
 }
@@ -1077,7 +1111,7 @@ DhtRpcReply DhtNodePrivate::rpc(const DhtEndpoint &ep, const string &query, cons
     msg["q"] = query;
     msg["a"] = args;
     string packet = Bencode(std::move(msg)).encode();
-    if (socket->sendto(packet, ep.address, ep.port) <= 0) {
+    if (socket->sendto(packet, ep.address(), ep.port()) <= 0) {
         waitersLock.tryAcquire();
         waiters.erase(tid);
         waitersLock.release();
@@ -1216,13 +1250,13 @@ void DhtNodePrivate::handleQuery(const Bencode &msg, const HostAddress &addr, ui
             vector<DhtPeer> v6;
             int64_t now = nowUnix();
             for (size_t i = 0; i < stored.size(); ++i) {
-                if (stored[i].expireUnix <= now) {
+                if (stored[i].expireUnix() <= now) {
                     continue;
                 }
-                if (stored[i].peer.address.protocol() == HostAddress::IPv4Protocol) {
-                    v4.push_back(stored[i].peer);
+                if (stored[i].peer().address().protocol() == HostAddress::IPv4Protocol) {
+                    v4.push_back(stored[i].peer());
                 } else {
-                    v6.push_back(stored[i].peer);
+                    v6.push_back(stored[i].peer());
                 }
             }
             if (!v4.empty() || !v6.empty()) {
@@ -1282,7 +1316,7 @@ DhtNodePrivate::LookupResult DhtNodePrivate::iterativeLookup(const NodeId &targe
     map<string, bool> seen;
 
     for (size_t i = 0; i < shortlist.size(); ++i) {
-        seen[shortlist[i].id.toBytes()] = true;
+        seen[shortlist[i].id().toBytes()] = true;
     }
 
     bool improved = true;
@@ -1293,7 +1327,7 @@ DhtNodePrivate::LookupResult DhtNodePrivate::iterativeLookup(const NodeId &targe
         cmp.target = target;
         sort(shortlist.begin(), shortlist.end(), cmp);
         for (size_t i = 0; i < shortlist.size() && static_cast<int>(toQuery.size()) < DhtAlpha; ++i) {
-            string key = shortlist[i].id.toBytes();
+            string key = shortlist[i].id().toBytes();
             if (queried[key]) {
                 continue;
             }
@@ -1305,19 +1339,19 @@ DhtNodePrivate::LookupResult DhtNodePrivate::iterativeLookup(const NodeId &targe
 
         // sequential α queries (coroutine-friendly; could parallelize with CoroutineGroup)
         for (size_t i = 0; i < toQuery.size(); ++i) {
-            queried[toQuery[i].id.toBytes()] = true;
+            queried[toQuery[i].id().toBytes()] = true;
             map<string, Bencode> args;
             args["id"] = localId.toBytes();
             DhtRpcReply reply;
             if (wantPeers) {
                 args["info_hash"] = target.toBytes();
-                reply = rpc(toQuery[i].endpoint, "get_peers", Bencode(std::move(args)));
+                reply = rpc(toQuery[i].endpoint(), "get_peers", Bencode(std::move(args)));
             } else {
                 args["target"] = target.toBytes();
-                reply = rpc(toQuery[i].endpoint, "find_node", Bencode(std::move(args)));
+                reply = rpc(toQuery[i].endpoint(), "find_node", Bencode(std::move(args)));
             }
             if (!reply.ok) {
-                table->remove(toQuery[i].id);
+                table->remove(toQuery[i].id());
                 continue;
             }
             Bencode r = dictGet(reply.message, "r");
@@ -1350,7 +1384,7 @@ DhtNodePrivate::LookupResult DhtNodePrivate::iterativeLookup(const NodeId &targe
             nodes.insert(nodes.end(), nodes6.begin(), nodes6.end());
             for (size_t n = 0; n < nodes.size(); ++n) {
                 heardFrom(nodes[n]);
-                string key = nodes[n].id.toBytes();
+                string key = nodes[n].id().toBytes();
                 if (!seen[key]) {
                     seen[key] = true;
                     shortlist.push_back(nodes[n]);
@@ -1405,8 +1439,8 @@ vector<DhtPeer> DhtNodePrivate::getPeers(const NodeId &infoHash)
         vector<DhtStore::StoredPeer> local = store->loadPeers(infoHash);
         int64_t now = nowUnix();
         for (size_t i = 0; i < local.size(); ++i) {
-            if (local[i].expireUnix > now) {
-                r.peers.push_back(local[i].peer);
+            if (local[i].expireUnix() > now) {
+                r.peers.push_back(local[i].peer());
             }
         }
     }
@@ -1444,7 +1478,7 @@ bool DhtNodePrivate::announcePeer(const NodeId &infoHash, uint16_t peerPort, con
             args["id"] = localId.toBytes();
             args["info_hash"] = infoHash.toBytes();
             // fetch token first
-            DhtRpcReply gp = rpc(r.nodes[i].endpoint, "get_peers", Bencode(std::move(args)));
+            DhtRpcReply gp = rpc(r.nodes[i].endpoint(), "get_peers", Bencode(std::move(args)));
             if (!gp.ok) {
                 continue;
             }
@@ -1457,7 +1491,7 @@ bool DhtNodePrivate::announcePeer(const NodeId &infoHash, uint16_t peerPort, con
             aargs["info_hash"] = infoHash.toBytes();
             aargs["port"] = Bencode(static_cast<int64_t>(peerPort));
             aargs["token"] = t;
-            DhtRpcReply ar = rpc(r.nodes[i].endpoint, "announce_peer", Bencode(std::move(aargs)));
+            DhtRpcReply ar = rpc(r.nodes[i].endpoint(), "announce_peer", Bencode(std::move(aargs)));
             if (ar.ok) {
                 any = true;
             }

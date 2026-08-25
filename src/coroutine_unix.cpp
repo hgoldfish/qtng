@@ -1,5 +1,6 @@
 #include "qtng/coroutine.h"
 #include "qtng/private/coroutine_p.h"
+#include "stack_pool.h"
 
 using namespace std;
 
@@ -56,11 +57,7 @@ BaseCoroutinePrivate::BaseCoroutinePrivate(BaseCoroutine *q, BaseCoroutine *prev
       exception(nullptr), context(nullptr), state(BaseCoroutine::Initialized), bad(false)
 {
     if (stackSize) {
-#ifdef MAP_GROWSDOWN
-        stack = mmap(nullptr, this->stackSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
-#else
-        stack = mmap(nullptr, this->stackSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
+        stack = stack_pool::acquire(stackSize);
         if (!stack) {
             ngWarning() << "Coroutine can not malloc new memroy.");
             bad = true;
@@ -76,7 +73,7 @@ BaseCoroutinePrivate::~BaseCoroutinePrivate()
         ngWarning() << ) << "deleting running BaseCoroutine" << this;
     }
     if (stack) {
-        munmap(stack, stackSize);
+        stack_pool::release(stack, stackSize);
     }
 
     if (currentCoroutine().get(false) == q) {

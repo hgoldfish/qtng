@@ -146,8 +146,8 @@ string encodeConnect(const string &clientId, bool cleanSession, uint16_t keepAli
     }
     if (hasWill) {
         connectFlags |= 0x04;
-        connectFlags |= (static_cast<uint8_t>(will.qos) & 0x03) << 3;
-        if (will.retain) {
+        connectFlags |= (static_cast<uint8_t>(will.qos()) & 0x03) << 3;
+        if (will.retain()) {
             connectFlags |= 0x20;
         }
     }
@@ -161,8 +161,8 @@ string encodeConnect(const string &clientId, bool cleanSession, uint16_t keepAli
     appendUint16(variable, keepAlive);
     appendMqttString(variable, clientId);
     if (hasWill) {
-        appendMqttString(variable, will.topic);
-        appendMqttString(variable, will.payload);
+        appendMqttString(variable, will.topic());
+        appendMqttString(variable, will.payload());
     }
     if (!username.empty()) {
         appendMqttString(variable, username);
@@ -182,18 +182,18 @@ string encodeConnect(const string &clientId, bool cleanSession, uint16_t keepAli
 string encodePublish(const MqttMessage &msg, uint16_t packetId)
 {
     string variable;
-    appendMqttString(variable, msg.topic);
-    if (msg.qos != MqttQos::AtMostOnce) {
+    appendMqttString(variable, msg.topic());
+    if (msg.qos() != MqttQos::AtMostOnce) {
         appendUint16(variable, packetId);
     }
-    variable.append(msg.payload);
+    variable.append(msg.payload());
 
     uint8_t flags = 0;
-    if (msg.dup) {
+    if (msg.dup()) {
         flags |= 0x08;
     }
-    flags |= (static_cast<uint8_t>(msg.qos) & 0x03) << 1;
-    if (msg.retain) {
+    flags |= (static_cast<uint8_t>(msg.qos()) & 0x03) << 1;
+    if (msg.retain()) {
         flags |= 0x01;
     }
 
@@ -257,20 +257,22 @@ string encodeDisconnect()
 bool parsePublish(const string &payload, uint8_t flags, MqttMessage &msg, uint16_t &packetId, bool &hasPacketId)
 {
     size_t offset = 0;
-    if (!readMqttString(payload, offset, msg.topic)) {
+    string topic;
+    if (!readMqttString(payload, offset, topic)) {
         return false;
     }
-    msg.dup = (flags & 0x08) != 0;
-    msg.qos = static_cast<MqttQos>((flags >> 1) & 0x03);
-    msg.retain = (flags & 0x01) != 0;
-    hasPacketId = msg.qos != MqttQos::AtMostOnce;
+    msg.setTopic(topic);
+    msg.setDup((flags & 0x08) != 0);
+    msg.setQos(static_cast<MqttQos>((flags >> 1) & 0x03));
+    msg.setRetain((flags & 0x01) != 0);
+    hasPacketId = msg.qos() != MqttQos::AtMostOnce;
     packetId = 0;
     if (hasPacketId) {
         if (!readUint16(payload, offset, packetId)) {
             return false;
         }
     }
-    msg.payload.assign(payload.data() + offset, payload.size() - offset);
+    msg.setPayload(payload.substr(offset));
     return true;
 }
 
@@ -282,19 +284,69 @@ string defaultClientId()
 }  // namespace
 
 MqttMessage::MqttMessage()
-    : qos(MqttQos::AtMostOnce)
-    , retain(false)
-    , dup(false)
+    : m_qos(MqttQos::AtMostOnce)
+    , m_retain(false)
+    , m_dup(false)
 {
 }
 
 MqttMessage::MqttMessage(const string &topic, const string &payload, MqttQos qos, bool retain)
-    : topic(topic)
-    , payload(payload)
-    , qos(qos)
-    , retain(retain)
-    , dup(false)
+    : m_topic(topic)
+    , m_payload(payload)
+    , m_qos(qos)
+    , m_retain(retain)
+    , m_dup(false)
 {
+}
+
+string MqttMessage::topic() const
+{
+    return m_topic;
+}
+
+void MqttMessage::setTopic(const string &topic)
+{
+    m_topic = topic;
+}
+
+string MqttMessage::payload() const
+{
+    return m_payload;
+}
+
+void MqttMessage::setPayload(const string &payload)
+{
+    m_payload = payload;
+}
+
+MqttQos MqttMessage::qos() const
+{
+    return m_qos;
+}
+
+void MqttMessage::setQos(MqttQos qos)
+{
+    m_qos = qos;
+}
+
+bool MqttMessage::retain() const
+{
+    return m_retain;
+}
+
+void MqttMessage::setRetain(bool retain)
+{
+    m_retain = retain;
+}
+
+bool MqttMessage::dup() const
+{
+    return m_dup;
+}
+
+void MqttMessage::setDup(bool dup)
+{
+    m_dup = dup;
 }
 
 class MqttConfigurationPrivate
@@ -568,6 +620,7 @@ public:
     int64_t keepAliveMs;
     bool awaitingPingResp;
     bool operationsStarted;
+    shared_ptr<Event> disconnectedEvent;
 private:
     MqttClient *const q_ptr;
     NG_DECLARE_PUBLIC(MqttClient);
@@ -588,6 +641,7 @@ MqttClientPrivate::MqttClientPrivate(shared_ptr<SocketLike> connection, const Mq
     , keepAliveMs(static_cast<int64_t>(config.keepAlive()) * 1000)
     , awaitingPingResp(false)
     , operationsStarted(false)
+    , disconnectedEvent(new Event())
     , q_ptr(q)
 {
 }
@@ -859,12 +913,12 @@ void MqttClientPrivate::handleIncoming(uint8_t type, uint8_t flags, const string
         if (!parsePublish(payload, flags, msg, packetId, hasPacketId)) {
             return abort(MqttClient::ProtocolError, "invalid PUBLISH");
         }
-        if (msg.qos == MqttQos::AtMostOnce) {
+        if (msg.qos() == MqttQos::AtMostOnce) {
             receivingQueue.put(msg);
-        } else if (msg.qos == MqttQos::AtLeastOnce) {
+        } else if (msg.qos() == MqttQos::AtLeastOnce) {
             receivingQueue.put(msg);
             enqueueRaw(encodePacketIdOnly(PUBACK, 0, packetId));
-        } else if (msg.qos == MqttQos::ExactlyOnce) {
+        } else if (msg.qos() == MqttQos::ExactlyOnce) {
             incomingQos2[packetId] = msg;
             enqueueRaw(encodePacketIdOnly(PUBREC, 0, packetId));
         } else {
@@ -1019,7 +1073,7 @@ void MqttClientPrivate::abort(MqttClient::MqttError err, const string &message)
     if (operations) {
         operations->killall();
     }
-    q_func()->disconnected->set();
+    q_func()->disconnected()->set();
 }
 
 void MqttClientPrivate::disconnectGracefully()
@@ -1036,8 +1090,7 @@ void MqttClientPrivate::disconnectGracefully()
 }
 
 MqttClient::MqttClient(shared_ptr<SocketLike> connection, const MqttConfiguration &config)
-    : disconnected(new Event())
-    , d_ptr(new MqttClientPrivate(connection, config, this))
+    : d_ptr(new MqttClientPrivate(connection, config, this))
 {
     NG_D(MqttClient);
     if (!connection) {
@@ -1050,6 +1103,12 @@ MqttClient::MqttClient(shared_ptr<SocketLike> connection, const MqttConfiguratio
 MqttClient::~MqttClient()
 {
     delete d_ptr;
+}
+
+shared_ptr<Event> MqttClient::disconnected() const
+{
+    NG_D(const MqttClient);
+    return d->disconnectedEvent;
 }
 
 shared_ptr<MqttClient> MqttClient::connect(const string &host, uint16_t port, const MqttConfiguration &config)
@@ -1113,11 +1172,11 @@ bool MqttClient::publish(const MqttMessage &msg)
     if (d->state != Connected) {
         return false;
     }
-    if (msg.topic.empty() || msg.topic.size() > 65535) {
+    if (msg.topic().empty() || msg.topic().size() > 65535) {
         return false;
     }
     uint16_t packetId = 0;
-    if (msg.qos != MqttQos::AtMostOnce) {
+    if (msg.qos() != MqttQos::AtMostOnce) {
         packetId = d->nextPacketId();
     }
     string raw = encodePublish(msg, packetId);
@@ -1128,12 +1187,12 @@ bool MqttClient::publish(const MqttMessage &msg)
         return false;
     }
     shared_ptr<ValueEvent<bool>> done = make_shared<ValueEvent<bool>>();
-    if (msg.qos == MqttQos::AtLeastOnce) {
+    if (msg.qos() == MqttQos::AtLeastOnce) {
         d->waitPubAck[packetId] = done;
-    } else if (msg.qos == MqttQos::ExactlyOnce) {
+    } else if (msg.qos() == MqttQos::ExactlyOnce) {
         d->waitPubRec[packetId] = done;
     }
-    if (!d->enqueueOutbound(OutboundPublish, raw, packetId, msg.qos, done)) {
+    if (!d->enqueueOutbound(OutboundPublish, raw, packetId, msg.qos(), done)) {
         d->waitPubAck.erase(packetId);
         d->waitPubRec.erase(packetId);
         return false;
@@ -1147,11 +1206,11 @@ bool MqttClient::publishAsync(const MqttMessage &msg)
     if (d->state != Connected) {
         return false;
     }
-    if (msg.topic.empty() || msg.topic.size() > 65535) {
+    if (msg.topic().empty() || msg.topic().size() > 65535) {
         return false;
     }
     uint16_t packetId = 0;
-    if (msg.qos != MqttQos::AtMostOnce) {
+    if (msg.qos() != MqttQos::AtMostOnce) {
         packetId = d->nextPacketId();
     }
     string raw = encodePublish(msg, packetId);
@@ -1161,12 +1220,12 @@ bool MqttClient::publishAsync(const MqttMessage &msg)
     if (d->maxPacketSize > 0 && static_cast<int32_t>(raw.size()) > d->maxPacketSize) {
         return false;
     }
-    if (msg.qos == MqttQos::AtLeastOnce) {
+    if (msg.qos() == MqttQos::AtLeastOnce) {
         d->waitPubAck[packetId] = shared_ptr<ValueEvent<bool>>();
-    } else if (msg.qos == MqttQos::ExactlyOnce) {
+    } else if (msg.qos() == MqttQos::ExactlyOnce) {
         d->waitPubRec[packetId] = shared_ptr<ValueEvent<bool>>();
     }
-    return d->enqueueOutbound(OutboundPublish, raw, packetId, msg.qos, shared_ptr<ValueEvent<bool>>());
+    return d->enqueueOutbound(OutboundPublish, raw, packetId, msg.qos(), shared_ptr<ValueEvent<bool>>());
 }
 
 bool MqttClient::subscribe(const string &topic, MqttQos qos)

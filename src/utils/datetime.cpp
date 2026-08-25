@@ -620,11 +620,19 @@ string DateTime::toHttpDate() const
     const time_t secs = static_cast<time_t>(toSecsSinceEpoch());
     tm utc {};
     gmtimeR(&secs, &utc);
+    // RFC 1123 dates must always use English weekday/month abbreviations regardless
+    // of the process locale (strftime %a/%b follow setlocale).
+    static const char *const kWeekdayNames[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    static const char *const kMonthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     char buffer[128];
-    if (strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S GMT", &utc) == 0) {
+    const int len = snprintf(buffer, sizeof(buffer), "%s, %02d %s %04d %02d:%02d:%02d GMT",
+                             kWeekdayNames[utc.tm_wday], utc.tm_mday, kMonthNames[utc.tm_mon],
+                             utc.tm_year + 1900, utc.tm_hour, utc.tm_min, utc.tm_sec);
+    if (len <= 0 || len >= static_cast<int>(sizeof(buffer))) {
         return string();
     }
-    return string(buffer);
+    return string(buffer, static_cast<size_t>(len));
 }
 
 ElapsedTimer::ElapsedTimer()

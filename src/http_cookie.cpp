@@ -76,7 +76,7 @@ HttpCookie::HttpCookie(const string &name, const string &value)
 }
 
 HttpCookie::HttpCookie(const HttpCookie &other)
-    : d(other.d)
+    : d(other.d ? std::make_shared<HttpCookiePrivate>(*other.d) : std::make_shared<HttpCookiePrivate>())
 {
 }
 
@@ -87,7 +87,9 @@ HttpCookie::~HttpCookie()
 
 HttpCookie &HttpCookie::operator=(const HttpCookie &other)
 {
-    d = other.d;
+    if (this != &other) {
+        d = other.d ? std::make_shared<HttpCookiePrivate>(*other.d) : std::make_shared<HttpCookiePrivate>();
+    }
     return *this;
 }
 

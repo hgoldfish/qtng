@@ -947,11 +947,17 @@ bool SslConnection<SocketType>::pumpOutgoing()
         ngWarning() << "ssl is null while pump outgoing.";
         return false;
     }
-    int pendingBytes;
-    array<char, 1024 * 8> buf;
     BIO *outgoing = SSL_get_wbio(ssl.get());
     assert(outgoing);
+    vector<char> buf;
+    int pendingBytes;
     while ((pendingBytes = BIO_pending(outgoing)) > 0) {
+        // A single SSL_write can push more encrypted bytes into the write BIO
+        // than the 8192-byte plaintext block it was fed (TLS record overhead),
+        // so the buffer must grow to match BIO_pending(). resize() is O(1)
+        // when the buffer already has room, so there is no cost in growing
+        // unconditionally.
+        buf.resize(static_cast<size_t>(pendingBytes));
         int32_t encryptedBytesRead = BIO_read(outgoing, buf.data(), pendingBytes);
         int32_t actualWritten = rawSocket->sendall(buf.data(), encryptedBytesRead);
         if (actualWritten < encryptedBytesRead) {

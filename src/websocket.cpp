@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -153,7 +154,7 @@ private:
     bool sendBytes(const string &packet);
 public:
     CoroutineGroup *operations;
-    HttpResponse response;
+    std::shared_ptr<HttpResponse> response;
     shared_ptr<SocketLike> const connection;
     string id;
     Queue<PacketToRead> receivingQueue;
@@ -171,14 +172,16 @@ public:
     string errorString;
     int errorCode;
     bool mustMask;
+    std::function<void()> disconnectedNotifier;
+    shared_ptr<Event> disconnectedEvent;
 private:
     WebSocketConnection * const q_ptr;
     NG_DECLARE_PUBLIC(WebSocketConnection);
 };
 
-void setWebSocketConnectionPrivateResponse(WebSocketConnectionPrivate *d, HttpResponse response)
+void setWebSocketConnectionPrivateResponse(WebSocketConnectionPrivate *d, const HttpResponse &response)
 {
-    d->response = response;
+    d->response = make_shared<HttpResponse>(response);
 }
 
 WebSocketConfigurationPrivate::WebSocketConfigurationPrivate()
@@ -196,9 +199,22 @@ WebSocketConfiguration::WebSocketConfiguration()
 {
 }
 
+WebSocketConfiguration::WebSocketConfiguration(const WebSocketConfiguration &other)
+    : d_ptr(new WebSocketConfigurationPrivate(*other.d_ptr))
+{
+}
+
 WebSocketConfiguration::~WebSocketConfiguration()
 {
     delete d_ptr;
+}
+
+WebSocketConfiguration &WebSocketConfiguration::operator=(const WebSocketConfiguration &other)
+{
+    if (this != &other) {
+        *d_ptr = *other.d_ptr;
+    }
+    return *this;
 }
 
 void WebSocketConfiguration::setKeepaliveInterval(float keepaliveInterval)
@@ -503,6 +519,7 @@ WebSocketConnectionPrivate::WebSocketConnectionPrivate(shared_ptr<SocketLike> co
                                                        WebSocketConnection::Side side,
                                                        const WebSocketConfiguration &config, WebSocketConnection *q)
     : operations(new CoroutineGroup())
+    , response(make_shared<HttpResponse>())
     , connection(connection)
     , receivingQueue(config.receivingQueueCapacity())
     , sendingQueue(config.sendingQueueCapacity())
@@ -517,6 +534,7 @@ WebSocketConnectionPrivate::WebSocketConnectionPrivate(shared_ptr<SocketLike> co
     , keepaliveInterval(config.keepaliveInterval() * 1000)
     , errorCode(0)
     , mustMask(side == WebSocketConnection::Client)
+    , disconnectedEvent(new Event())
     , q_ptr(q)
 {
     id = randomBytes(16);
@@ -1039,7 +1057,10 @@ void WebSocketConnectionPrivate::abort(int errorCode)
     for (uint32_t i = 0; i < receivingQueue.getting(); ++i) {
         receivingQueue.put(PacketToRead(WebSocketConnection::Unknown, string()));
     }
-    q_func()->disconnected->set();
+    q_func()->disconnected()->set();
+    if (disconnectedNotifier) {
+        disconnectedNotifier();
+    }
 }
 
 bool WebSocketConnectionPrivate::recvBytes(string &buf, int &usedSize)
@@ -1101,14 +1122,19 @@ bool WebSocketConnectionPrivate::sendBytes(const string &packet)
 
 WebSocketConnection::WebSocketConnection(shared_ptr<SocketLike> connection, const string &headBytes, Side side,
                                          const WebSocketConfiguration &config)
-    : disconnected(new Event())
-    , d_ptr(new WebSocketConnectionPrivate(connection, headBytes, side, config, this))
+    : d_ptr(new WebSocketConnectionPrivate(connection, headBytes, side, config, this))
 {
 }
 
 WebSocketConnection::~WebSocketConnection()
 {
     delete d_ptr;
+}
+
+shared_ptr<Event> WebSocketConnection::disconnected() const
+{
+    NG_D(const WebSocketConnection);
+    return d->disconnectedEvent;
 }
 
 void WebSocketConnection::setConfiguration(const WebSocketConfiguration &config)
@@ -1124,34 +1150,38 @@ void WebSocketConnection::setConfiguration(const WebSocketConfiguration &config)
 
 bool WebSocketConnection::send(const string &packet)
 {
-    NG_D(WebSocketConnection);
-    if (d->state != WebSocketConnection::Open) {
-        return false;
-    }
-    shared_ptr<ValueEvent<bool>> done = make_shared<ValueEvent<bool>>();
-    d->sendingQueue.put(PacketToWrite(packet, WebSocketConnection::Binary, done));
-    return done->tryWait();
+    return putPacket(packet, WebSocketConnection::Binary, true);
 }
 
 bool WebSocketConnection::sendText(const string &text)
 {
-    NG_D(WebSocketConnection);
-    if (d->state != WebSocketConnection::Open) {
-        return false;
-    }
-    shared_ptr<ValueEvent<bool>> done = make_shared<ValueEvent<bool>>();
-    d->sendingQueue.put(PacketToWrite(text, WebSocketConnection::Text, done));
-    return done->tryWait();
+    return putPacket(text, WebSocketConnection::Text, true);
 }
 
 bool WebSocketConnection::post(const string &packet)
+{
+    return putPacket(packet, WebSocketConnection::Binary, false);
+}
+
+bool WebSocketConnection::postText(const string &text)
+{
+    return putPacket(text, WebSocketConnection::Text, false);
+}
+
+bool WebSocketConnection::putPacket(const string &data, FrameType type, bool waitForResult)
 {
     NG_D(WebSocketConnection);
     if (d->state != WebSocketConnection::Open) {
         return false;
     }
     shared_ptr<ValueEvent<bool>> done;
-    d->sendingQueue.put(PacketToWrite(packet, WebSocketConnection::Binary, done));
+    if (waitForResult) {
+        done = make_shared<ValueEvent<bool>>();
+    }
+    d->sendingQueue.put(PacketToWrite(data, type, done));
+    if (waitForResult) {
+        return done->tryWait();
+    }
     return true;
 }
 
@@ -1184,6 +1214,12 @@ void WebSocketConnection::abort()
 {
     NG_D(WebSocketConnection);
     d->abort(WebSocketConnection::AbnormalClosure);
+}
+
+void WebSocketConnection::setDisconnectedNotifier(std::function<void()> notifier)
+{
+    NG_D(WebSocketConnection);
+    d->disconnectedNotifier = std::move(notifier);
 }
 
 string WebSocketConnection::id() const
@@ -1261,16 +1297,16 @@ bool WebSocketConnection::mustMask() const
 string WebSocketConnection::origin() const
 {
     NG_D(const WebSocketConnection);
-    return d->response.request().header("Origin");
+    return d->response->request().header("Origin");
 }
 
 string WebSocketConnection::url() const
 {
     NG_D(const WebSocketConnection);
-    return d->response.url().toString();
+    return d->response->url().toString();
 }
 
-const HttpResponse &WebSocketConnection::response() const
+std::shared_ptr<const HttpResponse> WebSocketConnection::response() const
 {
     NG_D(const WebSocketConnection);
     return d->response;

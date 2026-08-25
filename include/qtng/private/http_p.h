@@ -126,7 +126,7 @@ public:
     std::shared_ptr<SocketDnsCache> dnsCache;
     std::shared_ptr<BaseProxySwitcher> proxySwitcher;
 #ifndef QTNG_NO_CRYPTO
-    SslConfiguration sslConfig;
+    std::shared_ptr<SslConfiguration> sslConfig;
 #endif
     int maxConnectionsPerServer;
     int timeToLive;
@@ -146,8 +146,8 @@ public:
     void prepareWebSocketRequest(HttpRequest &request, std::string &secKey);
     std::shared_ptr<WebSocketConnection> makeWebSocketConnection(HttpResponse &response, const std::string &secKey);
 public:
-    HttpCookieJar cookieJar;
-    WebSocketConfiguration webSocketConfiguration;
+    std::shared_ptr<HttpCookieJar> cookieJar;
+    std::shared_ptr<WebSocketConfiguration> webSocketConfiguration;
     int webSocketErrorCode;
     std::string webSocketErrorReason;
     std::shared_ptr<HttpCacheManager> cacheManager;

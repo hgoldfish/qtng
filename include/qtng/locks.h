@@ -161,10 +161,9 @@ public:
     void clear() { event.clear(); }
     bool isSet() const { return event.isSet(); }
     std::uint32_t getting() const { return event.getting(); }
-public:
+private:
     Event event;
     Value value;
-private:
     NG_DISABLE_COPY(ValueEvent)
 };
 
@@ -256,21 +255,12 @@ struct DummyReadWriteLock
 class SharedReadWriteLock
 {
 public:
-    void lockForRead() { m.lock_shared(); mode = Read; }
-    void lockForWrite() { m.lock(); mode = Write; }
-    void unlock()
-    {
-        if (mode == Read) {
-            m.unlock_shared();
-        } else if (mode == Write) {
-            m.unlock();
-        }
-        mode = None;
-    }
+    void lockForRead() { m.lock_shared(); }
+    void lockForWrite() { m.lock(); }
+    void unlock() { m.unlock(); }
 
 private:
     utils::SharedMutex m;
-    enum { None, Read, Write } mode = None;
 };
 
 template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
@@ -376,13 +366,19 @@ public:
     inline std::uint32_t size() const;
     inline std::uint32_t getting() const;
     inline bool contains(const T &e);
-public:
+    // Wait until the queue becomes non-empty (or the timeout elapses).
+    bool waitNotEmpty(std::uint32_t msecs = UINT_MAX) { return notEmpty.tryWait(msecs); }
+    // Wake waiters blocked on an empty queue.
+    void notifyNotEmpty() { notEmpty.set(); }
+private:
     std::deque<T> queue;
     EventType notEmpty;
     EventType notFull;
     ReadWriteLockType lock;
     std::uint32_t mCapacity;
     std::uint32_t currentSize;
+    template<typename T2, typename E2, typename R2>
+    friend class MultiQueueType;
     NG_DISABLE_COPY(SizedQueueType)
 };
 

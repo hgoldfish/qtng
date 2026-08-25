@@ -192,7 +192,7 @@ void Http1Protocol::exchange(HttpSessionPrivate *session, HttpRequest &request, 
     lines.push_back(commandLine);
     for (size_t i = 0; i < allHeaders.size(); ++i) {
         const HttpHeader &header = allHeaders.at(i);
-        lines.push_back(header.name + string(": ") + header.value + string("\r\n"));
+        lines.push_back(header.name() + string(": ") + header.value() + string("\r\n"));
     }
     lines.push_back(string("\r\n"));
     if (session->debugLevel > 0) {
@@ -217,7 +217,7 @@ void Http1Protocol::exchange(HttpSessionPrivate *session, HttpRequest &request, 
         }
         sendingRequestBodyCoroutine->start();
         try {
-            headerSplitter.buf = connection->recv(1024 * 8);
+            headerSplitter.setBuf(connection->recv(1024 * 8));
             if (sendingRequestBodyCoroutine->isRunning()) {
                 sendingRequestBodyCoroutine->kill();
             }
@@ -225,10 +225,10 @@ void Http1Protocol::exchange(HttpSessionPrivate *session, HttpRequest &request, 
             sendingRequestBodyCoroutine.reset();
         } catch (CoroutineInterruptedException &) {
             if (session->debugLevel > 0) {
-                ngDebug() << "the server terminated connection while sending body." << headerSplitter.buf.size();
+                ngDebug() << "the server terminated connection while sending body." << headerSplitter.buf().size();
             }
             sendingRequestBodyCoroutine->join();
-            if (headerSplitter.buf.empty()) {
+            if (headerSplitter.buf().empty()) {
                 response.setError(new ConnectionError());
                 return;
             }
@@ -280,7 +280,7 @@ void Http1Protocol::exchange(HttpSessionPrivate *session, HttpRequest &request, 
     response.setHeaders(headers);
     if (session->debugLevel > 0) {
         for (const HttpHeader &header : headers) {
-            ngDebug() << "receiving header:" << header.name << header.value;
+            ngDebug() << "receiving header:" << header.name() << header.value();
         }
     }
 
@@ -292,10 +292,10 @@ void Http1Protocol::exchange(HttpSessionPrivate *session, HttpRequest &request, 
             }
             response.d->cookies.insert(response.d->cookies.end(), cookies.begin(), cookies.end());
         }
-        session->cookieJar.setCookiesFromUrl(response.d->cookies, response.d->url.toString());
+        session->cookieJar->setCookiesFromUrl(response.d->cookies, response.d->url.toString());
     }
 
-    response.d->body = headerSplitter.buf;
+    response.d->body = headerSplitter.buf();
     response.d->stream = connection;
     if (!request.streamResponse() && response.d->statusCode != HttpStatus::NoContent) {
         if (utils::toUpper(request.method()) == "HEAD") {

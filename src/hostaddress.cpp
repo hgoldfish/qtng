@@ -355,7 +355,7 @@ static bool convertToIpv4(IPv4Address &a, const IPv6Address &a6, const HostAddre
     if (mode == HostAddress::StrictConversion)
         return false;
 
-    const uint8_t *ptr = a6.c;
+    const uint8_t *ptr = a6.data();
     if (qFromUnaligned<uint64_t>(ptr) != 0)
         return false;
 
@@ -550,7 +550,7 @@ bool Netmask::setAddress(const HostAddress &address)
         ip.v4 = ngToBigEndian(address.toIPv4Address(nullptr));
         end = ptr + 4;
     } else if (address.protocol() == HostAddress::IPv6Protocol) {
-        memcpy(ip.v6, address.toIPv6Address().c, 16);
+        memcpy(ip.v6, address.toIPv6Address().data(), 16);
         end = ptr + 16;
     } else {
         return false;
@@ -631,8 +631,8 @@ HostAddress Netmask::address(HostAddress::NetworkLayerProtocol protocol) const
         return HostAddress(a);
     } else {
         IPv6Address a6;
-        memset(a6.c, 0xFF, sizeof(a6));
-        clearBits(a6.c, length, 128);
+        memset(a6.data(), 0xFF, sizeof(a6));
+        clearBits(a6.data(), length, 128);
         return HostAddress(a6);
     }
 }
@@ -1077,8 +1077,8 @@ bool HostAddress::isInSubnet(const HostAddress &subnet, int netmask) const
     } else if (d->protocol == HostAddress::IPv6Protocol) {
         if (netmask > 128)
             netmask = 128;
-        ip = d->ipv6.a6.c;
-        net = subnet.d->ipv6.a6.c;
+        ip = d->ipv6.a6.data();
+        net = subnet.d->ipv6.a6.data();
     } else {
         return false;
     }
@@ -1163,7 +1163,7 @@ pair<HostAddress, int> HostAddress::parseSubnet(const string &subnet)
             return invalid;
         }
 
-        clearBits(net.d->ipv6.a6.c, netmask, 128);
+        clearBits(net.d->ipv6.a6.data(), netmask, 128);
         return make_pair(net, netmask);
     }
 
@@ -1353,7 +1353,7 @@ static uint qHashBits(const void *ptr, size_t len, uint seed)
 
 uint qHash(const HostAddress &key, uint seed) noexcept
 {
-    return qHashBits(key.d->ipv6.a6.c, 16, seed);
+    return qHashBits(key.d->ipv6.a6.data(), 16, seed);
 }
 
 }  // namespace qtng

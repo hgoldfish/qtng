@@ -313,7 +313,7 @@ string SshChannelPrivate::recv(int32_t maxSize)
             if (!result.empty() || eofReceived || closed || remoteClosed) {
                 break;
             }
-            if (!incoming.notEmpty.tryWait()) {
+            if (!incoming.waitNotEmpty()) {
                 break;
             }
             continue;
@@ -369,20 +369,20 @@ void SshChannelPrivate::closeChannel()
     }
     conn->sendChannelClose(this);
     closed = true;
-    incoming.notEmpty.set();
+    incoming.notifyNotEmpty();
 }
 
 void SshChannelPrivate::notifyEof()
 {
     eofReceived = true;
-    incoming.notEmpty.set();
+    incoming.notifyNotEmpty();
 }
 
 void SshChannelPrivate::notifyRemoteClose()
 {
     eofReceived = true;
     remoteClosed = true;
-    incoming.notEmpty.set();
+    incoming.notifyNotEmpty();
     if (callback) {
         callback->onClose();
     }
@@ -625,8 +625,8 @@ void SshConnectionPrivate::maybeStartKex()
     }
     if (!serverSide) {
         NoiseKey k = NoiseKey::generate();
-        clientEphPriv = k.privateKey;
-        clientEphPub = k.publicKey;
+        clientEphPriv = k.privateKey();
+        clientEphPub = k.publicKey();
         sendKexEcdhInit();
     }
 }
@@ -799,8 +799,8 @@ bool SshConnectionPrivate::handleKexEcdhInit(const string &payload)
     }
     clientEphPub = qc;
     NoiseKey sk = NoiseKey::generate();
-    serverEphPriv = sk.privateKey;
-    serverEphPub = sk.publicKey;
+    serverEphPriv = sk.privateKey();
+    serverEphPub = sk.publicKey();
     sharedSecret = NoiseKey::dh(serverEphPriv, clientEphPub);
     if (sharedSecret.empty()) {
         setError("x25519 key agreement failed");
@@ -1447,8 +1447,8 @@ void SshConnectionPrivate::handleChannelRequest(const string &payload)
             || !buf.getUint32(&height) || !buf.getString(&modes)) {
             success = false;
         } else {
-            ch->termSize.columns = cols;
-            ch->termSize.rows = rows;
+            ch->termSize.setColumns(cols);
+            ch->termSize.setRows(rows);
             if (ch->callback) {
                 ch->callback->onResize(ch->termSize);
             }
@@ -1458,8 +1458,8 @@ void SshConnectionPrivate::handleChannelRequest(const string &payload)
         if (!buf.getUint32(&cols) || !buf.getUint32(&rows) || !buf.getUint32(&width) || !buf.getUint32(&height)) {
             success = false;
         } else {
-            ch->termSize.columns = cols;
-            ch->termSize.rows = rows;
+            ch->termSize.setColumns(cols);
+            ch->termSize.setRows(rows);
             if (ch->callback) {
                 ch->callback->onResize(ch->termSize);
             }

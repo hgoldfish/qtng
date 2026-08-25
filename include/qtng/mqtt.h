@@ -29,11 +29,22 @@ public:
     MqttMessage(const std::string &topic, const std::string &payload, MqttQos qos = MqttQos::AtMostOnce,
                 bool retain = false);
 public:
-    std::string topic;
-    std::string payload;
-    MqttQos qos;
-    bool retain;
-    bool dup;
+    std::string topic() const;
+    void setTopic(const std::string &topic);
+    std::string payload() const;
+    void setPayload(const std::string &payload);
+    MqttQos qos() const;
+    void setQos(MqttQos qos);
+    bool retain() const;
+    void setRetain(bool retain);
+    bool dup() const;
+    void setDup(bool dup);
+private:
+    std::string m_topic;
+    std::string m_payload;
+    MqttQos m_qos;
+    bool m_retain;
+    bool m_dup;
 };
 
 class MqttConfigurationPrivate;
@@ -111,7 +122,7 @@ public:
                                                   const SslConfiguration &ssl = SslConfiguration());
 #endif
 public:
-    std::shared_ptr<Event> disconnected;
+    std::shared_ptr<Event> disconnected() const;
 public:
     bool isConnected() const;
     State state() const;

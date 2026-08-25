@@ -14,13 +14,22 @@ namespace qtng {
 // X25519 static / ephemeral key material (32 bytes).
 struct NoiseKey
 {
-    std::string privateKey;  // 32 bytes
-    std::string publicKey;   // 32 bytes
+public:
+    NoiseKey() = default;
 
-    bool isValid() const { return privateKey.size() == 32 && publicKey.size() == 32; }
+    const std::string &privateKey() const { return privateKey_; }  // 32 bytes
+    void setPrivateKey(const std::string &privateKey) { privateKey_ = privateKey; }
+    const std::string &publicKey() const { return publicKey_; }  // 32 bytes
+    void setPublicKey(const std::string &publicKey) { publicKey_ = publicKey; }
+
+    bool isValid() const { return privateKey_.size() == 32 && publicKey_.size() == 32; }
     static NoiseKey generate();
     static NoiseKey fromPrivateKey(const std::string &privateKey32);
     static std::string dh(const std::string &privateKey32, const std::string &peerPublicKey32);
+
+private:
+    std::string privateKey_;
+    std::string publicKey_;
 };
 
 // Noise CipherState: AEAD via ``Aead`` (ChaCha20-Poly1305 or AES-256-GCM) with a
@@ -53,7 +62,7 @@ public:
     // Transport counter only: ``0 .. MaxNonce``. Values above ``MaxNonce`` are ignored.
     void setNonce(std::uint64_t n);
 
-    // Noise CipherState.Rekey: ENCRYPT(k, 2^64-1, zerolen, zeros), leave n unchanged.
+    // Noise CipherState.Rekey: ENCRYPT(k, 2^64-1, zerolen, zeros); nonce resets to 0.
     bool rekey();
 
     // Encrypt: ciphertext || 16-byte tag. Uses and increments nonce.
@@ -111,18 +120,39 @@ enum class NoiseRole {
 // copies it as-is (including invalid/empty; initialize() then fails).
 struct NoiseConfig
 {
-    NoiseKey localStatic;
-    NoisePattern pattern = NoisePattern::XX;
-    NoiseRole role = NoiseRole::Initiator;
-    std::string remoteStaticPublic;
-    std::string psk;
-    NoisePskModifier pskModifier = NoisePskModifier::None;
-    std::string prologue;
-    Aead::Algorithm cipher = Aead::ChaCha20Poly1305;
-    NoiseHash hash = NoiseHash::Sha256;
-
+public:
     explicit NoiseConfig(const std::string &localPrivateKey = std::string());
     explicit NoiseConfig(const NoiseKey &key);
+
+    const NoiseKey &localStatic() const { return localStatic_; }
+    void setLocalStatic(const NoiseKey &key) { localStatic_ = key; }
+    NoisePattern pattern() const { return pattern_; }
+    void setPattern(NoisePattern pattern) { pattern_ = pattern; }
+    NoiseRole role() const { return role_; }
+    void setRole(NoiseRole role) { role_ = role; }
+    const std::string &remoteStaticPublic() const { return remoteStaticPublic_; }
+    void setRemoteStaticPublic(const std::string &remoteStaticPublic) { remoteStaticPublic_ = remoteStaticPublic; }
+    const std::string &psk() const { return psk_; }
+    void setPsk(const std::string &psk) { psk_ = psk; }
+    NoisePskModifier pskModifier() const { return pskModifier_; }
+    void setPskModifier(NoisePskModifier pskModifier) { pskModifier_ = pskModifier; }
+    const std::string &prologue() const { return prologue_; }
+    void setPrologue(const std::string &prologue) { prologue_ = prologue; }
+    Aead::Algorithm cipher() const { return cipher_; }
+    void setCipher(Aead::Algorithm cipher) { cipher_ = cipher; }
+    NoiseHash hash() const { return hash_; }
+    void setHash(NoiseHash hash) { hash_ = hash; }
+
+private:
+    NoiseKey localStatic_;
+    NoisePattern pattern_ = NoisePattern::XX;
+    NoiseRole role_ = NoiseRole::Initiator;
+    std::string remoteStaticPublic_;
+    std::string psk_;
+    NoisePskModifier pskModifier_ = NoisePskModifier::None;
+    std::string prologue_;
+    Aead::Algorithm cipher_ = Aead::ChaCha20Poly1305;
+    NoiseHash hash_ = NoiseHash::Sha256;
 };
 
 // Full protocol name: Noise_<handshake>_25519_<ChaChaPoly|AESGCM>_<SHA256|...>.

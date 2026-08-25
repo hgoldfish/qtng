@@ -78,6 +78,7 @@ public:
 private:
     ExchangerPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(Exchanger)
+    NG_DISABLE_COPY_MOVE(Exchanger)
 };
 
 class SocketProxy

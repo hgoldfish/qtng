@@ -49,6 +49,7 @@ public:
 private:
     MessageDigestPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(MessageDigest)
+    NG_DISABLE_COPY_MOVE(MessageDigest)
 };
 
 inline std::string MessageDigest::hash(const std::string &data, Algorithm algo)
@@ -71,9 +72,6 @@ std::string hmac(const MessageDigest::Algorithm hashAlgo, const std::string &key
 
 std::string PBKDF2_HMAC(int keylen, const std::string &password, const std::string &salt,
                        const MessageDigest::Algorithm hashAlgo = MessageDigest::Sha256, int i = 10000);
-
-std::string scrypt(int keylen, const std::string &password, const std::string &salt, int n = 1048576, int r = 8,
-                  int p = 1);
 
 }  // namespace qtng
 

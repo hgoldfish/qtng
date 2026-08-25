@@ -156,7 +156,7 @@ bool BaseHttpRequestHandler::parseRequest()
     setHeaders(headers);
 #ifdef DEBUG_HTTP_PROTOCOL
     for (const HttpHeader &header : headers) {
-        ngDebug() << "header(" << header.name << ") = " << header.value;
+        ngDebug() << "header(" << header.name() << ") = " << header.value();
     }
 #endif
     const string &connectionType = header(ConnectionHeader);
@@ -167,7 +167,7 @@ bool BaseHttpRequestHandler::parseRequest()
     } else {
         closeConnection = Yes;
     }
-    body = headerSplitter.buf;
+    body = headerSplitter.buf();
     return true;
 }
 
@@ -183,6 +183,8 @@ void BaseHttpRequestHandler::doMethod()
         doGET();
     } else if (method == "POST") {
         doPOST();
+    } else if (method == "QUERY") {
+        doQUERY();
     } else if (method == "PUT") {
         doPUT();
     } else if (method == "PATCH") {
@@ -220,6 +222,17 @@ void BaseHttpRequestHandler::doGET()
 
 void BaseHttpRequestHandler::doPOST()
 {
+    sendError(HttpStatus::NotImplemented, utils::formatMessage("Unsupported method %1", {method}));
+}
+
+void BaseHttpRequestHandler::doQUERY()
+{
+    // RFC 10008 section 2.1: a QUERY request without media type information is
+    // incorrect by definition and must fail with a 4xx status code.
+    if (!hasHeader(ContentTypeHeader)) {
+        sendError(HttpStatus::BadRequest, "QUERY request without Content-Type");
+        return;
+    }
     sendError(HttpStatus::NotImplemented, utils::formatMessage("Unsupported method %1", {method}));
 }
 
@@ -358,7 +371,7 @@ bool BaseHttpRequestHandler::endHeader()
 
 shared_ptr<FileLike> BaseHttpRequestHandler::bodyAsFile(bool processEncoding)
 {
-    int64_t contentLength = getContentLength();
+    int64_t contentLength = this->contentLength();
 
     shared_ptr<FileLike> bodyFile;
     if (contentLength >= 0) {
@@ -457,7 +470,9 @@ bool BaseHttpRequestHandler::switchToWebSocket()
 
     const string uuid("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
     const string &t = itsKey + uuid;
-    const string &myKey = utils::bytesToBase64(MessageDigest::hash(t, MessageDigest::Sha1));
+    // RFC6455: Sec-WebSocket-Accept = base64(SHA1(key + GUID))。必须对摘要原始字节做
+    // base64；MessageDigest::hash() 返回 hex 字符串，对 hex 再做 base64 会得到错误值。
+    const string &myKey = utils::bytesToBase64(MessageDigest::digest(t, MessageDigest::Sha1));
 
     sendResponse(HttpStatus::SwitchProtocol);
     sendHeader(UpgradeHeader, "websocket");

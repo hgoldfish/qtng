@@ -299,8 +299,8 @@ string QuicTlsHandshake::buildClientHello()
 {
     m_clientRandom = randomBytes(32);
     const NoiseKey clientKey = NoiseKey::generate();
-    m_clientKeySharePriv = clientKey.privateKey;
-    m_clientKeySharePub = clientKey.publicKey;
+    m_clientKeySharePriv = clientKey.privateKey();
+    m_clientKeySharePub = clientKey.publicKey();
 
     string legacySessionId;  // empty for QUIC
     string cipherSuites;
@@ -394,8 +394,8 @@ string QuicTlsHandshake::buildServerHello()
 {
     m_serverRandom = randomBytes(32);
     const NoiseKey serverKey = NoiseKey::generate();
-    m_serverKeySharePriv = serverKey.privateKey;
-    m_serverKeySharePub = serverKey.publicKey;
+    m_serverKeySharePriv = serverKey.privateKey();
+    m_serverKeySharePub = serverKey.publicKey();
 
     string extensions;
     {

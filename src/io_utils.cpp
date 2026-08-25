@@ -1,6 +1,7 @@
 #include "qtng/utils/platform.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -85,6 +86,55 @@ int openModeint(const string &mode, bool *append)
 }
 #endif
 
+// Split a path into components, skipping empty segments (like Qt's
+// QString::split("/", Qt::SkipEmptyParts)). Used by both PathFs::relative
+// (QDir::relativeFilePath semantics) and PosixPath.
+vector<string> splitPathSkipEmpty(const string &path)
+{
+    vector<string> parts;
+    size_t start = 0;
+    while (start <= path.size()) {
+        const size_t pos = path.find('/', start);
+        const size_t end = (pos == string::npos) ? path.size() : pos;
+        if (end > start) {
+            parts.push_back(path.substr(start, end - start));
+        }
+        if (pos == string::npos) {
+            break;
+        }
+        start = pos + 1;
+    }
+    return parts;
+}
+
+// Compute "absPath relative to absBase" the way QDir::relativeFilePath does:
+// common prefix is dropped, up-levels are rendered with a trailing slash
+// ("../"), and a single "." is returned when both paths are equal.
+string relativeFromComponents(const string &absPath, const string &absBase)
+{
+    if (absPath == absBase) {
+        return ".";
+    }
+    const vector<string> dest = splitPathSkipEmpty(absPath);
+    const vector<string> src = splitPathSkipEmpty(absBase);
+    size_t common = 0;
+    const size_t minSize = min(dest.size(), src.size());
+    while (common < minSize && dest[common] == src[common]) {
+        ++common;
+    }
+    string result;
+    for (size_t i = common; i < src.size(); ++i) {
+        result += "../";
+    }
+    for (size_t i = common; i < dest.size(); ++i) {
+        if (!result.empty() && result.back() != '/') {
+            result += '/';
+        }
+        result += dest[i];
+    }
+    return result.empty() ? "." : result;
+}
+
 }  // namespace
 
 namespace PathFs {
@@ -157,8 +207,15 @@ string absolute(const string &path)
 string relative(const string &path, const string &base)
 {
     error_code ec;
-    auto rel = filesystem::relative(filesystem::path(path), filesystem::path(base), ec);
-    return ec ? string() : rel.string();
+    auto ap = filesystem::weakly_canonical(filesystem::path(path), ec);
+    if (ec) {
+        return string();
+    }
+    auto ab = filesystem::weakly_canonical(filesystem::path(base), ec);
+    if (ec) {
+        return string();
+    }
+    return relativeFromComponents(ap.string(), ab.string());
 }
 
 bool isChildOf(const string &path, const string &base)
@@ -462,44 +519,7 @@ string relative(const string &path, const string &base)
 {
     const string absPath = normalizePath(absolute(path));
     const string absBase = normalizePath(absolute(base));
-    if (absPath == absBase) {
-        return ".";
-    }
-    vector<string> pathParts = utils::split(absPath, "/");
-    vector<string> baseParts = utils::split(absBase, "/");
-    if (!absPath.empty() && absPath[0] == '/') {
-        if (pathParts.empty() || !pathParts.front().empty()) {
-            pathParts.insert(pathParts.begin(), string());
-        }
-    }
-    if (!absBase.empty() && absBase[0] == '/') {
-        if (baseParts.empty() || !baseParts.front().empty()) {
-            baseParts.insert(baseParts.begin(), string());
-        }
-    }
-    size_t common = 0;
-    const size_t minSize = min(pathParts.size(), baseParts.size());
-    while (common < minSize && pathParts[common] == baseParts[common]) {
-        ++common;
-    }
-    string result;
-    for (size_t i = common; i < baseParts.size(); ++i) {
-        if (!baseParts[i].empty()) {
-            if (!result.empty()) {
-                result += '/';
-            }
-            result += "..";
-        }
-    }
-    for (size_t i = common; i < pathParts.size(); ++i) {
-        if (!pathParts[i].empty()) {
-            if (!result.empty()) {
-                result += '/';
-            }
-            result += pathParts[i];
-        }
-    }
-    return result.empty() ? "." : result;
+    return relativeFromComponents(absPath, absBase);
 }
 
 bool isChildOf(const string &path, const string &base)
@@ -945,8 +965,8 @@ int32_t BytesIO::write(const char *data, int32_t size)
 
 void BytesIO::close()
 {
-    NG_D(BytesIO);
-    d->buf = nullptr;
+    // In qtnetworkng 1.0 BytesIO::close() is a no-op: the buffer stays
+    // accessible after close(). Keep the same semantics.
 }
 
 int64_t BytesIO::size()
@@ -1008,7 +1028,12 @@ bool sendfile(shared_ptr<FileLike> inputFile, shared_ptr<FileLike> outputFile, i
             toRead = static_cast<int32_t>(min<int64_t>(suitableBlockSize, bytesToCopy - copied));
         }
         int32_t readBytes = inputFile->read(&buf[0], toRead);
-        if (readBytes <= 0) {
+        if (readBytes < 0) {
+            // a negative read is an error (e.g. a decompression failure), not EOF.
+            return false;
+        }
+        if (readBytes == 0) {
+            // clean EOF.
             break;
         }
         int32_t written = outputFile->write(buf.data(), readBytes);
@@ -1016,6 +1041,10 @@ bool sendfile(shared_ptr<FileLike> inputFile, shared_ptr<FileLike> outputFile, i
             return false;
         }
         copied += readBytes;
+    }
+    if (bytesToCopy >= 0 && copied != bytesToCopy) {
+        // the input ended before bytesToCopy bytes could be copied.
+        return false;
     }
     return true;
 }
@@ -1027,15 +1056,71 @@ public:
         : queue(static_cast<uint32_t>(maxBufferSize))
         , closed(false)
         , debugLevel(0)
+        , maxBufferSize(maxBufferSize)
     {
     }
 
-    Queue<string> queue;
-    bool closed;
+    bool readMore(string &localBuffer, size_t &offset);
+    int32_t takeBytes(string &localBuffer, size_t &offset, char *data, int32_t size, bool force);
+    size_t flushThreshold() const
+    {
+        // accumulate writes until a reasonable chunk forms; avoids per-byte queue ops
+        // while keeping the streaming pipeline deep enough for block writers
+        // (64KB blocks flush 1:1, so the reader never starves).
+        return min(static_cast<size_t>(maxBufferSize), static_cast<size_t>(64 * 1024));
+    }
+
+    // ThreadQueue: thread-safe queue (ThreadEvent + SharedReadWriteLock). The Pipe is used
+    // for inter-thread data transfer (e.g. hugeload serializes in a pool thread while the
+    // reader runs in a coroutine), so the queue must be safe for concurrent access from
+    // both plain threads and coroutines.
+    ThreadQueue<string> queue;
+    // closed is touched from both the reader and the writer side, so it must be atomic.
+    std::atomic<bool> closed;
     int8_t debugLevel;
+    const int32_t maxBufferSize;
     function<void()> readyReadCallback;
     function<void(int64_t)> bytesWrittenCallback;
 };
+
+bool PipePrivate::readMore(string &localBuffer, size_t &offset)
+{
+    int64_t bytesWritten = 0;
+    bool reachedEof = false;
+    do {
+        string packet = queue.get();
+        if (packet.empty()) {
+            // got empty packet means the pipe is closed in the other peer (EOF).
+            // note: closed may not be set yet (close() enqueues before flipping
+            // the flag), so the reader must track EOF itself, not rely on closed.
+            reachedEof = true;
+            break;
+        }
+        bytesWritten += packet.size();
+        if (offset > 0) {
+            localBuffer.erase(0, offset);
+            offset = 0;
+        }
+        localBuffer.append(packet.data(), packet.size());
+    } while (!queue.isEmpty());
+
+    if (bytesWrittenCallback && bytesWritten > 0) {
+        bytesWrittenCallback(bytesWritten);
+    }
+    return reachedEof;
+}
+
+int32_t PipePrivate::takeBytes(string &localBuffer, size_t &offset, char *data, int32_t size, bool force)
+{
+    const size_t available = localBuffer.size() - offset;
+    int32_t bytesToRead = static_cast<int32_t>(min(static_cast<size_t>(size), available));
+    if (bytesToRead >= size || (bytesToRead > 0 && force)) {
+        memcpy(data, localBuffer.data() + offset, static_cast<size_t>(bytesToRead));
+        offset += static_cast<size_t>(bytesToRead);
+        return bytesToRead;
+    }
+    return 0;
+}
 
 Pipe::Pipe(int32_t maxBufferSize)
     : d(make_shared<PipePrivate>(maxBufferSize))
@@ -1062,37 +1147,76 @@ class FileToRead : public FileLike
 public:
     explicit FileToRead(shared_ptr<PipePrivate> pp)
         : pp(std::move(pp))
+        , offset(0)
+        , eof(false)
     {
+        localBuffer.reserve(this->pp->maxBufferSize);
     }
+    virtual ~FileToRead() override { close(); }
 
     int32_t read(char *data, int32_t size) override
     {
-        string chunk = pp->queue.get();
-        if (chunk.empty()) {
-            return 0;
+        shared_ptr<PipePrivate> pp = this->pp;
+        if (!pp) {
+            return -1;
         }
-        int32_t toCopy = min(size, static_cast<int32_t>(chunk.size()));
-        memcpy(data, chunk.data(), static_cast<size_t>(toCopy));
-        if (toCopy < static_cast<int32_t>(chunk.size())) {
-            pp->queue.returns(chunk.substr(static_cast<size_t>(toCopy)));
+        if (size <= 0) {
+            return -1;
         }
-        if (pp->bytesWrittenCallback) {
-            pp->bytesWrittenCallback(toCopy);
+
+        // try to satisfy the request from the local buffer first; this makes
+        // byte-by-byte reads cheap (no queue round-trip and no O(n^2) substr).
+        int32_t bytesToRead = pp->takeBytes(localBuffer, offset, data, size, false);
+        if (bytesToRead > 0) {
+            return bytesToRead;
         }
-        return toCopy;
+
+        // buffer is empty: pull more data. readMore() blocks while the writer is
+        // still open (every putForcedly wakes it) and stops at the EOF sentinel.
+        // once eof is set we never touch the queue again, so this cannot deadlock
+        // regardless of the order in which the writer flips its closed flag.
+        if (!eof && localBuffer.size() - offset <= 0) {
+            if (pp->readMore(localBuffer, offset)) {
+                eof = true;
+            }
+        }
+
+        bytesToRead = pp->takeBytes(localBuffer, offset, data, size, true);
+        if (bytesToRead == 0) {
+            // the pipe is closed in the other peer and all data has been consumed
+            this->pp.reset();
+        }
+        return bytesToRead;
     }
 
     int32_t write(const char *, int32_t) override { return -1; }
     void close() override
     {
-        if (!pp->closed) {
-            pp->closed = true;
-            pp->queue.putForcedly(string());  // signal EOF to the reader
+        shared_ptr<PipePrivate> pp = this->pp;
+        if (!pp) {
+            return;
+        }
+        // drain the unread queue and report it as written. the writer may still be
+        // waiting on the bytesWritten callback to confirm its data was consumed;
+        // discarding silently would leave it hanging. this mirrors qtnetworkng 1.0.
+        int64_t bytesWritten = 0;
+        while (!pp->queue.isEmpty()) {
+            bytesWritten += pp->queue.get().size();
+        }
+        pp->queue.clear();
+        pp->closed.store(true);
+        localBuffer.clear();
+        offset = 0;
+        if (pp->bytesWrittenCallback && bytesWritten > 0) {
+            pp->bytesWrittenCallback(bytesWritten);
         }
     }
     int64_t size() override { return -1; }
 
     shared_ptr<PipePrivate> pp;
+    string localBuffer;
+    size_t offset;
+    bool eof;
 };
 
 class FileToWrite : public FileLike
@@ -1101,18 +1225,30 @@ public:
     explicit FileToWrite(shared_ptr<PipePrivate> pp)
         : pp(std::move(pp))
     {
+        localBuffer.reserve(this->pp->maxBufferSize);
     }
+    virtual ~FileToWrite() override { close(); }
 
     int32_t read(char *, int32_t) override { return -1; }
     int32_t write(const char *data, int32_t size) override
     {
-        if (pp->closed) {
+        shared_ptr<PipePrivate> pp = this->pp;
+        if (!pp || pp->closed.load() || size <= 0) {
             return -1;
         }
-        string chunk(data, static_cast<size_t>(size));
-        if (!pp->queue.put(chunk)) {
+        // aggregate small writes into one chunk before hitting the queue; a
+        // byte-by-byte writer otherwise performs one locked queue put per byte.
+        localBuffer.append(data, static_cast<size_t>(size));
+        if (localBuffer.size() < pp->flushThreshold()) {
+            return size;
+        }
+        if (!pp->queue.put(std::move(localBuffer))) {
             return -1;
         }
+        // after move the capacity is gone; only reserve what the aggregation needs,
+        // not the full pipe capacity (that would reallocate 64MB on every flush).
+        localBuffer.clear();
+        localBuffer.reserve(pp->flushThreshold());
         if (pp->readyReadCallback) {
             pp->readyReadCallback();
         }
@@ -1120,14 +1256,27 @@ public:
     }
     void close() override
     {
-        if (!pp->closed) {
-            pp->closed = true;
-            pp->queue.putForcedly(string());  // signal EOF to the reader
+        shared_ptr<PipePrivate> pp = this->pp;
+        if (!pp || pp->closed.load()) {
+            return;
+        }
+        // enqueue the remaining bytes and the EOF sentinel BEFORE setting closed.
+        // otherwise a reader that checks the condition between closed=true and the
+        // enqueue would skip readMore and lose this tail chunk.
+        if (!localBuffer.empty()) {
+            pp->queue.putForcedly(std::move(localBuffer));
+            localBuffer.clear();
+        }
+        pp->queue.putForcedly(string());  // signal EOF to the reader
+        pp->closed.store(true);
+        if (pp->readyReadCallback) {
+            pp->readyReadCallback();
         }
     }
     int64_t size() override { return -1; }
 
     shared_ptr<PipePrivate> pp;
+    string localBuffer;
 };
 
 shared_ptr<FileLike> Pipe::fileToRead(bool)
@@ -1144,14 +1293,8 @@ struct PosixPathPrivate
 {
     explicit PosixPathPrivate(string pathIn)
         : path(std::move(pathIn))
+        , parts(splitPathSkipEmpty(path))
     {
-        while (!path.empty() && path.back() == '/') {
-            path.pop_back();
-        }
-        if (path.empty()) {
-            path = "/";
-        }
-        parts = utils::split(path, "/");
         for (string &part : parts) {
             if (utils::trimmed(part) == ".") {
                 part = ".";
@@ -1278,7 +1421,7 @@ bool PosixPath::isRelative() const
 
 bool PosixPath::isRoot() const
 {
-    return !isNull() && d->path == "/";
+    return !isNull() && !d->path.empty() && d->path[0] == PosixPath::seperator && d->parts.empty();
 }
 
 bool PosixPath::isWritable() const
@@ -1297,10 +1440,12 @@ bool PosixPath::exists() const
 
 int64_t PosixPath::size() const
 {
-    if (isNull() || !exists()) {
-        return -1;
+    if (isNull()) {
+        return 0;
     }
-    return PathFs::fileSize(d->path);
+    // qtnetworkng returns 0 for a non-existent path (QFileInfo default).
+    const int64_t s = PathFs::fileSize(d->path);
+    return s < 0 ? 0 : s;
 }
 
 string PosixPath::path() const
@@ -1310,7 +1455,24 @@ string PosixPath::path() const
 
 string PosixPath::parentDir() const
 {
-    return parentPath().path();
+    if (isNull()) {
+        return string();
+    }
+    vector<string> parts = d->parts;
+    if (!parts.empty()) {
+        parts.pop_back();
+    }
+    string parent;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (i > 0) {
+            parent += PosixPath::seperator;
+        }
+        parent += parts[i];
+    }
+    if (!d->path.empty() && d->path[0] == PosixPath::seperator) {
+        parent.insert(parent.begin(), PosixPath::seperator);
+    }
+    return parent;
 }
 
 PosixPath PosixPath::parentPath() const
@@ -1318,32 +1480,76 @@ PosixPath PosixPath::parentPath() const
     if (isNull()) {
         return PosixPath();
     }
-    return PosixPath(PathFs::parentPath(d->path));
+    return PosixPath(parentDir());
 }
 
 string PosixPath::name() const
 {
-    return isNull() ? string() : PathFs::filename(d->path);
+    if (isNull() || d->parts.empty()) {
+        return string();
+    }
+    return d->parts.back();
 }
 
 string PosixPath::baseName() const
 {
-    return isNull() ? string() : PathFs::stem(d->path);
+    if (isNull()) {
+        return string();
+    }
+    const string n = name();
+    const vector<string> l = utils::split(n, ".");
+    if (l.empty()) {
+        return string();
+    }
+    if (!n.empty() && n[0] == PosixPath::point) {
+        return string(1, PosixPath::point) + l.front();
+    }
+    return l.front();
 }
 
 string PosixPath::suffix() const
 {
-    return isNull() ? string() : PathFs::extension(d->path);
+    if (isNull()) {
+        return string();
+    }
+    const vector<string> l = utils::split(name(), ".");
+    if (l.size() <= 1) {
+        return string();
+    }
+    return l.back();
 }
 
 string PosixPath::completeBaseName() const
 {
-    return baseName();
+    if (isNull()) {
+        return string();
+    }
+    const string n = name();
+    vector<string> l = utils::split(n, ".");
+    if (l.empty()) {
+        return string();
+    }
+    if (l.size() == 1) {
+        if (!n.empty() && n[0] == PosixPath::point) {
+            return string(1, PosixPath::point) + l.front();
+        }
+        return l.front();
+    }
+    l.pop_back();
+    return utils::join(l, ".");
 }
 
 string PosixPath::completeSuffix() const
 {
-    return suffix();
+    if (isNull()) {
+        return string();
+    }
+    vector<string> l = utils::split(name(), ".");
+    if (l.size() <= 1) {
+        return string();
+    }
+    l.erase(l.begin());
+    return utils::join(l, ".");
 }
 
 string PosixPath::toAbsolute() const
@@ -1364,15 +1570,18 @@ string PosixPath::relativePath(const PosixPath &other) const
     if (isNull() || other.isNull()) {
         return string();
     }
-    return PathFs::relative(d->path, other.d->path);
+    // qtnetworkng semantics: the result is "other relative to this"
+    // (QDir::relativeFilePath), i.e. "other" is the path, "this" is the base.
+    return PathFs::relative(other.d->path, d->path);
 }
 
 bool PosixPath::isChildOf(const PosixPath &other) const
 {
-    if (isNull() || other.isNull()) {
+    if (isNull()) {
         return false;
     }
-    return PathFs::isChildOf(d->path, other.d->path);
+    // qtnetworkng semantics: a path is a child of itself, and of a null path.
+    return !utils::startsWith(other.relativePath(*this), PosixPath::pointpoint);
 }
 
 bool PosixPath::hasChildOf(const PosixPath &other) const
@@ -1421,6 +1630,13 @@ bool PosixPath::mkdir(bool createParents)
     if (isNull()) {
         return false;
     }
+    if (isDir()) {
+        return true;
+    }
+    if (exists()) {
+        // the path exists but is not a directory (e.g. a regular file).
+        return false;
+    }
     if (createParents) {
         return PathFs::createDirectories(d->path);
     }
@@ -1429,11 +1645,9 @@ bool PosixPath::mkdir(bool createParents)
 
 bool PosixPath::touch()
 {
-    if (isNull()) {
-        return false;
-    }
-    ofstream f(d->path, ios::app);
-    return f.good();
+    // qtnetworkng does not implement touch(): it always returns false and
+    // never creates the file.
+    return false;
 }
 
 shared_ptr<FileLike> PosixPath::open(const string &mode) const
@@ -1462,30 +1676,41 @@ PosixPath PosixPath::cwd()
     return p.empty() ? PosixPath() : PosixPath(p);
 }
 
+namespace {
+
+// Normalize a sub path the way qtnetworkng does: drop empty segments, drop
+// "." segments and pop the previous segment for "..", so the result can never
+// escape the virtual root of safeJoinPath().
+string makeSafePath(const string &subPath)
+{
+    const vector<string> parts = splitPathSkipEmpty(subPath);
+    vector<string> result;
+    for (const string &part : parts) {
+        if (part == ".") {
+            continue;
+        } else if (part == "..") {
+            if (!result.empty()) {
+                result.pop_back();
+            }
+        } else {
+            result.push_back(part);
+        }
+    }
+    return utils::join(result, "/");
+}
+
+}  // namespace
+
 pair<string, string> safeJoinPath(const string &parentDir, const string &subPath)
 {
-    // HTTP URL paths start with '/', but joining must stay under parentDir.
-    // Strip leading separators so PosixPath::operator/ does not treat subPath as absolute.
-    string cleaned = subPath;
-    while (!cleaned.empty() && cleaned[0] == PosixPath::seperator) {
-        cleaned.erase(0, 1);
+    const string safeSubPath = makeSafePath(subPath);
+    string joined = parentDir;
+    if (!joined.empty() && joined.back() == PosixPath::seperator) {
+        joined += safeSubPath;
+    } else {
+        joined += PosixPath::seperator + safeSubPath;
     }
-    if (cleaned.empty()) {
-        return make_pair(parentDir, string());
-    }
-    if (cleaned.find("..") != string::npos) {
-        return make_pair(string(), string());
-    }
-    PosixPath parent(parentDir);
-    PosixPath child = parent / cleaned;
-    const string &childPath = child.path();
-    const string &parentPath = parent.path();
-    if (childPath == parentPath
-        || (childPath.size() > parentPath.size() && childPath.compare(0, parentPath.size(), parentPath) == 0
-            && childPath[parentPath.size()] == PosixPath::seperator)) {
-        return make_pair(childPath, string());
-    }
-    return make_pair(string(), string());
+    return make_pair(joined, safeSubPath);
 }
 
 }  // namespace qtng

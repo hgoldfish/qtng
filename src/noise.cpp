@@ -17,6 +17,11 @@ using namespace std;
 
 namespace qtng {
 
+#if __cplusplus < 201703L
+// ODR-use requires an out-of-class definition for static constexpr members in C++11/14.
+constexpr std::uint64_t NoiseCipherState::MaxNonce;
+#endif
+
 namespace {
 
 string noiseHandshakeName(NoisePattern pattern, NoisePskModifier pskModifier)
@@ -273,18 +278,19 @@ NoiseKey NoiseKey::generate()
     }
     EvpPkeyPtr pkey(rawPkey);
 
-    key.privateKey.resize(kDhLen);
-    key.publicKey.resize(kDhLen);
+    string priv(kDhLen, '\0');
+    string pub(kDhLen, '\0');
     size_t privLen = kDhLen;
     size_t pubLen = kDhLen;
-    if (EVP_PKEY_get_raw_private_key(pkey.get(), reinterpret_cast<uint8_t *>(&key.privateKey[0]), &privLen) != 1
+    if (EVP_PKEY_get_raw_private_key(pkey.get(), reinterpret_cast<uint8_t *>(&priv[0]), &privLen) != 1
         || privLen != kDhLen
-        || EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<uint8_t *>(&key.publicKey[0]), &pubLen) != 1
+        || EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<uint8_t *>(&pub[0]), &pubLen) != 1
         || pubLen != kDhLen) {
         ngWarning() << "NoiseKey::generate: failed to export raw keys";
-        key.privateKey.clear();
-        key.publicKey.clear();
+        return key;
     }
+    key.setPrivateKey(priv);
+    key.setPublicKey(pub);
     return key;
 }
 
@@ -302,15 +308,15 @@ NoiseKey NoiseKey::fromPrivateKey(const string &privateKey32)
         ngWarning() << "NoiseKey::fromPrivateKey: EVP_PKEY_new_raw_private_key failed";
         return key;
     }
-    key.privateKey = privateKey32;
-    key.publicKey.resize(kDhLen);
+    string pub(kDhLen, '\0');
     size_t pubLen = kDhLen;
-    if (EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<uint8_t *>(&key.publicKey[0]), &pubLen) != 1
+    if (EVP_PKEY_get_raw_public_key(pkey.get(), reinterpret_cast<uint8_t *>(&pub[0]), &pubLen) != 1
         || pubLen != kDhLen) {
         ngWarning() << "NoiseKey::fromPrivateKey: failed to export public key";
-        key.privateKey.clear();
-        key.publicKey.clear();
+        return NoiseKey();
     }
+    key.setPrivateKey(privateKey32);
+    key.setPublicKey(pub);
     return key;
 }
 
@@ -346,12 +352,12 @@ string NoiseKey::dh(const string &privateKey32, const string &peerPublicKey32)
 }
 
 NoiseConfig::NoiseConfig(const string &localPrivateKey)
-    : localStatic(localPrivateKey.empty() ? NoiseKey::generate() : NoiseKey::fromPrivateKey(localPrivateKey))
+    : localStatic_(localPrivateKey.empty() ? NoiseKey::generate() : NoiseKey::fromPrivateKey(localPrivateKey))
 {
 }
 
 NoiseConfig::NoiseConfig(const NoiseKey &key)
-    : localStatic(key)
+    : localStatic_(key)
 {
 }
 
@@ -445,10 +451,10 @@ bool applyNoiseProtocolName(const string &name, NoiseConfig *config, string *err
     if (!parseNoiseProtocolName(name, &pattern, &pskModifier, &cipher, &hash, errorMessage)) {
         return false;
     }
-    config->pattern = pattern;
-    config->pskModifier = pskModifier;
-    config->cipher = cipher;
-    config->hash = hash;
+    config->setPattern(pattern);
+    config->setPskModifier(pskModifier);
+    config->setCipher(cipher);
+    config->setHash(hash);
     return true;
 }
 
@@ -596,6 +602,8 @@ bool NoiseCipherState::rekey()
     }
     d->key = out.substr(0, kCipherKeyLen);
     d->syncAeadKey();
+    // Noise spec CipherState.Rekey(): the new key starts with nonce 0.
+    d->nonce = 0;
     return !d->key.empty();
 }
 
@@ -729,19 +737,19 @@ bool NoiseHandshakeState::initialize(const NoiseConfig &config)
     d->error.clear();
     d->complete = false;
     d->msgIndex = 0;
-    d->role = config.role;
-    d->s = config.localStatic;
+    d->role = config.role();
+    d->s = config.localStatic();
     d->e = NoiseKey();
-    d->rs = config.remoteStaticPublic;
+    d->rs = config.remoteStaticPublic();
     d->re.clear();
-    d->psk = config.psk;
-    d->cs = NoiseCipherState(config.cipher);
-    d->tokens = patternTokens(config.pattern);
-    d->usesPsk = (config.pskModifier != NoisePskModifier::None);
+    d->psk = config.psk();
+    d->cs = NoiseCipherState(config.cipher());
+    d->tokens = patternTokens(config.pattern());
+    d->usesPsk = (config.pskModifier() != NoisePskModifier::None);
     d->h.clear();
     d->ck.clear();
 
-    const NoiseHashInfo hashInfo = noiseHashInfo(config.hash);
+    const NoiseHashInfo hashInfo = noiseHashInfo(config.hash());
     if (!hashInfo.name) {
         ngWarning() << "unsupported Noise hash";
         d->error = "unsupported Noise hash";
@@ -755,7 +763,7 @@ bool NoiseHandshakeState::initialize(const NoiseConfig &config)
         d->error = "unsupported Noise pattern";
         return false;
     }
-    if (!isNoiseAead(config.cipher)) {
+    if (!isNoiseAead(config.cipher())) {
         ngWarning() << "Noise AEAD must be ChaCha20Poly1305 or Aes256Gcm";
         d->error = "Noise AEAD must be ChaCha20Poly1305 or Aes256Gcm";
         return false;
@@ -770,7 +778,7 @@ bool NoiseHandshakeState::initialize(const NoiseConfig &config)
         d->error = "remote static public key must be 32 bytes";
         return false;
     }
-    const bool initiator = (config.role == NoiseRole::Initiator);
+    const bool initiator = (config.role() == NoiseRole::Initiator);
     if (d->tokens.preResponderS && initiator && d->rs.size() != kDhLen) {
         ngWarning() << "initiator requires remote static public key";
         d->error = "initiator requires remote static public key";
@@ -782,12 +790,12 @@ bool NoiseHandshakeState::initialize(const NoiseConfig &config)
         return false;
     }
     if (d->usesPsk) {
-        if (config.psk.size() != kPskLen) {
+        if (config.psk().size() != kPskLen) {
             ngWarning() << "PSK must be 32 bytes";
             d->error = "PSK must be 32 bytes";
             return false;
         }
-        const int slot = static_cast<int>(config.pskModifier) - static_cast<int>(NoisePskModifier::Psk0);
+        const int slot = static_cast<int>(config.pskModifier()) - static_cast<int>(NoisePskModifier::Psk0);
         if (slot < 0 || slot > d->tokens.nMessages) {
             ngWarning() << "PSK modifier is not valid for this pattern";
             d->error = "PSK modifier is not valid for this pattern";
@@ -798,7 +806,7 @@ bool NoiseHandshakeState::initialize(const NoiseConfig &config)
         } else {
             d->tokens.messages[static_cast<size_t>(slot - 1)].push_back(Token::Psk);
         }
-    } else if (!config.psk.empty()) {
+    } else if (!config.psk().empty()) {
         ngWarning() << "PSK requires a psk0/psk1/psk2/psk3 modifier";
         d->error = "PSK requires a psk0/psk1/psk2/psk3 modifier";
         return false;
@@ -810,7 +818,7 @@ bool NoiseHandshakeState::initialize(const NoiseConfig &config)
         return false;
     }
 
-    const string protocolName(noiseProtocolName(config.pattern, config.pskModifier, config.cipher, config.hash));
+    const string protocolName(noiseProtocolName(config.pattern(), config.pskModifier(), config.cipher(), config.hash()));
     if (protocolName.size() <= d->hashLen) {
         d->h.assign(d->hashLen, '\0');
         memcpy(&d->h[0], protocolName.data(), protocolName.size());
@@ -825,14 +833,14 @@ bool NoiseHandshakeState::initialize(const NoiseConfig &config)
     d->ck = d->h;
 
     // Noise Initialize always MixHash(prologue), including empty prologue.
-    if (!d->mixHash(config.prologue)) {
+    if (!d->mixHash(config.prologue())) {
         return false;
     }
 
-    if (d->tokens.preInitiatorS && !d->mixHash(initiator ? d->s.publicKey : d->rs)) {
+    if (d->tokens.preInitiatorS && !d->mixHash(initiator ? d->s.publicKey() : d->rs)) {
         return false;
     }
-    if (d->tokens.preResponderS && !d->mixHash(initiator ? d->rs : d->s.publicKey)) {
+    if (d->tokens.preResponderS && !d->mixHash(initiator ? d->rs : d->s.publicKey())) {
         return false;
     }
     return true;
@@ -847,6 +855,7 @@ bool NoiseHandshakeState::isComplete() const
 bool NoiseHandshakeState::writeMessage(const string &payload, string *outMessage)
 {
     NG_D(NoiseHandshakeState);
+    d->error.clear();
     if (!outMessage) {
         ngWarning() << "writeMessage requires non-null output";
         d->error = "writeMessage requires non-null output";
@@ -886,6 +895,7 @@ bool NoiseHandshakeState::writeMessage(const string &payload, string *outMessage
 bool NoiseHandshakeState::readMessage(const string &message, string *outPayload)
 {
     NG_D(NoiseHandshakeState);
+    d->error.clear();
     if (!outPayload) {
         ngWarning() << "readMessage requires non-null output";
         d->error = "readMessage requires non-null output";
@@ -923,6 +933,7 @@ bool NoiseHandshakeState::readMessage(const string &message, string *outPayload)
 bool NoiseHandshakeState::split(NoiseCipherState *send, NoiseCipherState *recv)
 {
     NG_D(NoiseHandshakeState);
+    d->error.clear();
     if (!send || !recv) {
         ngWarning() << "split requires non-null cipher states";
         d->error = "split requires non-null cipher states";
@@ -1060,12 +1071,12 @@ bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *o
                 return false;
             }
             if (outMessage) {
-                *outMessage += e.publicKey;
+                *outMessage += e.publicKey();
             }
-            if (!mixHash(e.publicKey)) {
+            if (!mixHash(e.publicKey())) {
                 return false;
             }
-            if (usesPsk && !mixKey(e.publicKey)) {
+            if (usesPsk && !mixKey(e.publicKey())) {
                 return false;
             }
         } else {
@@ -1085,7 +1096,7 @@ bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *o
         return true;
     case Token::S:
         if (writing) {
-            const string encS = encryptAndHash(s.publicKey);
+            const string encS = encryptAndHash(s.publicKey());
             if (!error.empty()) {
                 return false;
             }
@@ -1121,19 +1132,19 @@ bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *o
         }
         return true;
     case Token::Ee:
-        return dhMix(e.privateKey, re);
+        return dhMix(e.privateKey(), re);
     case Token::Es:
         if (role == NoiseRole::Initiator) {
-            return dhMix(e.privateKey, rs);
+            return dhMix(e.privateKey(), rs);
         }
-        return dhMix(s.privateKey, re);
+        return dhMix(s.privateKey(), re);
     case Token::Se:
         if (role == NoiseRole::Initiator) {
-            return dhMix(s.privateKey, re);
+            return dhMix(s.privateKey(), re);
         }
-        return dhMix(e.privateKey, rs);
+        return dhMix(e.privateKey(), rs);
     case Token::Ss:
-        return dhMix(s.privateKey, rs);
+        return dhMix(s.privateKey(), rs);
     case Token::Psk:
         return mixKeyAndHash(psk);
     default:
@@ -1249,9 +1260,9 @@ bool NoiseSocket::initialize(const NoiseConfig &config)
     d->peerPayload.clear();
     d->ready = false;
     d->gotPeerPayload = false;
-    d->role = config.role;
-    d->send = NoiseCipherState(config.cipher);
-    d->recv = NoiseCipherState(config.cipher);
+    d->role = config.role();
+    d->send = NoiseCipherState(config.cipher());
+    d->recv = NoiseCipherState(config.cipher());
     if (!d->hs.initialize(config)) {
         d->error = d->hs.errorString();
         return false;
@@ -1775,8 +1786,8 @@ bool NoiseDatagram::initialize(const NoiseConfig &config)
     d->lastDecryptOk = false;
     d->gotPeerPayload = false;
     d->replay.reset();
-    d->send = NoiseCipherState(config.cipher);
-    d->recv = NoiseCipherState(config.cipher);
+    d->send = NoiseCipherState(config.cipher());
+    d->recv = NoiseCipherState(config.cipher());
     if (!d->hs.initialize(config)) {
         d->error = d->hs.errorString();
         return false;

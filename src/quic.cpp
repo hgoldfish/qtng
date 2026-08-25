@@ -231,6 +231,7 @@ public:
         , hasRecvApp(false)
         , closed(false)
         , readerStarted(false)
+        , handshakeDoneEvent(new Event())
     {
     }
 
@@ -291,6 +292,7 @@ public:
     QuicLossRecovery recovery;
     bool closed;
     bool readerStarted;
+    shared_ptr<Event> handshakeDoneEvent;
     shared_ptr<Coroutine> reader;
     shared_ptr<Coroutine> ptoTimer;
     Lock sendLock;
@@ -571,7 +573,7 @@ void QuicConnectionPrivate::driveTls()
         serverAppKeys = quicDeriveTrafficKeys(tls->secrets().serverAppSecret);
         hasAppKeys = true;
         state = QuicConnection::ConnectedState;
-        q_ptr->handshakeDone.set();
+        q_ptr->handshakeDone()->set();
     }
     flushCrypto();
 }
@@ -832,6 +834,12 @@ QuicConnection::~QuicConnection()
         d->ptoTimer.reset();
     }
     delete d_ptr;
+}
+
+std::shared_ptr<Event> QuicConnection::handshakeDone() const
+{
+    NG_D(const QuicConnection);
+    return d->handshakeDoneEvent;
 }
 
 void QuicConnection::setConfiguration(const QuicConfiguration &config)

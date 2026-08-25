@@ -72,6 +72,9 @@ void UrlQuery::setQuery(const string &query)
     if (!q.empty() && q[0] == '?') {
         q.erase(0, 1);
     }
+    if (q.empty()) {
+        return;
+    }
     for (const string &pair : split(q, '&')) {
         size_t pos = pair.find('=');
         if (pos == string::npos) {

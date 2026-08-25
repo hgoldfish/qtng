@@ -329,7 +329,8 @@ string join(const vector<string> &parts, const string &separator)
 // Punycode-encode non-ASCII labels and prepend the "xn--" prefix.
 // No Nameprep (NFKC normalization / case folding / Bidi / Joining checks) --
 // callers must handle ASCII case normalization themselves. Returns empty on
-// invalid UTF-8.
+// invalid UTF-8 or on any empty label other than a single trailing dot
+// (e.g. "..example.org"), matching QUrl::toAce.
 string toAce(const string &domain)
 {
     if (domain.empty()) {
@@ -344,7 +345,13 @@ string toAce(const string &domain)
         }
         const string &label = labels[i];
         if (label.empty()) {
-            continue;  // keep empty labels (e.g. trailing dot) as-is
+            // A single trailing dot is tolerated (e.g. "example.com."); any other
+            // empty label (e.g. "..example.org", "example..org") is invalid and the
+            // whole domain is rejected, matching QUrl::toAce.
+            if (i + 1 == labels.size()) {
+                continue;
+            }
+            return string();
         }
         bool pureAscii = true;
         for (char ch : label) {
@@ -387,7 +394,10 @@ string fromAce(const string &domain)
         }
         const string &label = labels[i];
         if (label.empty()) {
-            continue;
+            if (i + 1 == labels.size()) {
+                continue;  // tolerate a single trailing dot, mirroring toAce
+            }
+            return string();  // reject any other empty label
         }
         if (!isAceLabel(label)) {
             result += label;

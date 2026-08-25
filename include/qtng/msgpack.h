@@ -23,10 +23,21 @@
 
 namespace qtng {
 
-struct MsgPackExtData
+class MsgPackExtData
 {
-    std::uint8_t type;
-    std::string payload;
+public:
+    MsgPackExtData();
+    MsgPackExtData(std::uint8_t type, std::string payload);
+
+    std::uint8_t type() const;
+    void setType(std::uint8_t type);
+
+    const std::string &payload() const;
+    void setPayload(const std::string &payload);
+
+private:
+    std::uint8_t type_;
+    std::string payload_;
 };
 
 class MsgPackExtUserData

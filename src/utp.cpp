@@ -517,6 +517,11 @@ void UtpStreamPrivate::doUpdate()
 {
     while (state == Socket::ConnectedState || state == Socket::ConnectingState) {
         updateTimers();
+        // forceToUpdate is a Gate: a Gate starts open and Gate::tryWait() returns
+        // immediately on an open gate without consuming it, so the wait above would
+        // never yield and doUpdate would spin on the event loop forever. Close the
+        // gate first so tryWait(50) actually sleeps (same pattern as KCP doUpdate).
+        forceToUpdate.close();
         forceToUpdate.tryWait(50);
     }
 }
@@ -677,18 +682,21 @@ bool MasterUtpStreamPrivate::connect(const DatagramPath &remote)
     seqNr = seqInc(synSeq);
     Coroutine::msleep(0);
 
-    string buf(64 * 1024, '\0');
+    // Do not block on link->recvfrom() in a loop: the receive is unbounded (the UDP
+    // socket waits for a readable fd forever), so the deadline check below would never
+    // be reached and connect() would hang when the SYN goes unanswered. Instead hand
+    // the link over to the receiving coroutine (doReceive pumps while ConnectingState)
+    // and wait on connectedEvent, which enterConnected() sets on SYN-ACK.
+    startReceivingCoroutine();
+
     const std::uint64_t deadlineMs = utils::DateTime::currentMSecsSinceEpoch() + 10000;
-    while (state == Socket::ConnectingState && utils::DateTime::currentMSecsSinceEpoch() < deadlineMs) {
-        DatagramPath who;
-        const int32_t len = link->recvfrom(&buf[0], static_cast<int32_t>(buf.size()), &who);
-        if (len > 0 && !who.isNull()) {
-            handleDatagram(buf.data(), len, who);
-        }
-        if (state == Socket::ConnectedState) {
+    while (state == Socket::ConnectingState) {
+        const std::uint64_t nowMs = utils::DateTime::currentMSecsSinceEpoch();
+        if (nowMs >= deadlineMs) {
             break;
         }
-        Coroutine::msleep(0);
+        connectedEvent.clear();
+        connectedEvent.tryWait(static_cast<std::uint32_t>(min<std::uint64_t>(deadlineMs - nowMs, 50)));
     }
 
     if (state == Socket::ConnectedState) {

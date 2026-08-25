@@ -461,6 +461,8 @@ string toString(KnownHeader knownHeader)
         return "Accept";
     case AcceptLanguageHeader:
         return "Accept-Language";
+    case AcceptQueryHeader:
+        return "Accept-Query";
     case AcceptEncodingHeader:
         return "Accept-Encoding";
     case PragmaHeader:
@@ -496,18 +498,18 @@ string HeaderSplitter::nextLine(HeaderSplitter::Error *error)
     bool expectingLineBreak = false;
 
     while (true) {
-        if (buf.empty()) {
-            buf = connection->recv(1024);
-            if (buf.empty()) {
+        if (buf_.empty()) {
+            buf_ = connection_->recv(1024);
+            if (buf_.empty()) {
                 *error = HeaderSplitter::ConnectionError;
                 return string();
             }
         }
         int j = 0;
-        for (; j < buf.size(); ++j) {
-            char c = buf[j];
+        for (; j < buf_.size(); ++j) {
+            char c = buf_[j];
             if (c == '\n') {
-                buf.erase(0, j + 1);
+                buf_.erase(0, j + 1);
                 *error = HeaderSplitter::NoError;
                 return line;
             } else if (c == '\r') {
@@ -528,7 +530,7 @@ string HeaderSplitter::nextLine(HeaderSplitter::Error *error)
                 }
             }
         }
-        buf.clear();
+        buf_.clear();
     }
     *error = HeaderSplitter::ExhausedMaxLine;
     return string();
@@ -544,7 +546,7 @@ HttpHeader HeaderSplitter::nextHeader(Error *error)
         *error = HeaderSplitter::NoError;
         return HttpHeader();
     }
-    if (debugLevel > 2) {
+    if (debugLevel_ > 2) {
         ngDebug() << "receiving data:" << line;
     }
     vector<string> headerParts = splitBytes(line, ':', 1);
@@ -601,9 +603,9 @@ string ChunkedBlockReader::nextBlock(int64_t leftBytes, ChunkedBlockReader::Erro
     const int MaxLineLength = 6;  // ffff\r\n
     string numBytes;
     bool expectingLineBreak = false;
-    while (buf.size() < MaxLineLength && buf.find('\n') == string::npos) {
+    while (buf_.size() < MaxLineLength && buf_.find('\n') == string::npos) {
         string buff(1024 * 64, '\0');
-        int32_t readed = connection->read(&buff[0], buff.size());
+        int32_t readed = connection_->read(&buff[0], buff.size());
         if (readed < 0) {
             *error = ChunkedBlockReader::ConnectionError;
             return string();
@@ -611,19 +613,19 @@ string ChunkedBlockReader::nextBlock(int64_t leftBytes, ChunkedBlockReader::Erro
         if (readed == 0) {
             break;
         }
-        buf.append(buff.data(), readed);  // most server send the header at one tcp block.
+        buf_.append(buff.data(), readed);  // most server send the header at one tcp block.
     }
-    if (buf.size() < 3) {  // 0\r\n
+    if (buf_.size() < 3) {  // 0\r\n
         *error = ChunkedBlockReader::ChunkedEncodingError;
         return string();
     }
 
     bool ok = false;
-    for (int i = 0; i < buf.size() && i < MaxLineLength; ++i) {
-        char c = buf[i];
+    for (int i = 0; i < buf_.size() && i < MaxLineLength; ++i) {
+        char c = buf_[i];
         if (expectingLineBreak) {
             if (c == '\n') {
-                buf.erase(0, i + 1);
+                buf_.erase(0, i + 1);
                 ok = true;
                 break;
             } else {
@@ -649,9 +651,6 @@ string ChunkedBlockReader::nextBlock(int64_t leftBytes, ChunkedBlockReader::Erro
     try {
         bytesToRead = static_cast<int32_t>(stoul(numBytes, nullptr, 16));
     } catch (...) {
-        if (debugLevel > 0) {
-            ngDebug() << "got invalid chunked bytes:" << numBytes;
-        }
         *error = ChunkedBlockReader::ChunkedEncodingError;
         return string();
     }
@@ -661,94 +660,90 @@ string ChunkedBlockReader::nextBlock(int64_t leftBytes, ChunkedBlockReader::Erro
         return string();
     }
 
-    while (buf.size() < bytesToRead + 2) {
+    while (buf_.size() < bytesToRead + 2) {
         string buff(1024 * 64, '\0');
-        int32_t readed = connection->read(&buff[0], buff.size());
+        int32_t readed = connection_->read(&buff[0], buff.size());
         if (readed <= 0) {
             *error = ChunkedBlockReader::ConnectionError;
             return string();
         }
-        buf.append(buff.data(), readed);
+        buf_.append(buff.data(), readed);
     }
 
-    const string &result = buf.substr(0, bytesToRead);
-    buf.erase(0, bytesToRead + 2);
-
-    if (bytesToRead == 0 && !buf.empty() && debugLevel > 0) {
-        ngDebug() << "bytesToRead == 0 but some bytes left.";
-    }
+    const string &result = buf_.substr(0, bytesToRead);
+    buf_.erase(0, bytesToRead + 2);
 
     *error = ChunkedBlockReader::NoError;
     return result;
 }
 
 PlainBodyFile::PlainBodyFile(int64_t contentLength, const string &partialBody, shared_ptr<SocketLike> stream)
-    : contentLength(contentLength)
-    , stream(stream)
-    , partialBody(partialBody)
-    , count(0)
+    : contentLength_(contentLength)
+    , stream_(stream)
+    , partialBody_(partialBody)
+    , count_(0)
 {
 }
 
 int32_t PlainBodyFile::read(char *data, int32_t size)
 {
-    if (!partialBody.empty()) {
-        int32_t t = min<int32_t>(size, static_cast<int32_t>(partialBody.size()));
-        memcpy(data, partialBody.data(), t);
-        partialBody.erase(0, t);
-        count += t;
+    if (!partialBody_.empty()) {
+        int32_t t = min<int32_t>(size, static_cast<int32_t>(partialBody_.size()));
+        memcpy(data, partialBody_.data(), t);
+        partialBody_.erase(0, t);
+        count_ += t;
         return t;
     }
-    if (contentLength >= 0) {
-        if (count >= contentLength) {
+    if (contentLength_ >= 0) {
+        if (count_ >= contentLength_) {
             return 0;
         }
-        int64_t leftBytes = contentLength - count;
-        int32_t bs = stream->recv(data, min<int64_t>(size, leftBytes));
+        int64_t leftBytes = contentLength_ - count_;
+        int32_t bs = stream_->recv(data, min<int64_t>(size, leftBytes));
         if (bs > 0) {
-            count += bs;
+            count_ += bs;
         }
         return bs;
     } else {
-        return stream->recv(data, size);
+        return stream_->recv(data, size);
     }
 }
 
 ChunkedBodyFile::ChunkedBodyFile(int64_t maxBodySize, const string &partialBody, shared_ptr<FileLike> stream)
-    : reader(stream, partialBody)
-    , error(ChunkedBlockReader::NoError)
-    , maxBodySize(maxBodySize)
-    , count(0)
-    , eof(false)
+    : reader_(stream, partialBody)
+    , error_(ChunkedBlockReader::NoError)
+    , maxBodySize_(maxBodySize)
+    , count_(0)
+    , eof_(false)
 {
 }
 
 int32_t ChunkedBodyFile::read(char *data, int32_t size)
 {
-    while (buf.size() < size && !eof) {
+    while (buf_.size() < size && !eof_) {
         int64_t leftBytes;
-        if (maxBodySize >= 0) {
-            leftBytes = maxBodySize - count;
+        if (maxBodySize_ >= 0) {
+            leftBytes = maxBodySize_ - count_;
             if (leftBytes <= 0) {
                 break;
             }
         } else {
             leftBytes = INT_MAX;
         }
-        const string &block = reader.nextBlock(leftBytes, &error);
-        if (error != ChunkedBlockReader::NoError) {
+        const string &block = reader_.nextBlock(leftBytes, &error_);
+        if (error_ != ChunkedBlockReader::NoError) {
             return -1;
         }
         if (block.empty()) {
-            eof = true;
+            eof_ = true;
             break;
         }
-        count += block.size();
-        buf.append(block);
+        count_ += block.size();
+        buf_.append(block);
     }
-    int32_t bytesToRead = min<int32_t>(static_cast<int32_t>(buf.size()), size);
-    memcpy(data, buf.data(), bytesToRead);
-    buf.erase(0, bytesToRead);
+    int32_t bytesToRead = min<int32_t>(static_cast<int32_t>(buf_.size()), size);
+    memcpy(data, buf_.data(), bytesToRead);
+    buf_.erase(0, bytesToRead);
     return bytesToRead;
 }
 
@@ -773,7 +768,7 @@ int32_t ChunkedWriter::write(const char *data, int32_t size)
         buf.append(data + sent, blockSize);
         buf.append("\r\n", 2);
 
-        int32_t writtenBytes = stream->write(buf);
+        int32_t writtenBytes = stream_->write(buf);
         if (writtenBytes != buf.size()) {
             return -1;
         }
@@ -784,7 +779,7 @@ int32_t ChunkedWriter::write(const char *data, int32_t size)
 
 void ChunkedWriter::close()
 {
-    stream->write("0\r\n\r\n", 5);
+    stream_->write("0\r\n\r\n", 5);
 }
 
 }  // namespace qtng

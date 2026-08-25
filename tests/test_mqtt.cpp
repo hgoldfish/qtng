@@ -378,9 +378,9 @@ TEST_CASE("mqtt connect publish subscribe qos0", "[mqtt]")
     REQUIRE(client->publish(MqttMessage("sensors/temp", "22.5", MqttQos::AtMostOnce)));
 
     MqttMessage msg = client->recv();
-    REQUIRE(msg.topic == "sensors/temp");
-    REQUIRE(msg.payload == "22.5");
-    REQUIRE(msg.qos == MqttQos::AtMostOnce);
+    REQUIRE(msg.topic() == "sensors/temp");
+    REQUIRE(msg.payload() == "22.5");
+    REQUIRE(msg.qos() == MqttQos::AtMostOnce);
 
     REQUIRE(client->unsubscribe("sensors/temp"));
     client->disconnect();
@@ -471,9 +471,9 @@ TEST_CASE("mqtt inbound qos1 from broker", "[mqtt]")
     REQUIRE(client->isConnected());
 
     MqttMessage msg = client->recv();
-    REQUIRE(msg.topic == "alerts");
-    REQUIRE(msg.payload == "fire");
-    REQUIRE(msg.qos == MqttQos::AtLeastOnce);
+    REQUIRE(msg.topic() == "alerts");
+    REQUIRE(msg.payload() == "fire");
+    REQUIRE(msg.qos() == MqttQos::AtLeastOnce);
 
     client->disconnect();
     server->join();

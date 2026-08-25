@@ -31,6 +31,7 @@ public:
 private:
     GzipFilePrivate * const d_ptr;
     NG_DECLARE_PRIVATE(GzipFile);
+    NG_DISABLE_COPY_MOVE(GzipFile)
 };
 
 bool qGzipCompress(std::shared_ptr<FileLike> input, std::shared_ptr<FileLike> output, int level = -1, int blockSize = 1024 * 8);
