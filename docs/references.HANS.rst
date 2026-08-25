@@ -622,7 +622,7 @@ qtng 参考文档
     {
         ScopedLock<Semaphore> l(semaphore);
         HttpSession session;
-        ngDebug() << session.get("https://news.163.com").statusCode;
+        ngDebug() << session.get("https://news.163.com").statusCode();
     }
 
     int main()
@@ -1009,7 +1009,7 @@ DNS相关
 
     执行DNS解析。若 ``hostName`` 为 IP 地址，则直接返回该 IP。
 
-    国际化域名（IDN）会先经 ``utils::toAce()`` 转为 Punycode（ACE）再查询解析器，因此包含非 ASCII 字符的主机名（如 ``"bücher.com"``、``"中文.com"``）可用。该转换为最小 IDNA 外壳：纯 ASCII 标签原样通过，非 ASCII 标签以 ``xn--`` ACE 前缀编码。**不**做 Unicode 归一化（NFKC）、非 ASCII 大小写折叠及 Bidi/Joining 检查，需要 ASCII 小写归一化的调用方应自行处理。若需独立校验任意 UTF-8 文本，可使用 ``utils::isValidUtf8()``。
+    国际化域名（IDN）会先经 ``utils::toAce()`` 转为 Punycode（ACE）再查询解析器，因此包含非 ASCII 字符的主机名（如 ``"bücher.com"``、``"中文.com"``）可用。该转换为最小 IDNA 外壳：纯 ASCII 标签原样通过，非 ASCII 标签以 ``xn--`` ACE 前缀编码。**不**做 Unicode 归一化（NFKC）、非 ASCII 大小写折叠及 Bidi/Joining 检查，需要 ASCII 小写归一化的调用方应自行处理。含空标签（除单个尾部点外，如 ``"..example.org"``）的畸形域名会被拒绝：``utils::toAce()`` 对其返回空字符串，与 ``QUrl::toAce`` 一致。若需独立校验任意 UTF-8 文本，可使用 ``utils::isValidUtf8()``。
     
 .. method:: void setDnsCache(std::shared_ptr<SocketDnsCache> dnsCache)
 
@@ -1139,11 +1139,11 @@ DNS相关
 
 .. method:: std::shared_ptr<Socket> connect(const std::string &remoteHost, std::uint16_t port)
 
-    通过代理连接域名型目标（代理端执行DNS解析），阻塞协程直至连接成功/失败
+    通过代理连接域名型目标（代理端执行DNS解析），阻塞协程直至连接成功/失败，失败时抛出 ``Socks5Exception``
     
 .. method:: std::shared_ptr<Socket> connect(const HostAddress &remoteHost, std::uint16_t port)
 
-    通过代理连接IP型目标，无DNS解析过程
+    通过代理连接IP型目标，无DNS解析过程，失败时抛出 ``Socks5Exception``
     
 .. method:: std::shared_ptr<SocketLike> listen(std::uint16_t port)
 
@@ -1196,6 +1196,30 @@ DNS相关
 .. method:: void setPassword(const std::string &password)
 
     设置认证密码
+
+.. class:: Socks5Exception
+
+    由 ``Socks5Proxy::connect()`` 在经代理连接失败时抛出。失败原因用 ``error()``
+    分类，用 ``errorString()`` 描述。
+
+    .. method:: Error error() const
+
+        返回错误分类：
+
+        - ``ProxyConnectionRefusedError`` -- 与代理服务器的连接被拒绝。
+        - ``ProxyConnectionClosedError`` -- 代理服务器提前关闭连接。
+        - ``ProxyConnectionTimeoutError`` -- 与代理服务器的连接超时。
+        - ``ProxyNotFoundError`` -- 代理服务器主机名无法解析。
+        - ``ProxyProtocolError`` -- SOCKS5 协议错误。
+        - ``ProxyAuthenticationRequiredError`` -- 代理认证失败。
+        - ``SocksFailure``、``ConnectionNotAllowed``、``NetworkUnreachable``、
+          ``HostUnreachable``、``ConnectionRefused``、``TTLExpired``、
+          ``CommandNotSupported``、``AddressTypeNotSupported`` -- 代理服务器返回了
+          对应的 CONNECT 回复错误码。
+
+    .. method:: std::string errorString() const
+
+        返回可读的错误描述。``what()`` 返回相同字符串。
 
 2.4 SocketServer
 ^^^^^^^^^^^^^^^^
@@ -1438,7 +1462,7 @@ KCP 协议的服务器实现。
 3. HTTP 客户端
 --------------
 
-``HttpSession`` 是支持 HTTP 1.0/1.1 与 HTTP/2 的客户端（HTTPS 经 ALPN 协商 ``h2``；不支持 Server Push，亦不提供 HTTP/2 服务端），具备自动 Cookie 管理和自动重定向功能。HTTP/2 路径支持多路复用、流控（connection/stream WINDOW_UPDATE）、``MAX_CONCURRENT_STREAMS``、HEADERS/CONTINUATION 分片、trailers 消费，以及 ``streamResponse`` 下流式读取。核心方法 ``HttpSession::send()`` 用于发送请求并解析响应，同时提供快捷方法如 ``get()``、 ``post()``、 ``head()`` 等实现单行代码发起 HTTP 请求。
+``HttpSession`` 是支持 HTTP 1.0/1.1 与 HTTP/2 的客户端（HTTPS 经 ALPN 协商 ``h2``；不支持 Server Push，亦不提供 HTTP/2 服务端），具备自动 Cookie 管理和自动重定向功能。HTTP/2 路径支持多路复用、流控（connection/stream WINDOW_UPDATE）、``MAX_CONCURRENT_STREAMS``、HEADERS/CONTINUATION 分片、trailers 消费，以及 ``streamResponse`` 下流式读取。核心方法 ``HttpSession::send()`` 用于发送请求并解析响应，同时提供快捷方法如 ``get()``、 ``post()``、 ``query()``、 ``head()`` 等实现单行代码发起 HTTP 请求。
 
 该组件支持 SOCKS5 代理（默认未启用），目前暂不支持 HTTP 代理。Cookie 管理通过 ``HttpSession::cookieJar()`` 实现，响应缓存使用 ``HttpSession::cacheManager()``（默认无缓存）。qtng 提供内存缓存组件 ``HttpMemoryCacheManager``。
 
@@ -1475,7 +1499,7 @@ KCP 协议的服务器实现。
 
     发送 HTTP 请求至服务器并解析响应
     
-.. method:: HttpCookieJar &cookieJar()
+.. method:: std::shared_ptr<HttpCookieJar> cookieJar()
 
     返回 cookie 管理器
     
@@ -1538,6 +1562,10 @@ KCP 协议的服务器实现。
 .. method:: std::shared_ptr<Socks5Proxy> socks5Proxy() const
 
     获取 SOCKS5 代理
+    
+.. method:: void setProxySwitcher(HttpSession *session, std::shared_ptr<BaseProxySwitcher> switcher)
+
+    为会话安装代理切换器。每个请求通过 ``selectSocketProxy()`` / ``selectHttpProxy()`` 询问切换器使用哪个代理（若无则直连），因此自定义 ``BaseProxySwitcher`` 子类能真正参与每次请求的选路。传入空切换器时将会话恢复为默认的 ``SimpleProxySwitcher``。
     
 .. method:: void setCacheManager(std::shared_ptr<HttpCacheManager> cacheManager)
 
@@ -1616,6 +1644,17 @@ KCP 协议的服务器实现。
         HttpResponse post(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
         HttpResponse post(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
+        HttpResponse query(const std::string &url, const std::string &body);
+        HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body);
+        HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body);
+        HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body);
+        HttpResponse query(const std::string &url, const FormData &body);
+        HttpResponse query(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
+
         HttpResponse patch(const std::string &url, const std::string &body);
         HttpResponse patch(const std::string &url, const std::map<std::string, std::string> &body);
         HttpResponse patch(const std::string &url, const qtng::utils::UrlQuery &body);
@@ -1649,6 +1688,34 @@ KCP 协议的服务器实现。
         HttpResponse put(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
         HttpResponse put(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
         HttpResponse put(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
+
+.. method:: HttpResponse query(const std::string &url, const std::string &body)
+
+    使用 QUERY 方法向 web 服务器发送 HTTP 请求，规范见 `RFC 10008 <https://www.rfc-editor.org/rfc/rfc10008.html>`_。
+
+    QUERY 是一种安全（safe）且幂等（idempotent）的方法：线上格式与 POST 相同
+    （输入作为请求体传输），但语义与 GET 相同，因此缓存与自动重试可以安全对待。
+    当查询参数过长、难以编码进 URI，或希望查询内容不进访问日志与浏览器历史时，
+    QUERY 是正确的选择。
+
+    按 RFC 10008，服务器必须拒绝缺失 ``Content-Type`` 的 QUERY 请求，因此发送
+    原始 body 时需显式设置该头。重定向时，QUERY 在 301/302/307/308 下保持方法与
+    请求体，仅在 303 下降级为普通 GET。
+
+    类似的函数还有很多：
+
+    .. code-block:: c++
+
+        HttpResponse query(const std::string &url, const std::string &body);
+        HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body);
+        HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body);
+        HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body);
+        HttpResponse query(const std::string &url, const FormData &body);
+        HttpResponse query(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
 .. method:: int webSocketErrorCode() const
 
@@ -1662,6 +1729,22 @@ KCP 协议的服务器实现。
 
     返回 ``HttpSession::ws(...)`` 最近一次握手失败的错误原因文本。
     空字符串表示无错误。
+
+.. method:: std::shared_ptr<SslConfiguration> sslConfiguration()
+
+    返回 ``HttpSession`` 在 HTTPS 连接中使用的 SSL 配置。
+
+.. method:: void setSslConfiguration(const std::shared_ptr<SslConfiguration> &configuration)
+
+    设置 ``HttpSession`` 在 HTTPS 连接中使用的 SSL 配置。
+
+.. method:: std::shared_ptr<WebSocketConfiguration> webSocketConfiguration()
+
+    返回 ``HttpSession`` 在 WebSocket 连接中使用的配置。
+
+.. method:: void setWebSocketConfiguration(const std::shared_ptr<WebSocketConfiguration> &configuration)
+
+    设置 ``HttpSession`` 在 WebSocket 连接中使用的配置。
 
 3.2 HttpResponse
 ^^^^^^^^^^^^^^^^
@@ -1812,6 +1895,16 @@ KCP 协议的服务器实现。
 
     返回请求体数据
 
+    .. method:: std::string bodyAsString() const
+
+    以内存字符串形式返回请求体。
+
+    内容直接从请求体的 ``FileLike`` 取出,不额外保存副本:只有 ``BytesIO``
+    (``setBody(std::string)`` 及其 map/UrlQuery/FormData 辅助构造的正是它)
+    无视读取位置、能提供完整内容。其他 ``FileLike`` 流在首次发送时即被消耗,
+    这里返回空字符串,调用方需自行倒回流位置后再重试。该方法使会话在跟随
+    重定向时能够重新发送 QUERY/POST 请求体。
+
     .. method:: void setBody(const std::string &body)
 
     设置请求的正文。
@@ -1923,7 +2016,7 @@ KCP 协议的服务器实现。
 
 * HTTPError
 
-    服务器返回HTTP错误，错误码为 ``HTTPError::statusCode``。
+    服务器返回HTTP错误，错误码为 ``HTTPError::statusCode()``。
 
 * ConnectionError
 
@@ -2038,6 +2131,7 @@ KCP 协议的服务器实现。
 
         virtual void doGET();
         virtual void doPOST();
+        virtual void doQUERY();  // RFC 10008
         virtual void doPUT();
         virtual void doDELETE();
         virtual void doPATCH();
@@ -2070,9 +2164,17 @@ KCP 协议的服务器实现。
 
     根据 Content-Length 或 Transfer-Encoding 读取请求体,自动处理 GZIP/DEFLATE 解压缩（需启用 QTNG_HAVE_ZLIB）,支持分块传输（Chunked Encoding,返回值: 返回可读的 FileLike 对象，包含请求体内容。
 
+.. method:: bool readBody()
+
+    将完整请求体读入 ``body`` 成员，遵循 ``Content-Length`` / ``Transfer-Encoding``、``maxBodySize`` 限制与内容解码（见 ``bodyAsFile()``）。成功返回 true，失败（例如请求体超过配置上限）返回 false。
+
+.. method:: static std::string normalizePath(const std::string &path)
+
+    使用严格 URL 解析规范化请求路径：折叠 ``.`` / ``..`` 路径段并保留查询串。例如 ``/a/../b`` 变为 ``/b``，``/a?x=1`` 保持 ``/a?x=1``。
+
 .. method:: bool switchToWebSocket()
 
-    验证 Upgrade: websocket 和 Connection 首部包含 "Upgrade" token（大小写不敏感）,计算并返回 Sec-WebSocket-Accept,标记连接升级为 WebSocket
+    验证 Upgrade: websocket 和 Connection 首部包含 "Upgrade" token（大小写不敏感）,然后返回 101 Switching Protocols 并按 RFC6455 计算 ``Sec-WebSocket-Accept``（``base64(SHA1(sec-websocket-key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))``）,标记连接升级为 WebSocket
 
 .. method:: virtual void logRequest(HttpStatus status, int bodySize);
 
@@ -2231,10 +2333,6 @@ MessageDigest
 
     使用指定摘要算法计算 ``data`` 的 HMAC（RFC 2104）。失败时（摘要不受支持或密钥为空）返回空字符串。需要 OpenSSL/LibreSSL；``QTNG_NO_CRYPTO`` 软件实现中不可用。
 
-.. method:: std::string scrypt(int keylen, const std::string &password, const std::string &salt, int n = 1048576, int r = 8, int p = 1)
-
-    暂未进行实现
-
 5.2 对称加密和解密
 ^^^^^^^^^^^^^^^^^^^^
 Clipher
@@ -2248,7 +2346,7 @@ Clipher
 
 .. method:: Cipher *copy(Operation operation)
 
-    复制当前配置，创建新的 Cipher 实例
+    以相同算法与模式、指定的操作方向创建新的 Cipher 实例，并深拷贝 key、IV 与填充设置，副本可立即用于加解密。若源 Cipher 无效（未初始化），返回 ``nullptr``。
 
 .. method:: bool isValid()
 
@@ -2811,7 +2909,7 @@ SSL/TLS 连接中使用的加密套件（Cipher Suite），包含加密算法、
 * ``XK``（``Noise_XK_25519_*_*``）— 3 条消息；发起方必须事先提供响应方静态公钥，发起方静态钥在第 3 条消息中给出。
 * ``KK``（``Noise_KK_25519_*_*``）— 2 条消息；双方都必须事先提供对端静态公钥。
 
-哈希是 ``NoiseConfig::hash``（默认 ``Sha256``）：
+哈希是 ``NoiseConfig::hash()``（默认 ``Sha256``）：
 
 * ``Sha256``（HASHLEN 32）与 ``Sha512``（HASHLEN 64）— 协议名后缀 ``SHA256`` / ``SHA512``。
 * ``Blake2s``（HASHLEN 32）与 ``Blake2b``（HASHLEN 64）— 后缀 ``BLAKE2s`` / ``BLAKE2b``。
@@ -2848,7 +2946,7 @@ PSK 不是独立 pattern，而是 ``NoisePskModifier``（``None`` / ``Psk0``–`
   ``EncryptWithAd`` / ``DecryptWithAd`` 失败。``setNonce(n)`` 仅接受 ``n <= MaxNonce``，
   超出时忽略并记录 warning。``2^64-1`` 保留给 ``rekey()``
   （``ENCRYPT(k, 2^64-1, zerolen, zeros)``），不用作传输 nonce。
-  ``rekey()`` 按 Noise 规范替换密钥，不重置 nonce。
+  ``rekey()`` 按 Noise 规范替换密钥，并将 nonce 重置为 0（Noise 规范 ``Rekey``）。
 * ``NoiseHandshakeState`` — XX / IK / XK / KK 握手状态机；``initialize(const NoiseConfig &)``
   对 ``prologue`` 做 ``MixHash``（含空 prologue），仅接受 32 字节密钥的 ``ChaCha20Poly1305`` /
   ``Aes256Gcm``（拒绝 AES-128-GCM）；若选择 ``Blake2s`` / ``Blake2b`` 而 OpenSSL/LibreSSL 未提供
@@ -2876,8 +2974,8 @@ PSK 不是独立 pattern，而是 ``NoisePskModifier``（``None`` / ``Psk0``–`
     NoiseKey bob = NoiseKey::generate();
     auto client = make_shared<NoiseSocket>(asSocketLike(tcpClient));
     auto server = make_shared<NoiseSocket>(asSocketLike(tcpServer));
-    NoiseConfig clientCfg(alice.privateKey);  // XX 发起方，SHA-256，ChaChaPoly
-    NoiseConfig serverCfg(bob.privateKey);
+    NoiseConfig clientCfg(alice.privateKey());  // XX 发起方，SHA-256，ChaChaPoly
+    NoiseConfig serverCfg(bob.privateKey());
     serverCfg.role = NoiseRole::Responder;
     client->initialize(clientCfg);
     server->initialize(serverCfg);
@@ -3022,6 +3120,9 @@ OpenSSL 和 LibreSSL 会在首次使用时自行初始化，并在整个进程�
 
     输入文件内容复制到输出文件，支持大文件传输。参数：inputFile/outputFile：输入输出文件对象,bytesToCopy：要复制的字节数（-1 表示全部）,suitableBlockSize：缓冲区大小（默认8KB）。
 
+    读取失败（例如 ``GzipFile`` 解压错误返回负值）或输入在复制满 ``bytesToCopy`` 字节前
+    提前结束（EOF）时返回 ``false``，否则返回 ``true``。
+
 7.1.1 FileLike
 +++++++++++++++
 抽象基类，定义文件操作的通用接口，支持读写、关闭、获取大小等操作。
@@ -3152,7 +3253,7 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 
 .. method:: std::int64_t size()
 
-    返回文件大小
+    返回文件大小；路径不存在时返回 0
 
 .. method:: std::string path() 
 
@@ -3168,23 +3269,23 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 
 .. method:: std::string name() const
 
-    返回文件名（不包含扩展名）
+    返回路径最后一段（文件名，含扩展名）
 
 .. method:: std::string baseName() const
 
-    返回文件名（不包含扩展名）
+    返回去掉最后一级扩展名的文件名（如 ``"archive.tar.bz"`` → ``"archive"``）
 
 .. method:: std::string suffix() const
 
-    返回文件最后一级扩展名
+    返回最后一级扩展名（不含前导点，如 ``"bz"``）
 
 .. method:: std::string completeBaseName() const
 
-    返回多级文件名
+    返回去掉最后一级扩展名的完整文件名（如 ``"archive.tar"``）
 
 .. method:: std::string completeSuffix() const
 
-    返回多级扩展名
+    返回第一个点之后的所有扩展名段拼接（如 ``"tar.bz"``）
 
 .. method:: std::string toAbsolute() const
 
@@ -3192,15 +3293,16 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 
 .. method:: std::string relativePath(const std::string &other) const
 
-    返回相对路径
+    返回 ``other`` 相对当前路径的结果（字符串版本）
 
 .. method:: std::string relativePath(const PosixPath &other) const
 
-    返回相对路径
+    返回 ``other`` 相对当前路径的结果（对象版本），语义与
+    ``QDir::relativeFilePath`` 一致（向上级时保留尾斜杠，如 ``"../"``）
 
 .. method:: bool isChildOf(const PosixPath &other) const
 
-    判断是否为子路径
+    判断当前路径是否位于 ``other`` 之内；路径是自身的子路径，也是 null 的子路径
 
 .. method:: bool hasChildOf(const PosixPath &other) const
 
@@ -3232,7 +3334,7 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 
 .. method:: bool touch()
 
-    更新文件访问/修改时间
+    未实现：恒返回 ``false`` 且不创建文件
 
 .. method:: std::shared_ptr<FileLike> open(const std::string &mode = std::string()) const
 
@@ -3251,8 +3353,8 @@ POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 .. method:: std::pair<std::string, std::string> safeJoinPath(const std::string &parentDir, const std::string &subPath)
 
     安全地将 ``subPath`` 拼到 ``parentDir`` 下。``subPath`` 开头的分隔符会被去掉，
-    按相对父目录处理（与 HTTP URL 路径一致）。含 ``..`` 的路径会被拒绝。
-    失败时返回的 pair 两个字符串都为空。
+    按相对父目录处理（与 HTTP URL 路径一致）。``.`` 段会被丢弃，``..`` 段弹出前一段，
+    因此结果不会逃出 ``parentDir``。返回拼接后的完整路径与规范化后的安全子路径。
 
 7.2 Bencode
 ^^^^^^^^^^^
@@ -3486,7 +3588,7 @@ API 对齐 ``WebSocketConnection``：协程阻塞式 ``publish`` / ``subscribe``
         client->publish(qtng::MqttMessage("sensors/temp", "22.5", qtng::MqttQos::AtLeastOnce));
 
         qtng::MqttMessage msg = client->recv();
-        std::cout << msg.topic << ": " << msg.payload << std::endl;
+        std::cout << msg.topic() << ": " << msg.payload() << std::endl;
         client->disconnect();
         return 0;
     }
@@ -3769,6 +3871,11 @@ ikcp MTU 相关接口），而是使用 BEP-29 / LEDBAT 参数：
 线协议为 µTP v1（``ST_DATA`` / ``ST_FIN`` / ``ST_STATE`` / ``ST_RESET`` / ``ST_SYN``），
 按 ``connection_id`` 解复用。运行时不依赖 libutp。
 
+``connect()`` 在 ``ConnectingState`` 下执行 SYN/SYN-ACK 握手，带 10 秒硬超时：对端
+无应答时返回失败并回到 ``UnconnectedState``（错误为 ``SocketTimeoutError``），不会无限
+阻塞。连接建立后，内部更新协程以 50 ms 为周期睡眠并让出事件循环，活跃的 uTP 会话不会
+忙循环占用调度器。
+
 ``UtpSocket``（``udp.h``）是 ``UdpDatagramLink`` + ``UtpStream`` 的薄 UDP 门面，用法对齐
 ``KcpSocket``。可用 ``wrapUtpStreamAsSocket``、``asSocketLike`` 与 ``UtpServer``。工厂
 ``UtpSocket::createConnection`` / ``createServer`` 不接受 KCP ``Mode`` 参数。
@@ -3782,7 +3889,7 @@ ikcp MTU 相关接口），而是使用 BEP-29 / LEDBAT 参数：
 * ``QuicConfiguration`` — ALPN、空闲超时、是否校验对端证书、服务端证书/私钥、流控窗口。
 * ``QuicConnection`` — ``connect``（UDP 地址、主机名或 ``DatagramPath``）、``serve``
   （在已绑定链路上完成单连接服务端握手）、``openStream`` / ``acceptStream``、
-  ``close`` / ``abort``、``handshakeDone`` 事件。
+  ``close`` / ``abort``、``handshakeDone()`` 事件。
 * ``QuicStream`` — 协程阻塞式 ``recv`` / ``send`` / ``close`` / ``reset``；
   ``asSocketLike(shared_ptr<QuicStream>)`` 可接入需要 ``SocketLike`` 的组件。
 
@@ -3946,6 +4053,8 @@ API 相同）。
     .. method:: std::uint16_t localPort() const
     .. method:: std::shared_ptr<DhtStore> store() const
 
+        返回节点正在使用的 store。``open()`` 未显式传 store 时，返回节点内部创建的默认 ``MemoryDhtStore``。
+
     .. method:: bool bootstrap(const std::vector<DhtEndpoint> &seeds)
 
         对每个 seed 发 ping，再迭代 ``find_node(self)`` 填充路由表。
@@ -4051,7 +4160,7 @@ API 相同）。
     h.wait();  // 协程内阻塞直至完成或出错
 
     qtng::TorrentStats st = h.stats();
-    // st.progress, st.peersConnected, st.state, ...
+    // st.progress(), st.peersConnected(), st.state(), ...
 
 Qt Widgets 演示见 ``examples/btclient/``（支持 ``.torrent`` 路径或 magnet URI）。
 

@@ -327,7 +327,7 @@ Get data from ``HttpResponse``
 
     HttpResponse resp = session.get(url);
     ngDebug() << resp.isOk();  // return true if there is no error
-    ngDebug() << resp.getContentType();  // the content type of response.
+    ngDebug() << resp.contentType();  // the content type of response.
     ngDebug() << resp.statusCode();  // the status code of response: 200
     ngDebug() << resp.statusText();  // the status text of response: OK
     

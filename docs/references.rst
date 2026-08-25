@@ -630,7 +630,7 @@ A `semaphore` is a variable or abstract data type used to control access to a co
     {
         ScopedLock<Semaphore> l(semaphore);
         HttpSession session;
-        ngDebug() << session.get("https://news.163.com").statusCode;
+        ngDebug() << session.get("https://news.163.com").statusCode();
     }
 
     int main()
@@ -1228,7 +1228,7 @@ These are the member functions of ``Socket`` type.
 
     Make a DNS query to resolve the ``hostName``. If the ``hostName`` is an IP address, return the IP immediately.
 
-    Internationalized domain names (IDN) are converted to Punycode (ACE) via ``utils::toAce()`` before querying the resolver, so hostnames containing non-ASCII characters (e.g. ``"bücher.com"``, ``"中文.com"``) are supported. The conversion is a minimal IDNA shell: pure-ASCII labels pass through unchanged, non-ASCII labels are encoded with the ``xn--`` ACE prefix. Unicode normalization (NFKC), case folding for non-ASCII, and Bidi/Joining checks are **not** performed, so callers should ASCII-lowercase hostnames themselves when needed. For standalone validation of arbitrary UTF-8 text, use ``utils::isValidUtf8()``.
+    Internationalized domain names (IDN) are converted to Punycode (ACE) via ``utils::toAce()`` before querying the resolver, so hostnames containing non-ASCII characters (e.g. ``"bücher.com"``, ``"中文.com"``) are supported. The conversion is a minimal IDNA shell: pure-ASCII labels pass through unchanged, non-ASCII labels are encoded with the ``xn--`` ACE prefix. Unicode normalization (NFKC), case folding for non-ASCII, and Bidi/Joining checks are **not** performed, so callers should ASCII-lowercase hostnames themselves when needed. Malformed names containing an empty label other than a single trailing dot (e.g. ``"..example.org"``) are rejected: ``utils::toAce()`` returns an empty string for them, matching ``QUrl::toAce``. For standalone validation of arbitrary UTF-8 text, use ``utils::isValidUtf8()``.
 
 .. method:: void setDnsCache(std::shared_ptr<SocketDnsCache> dnsCache)
 
@@ -1378,21 +1378,25 @@ The second constructor use the ``hostName`` and ``port`` to create a valid Socks
 
     Use this function to connect to ``remoteHost`` at ``port`` via this proxy.
 
-    Return new ``Socket`` connect to ``remoteHost`` if success, otherwise returns an zero pointer.
+    Return new ``Socket`` connect to ``remoteHost`` if success.
 
     This function block current coroutine until the connection is made, or failed.
 
     The DNS query of ``remoteHost`` is made at the proxy server.
 
+    If the connection cannot be made, a ``Socks5Exception`` is thrown (see below).
+
 .. method:: std::shared_ptr<Socket> connect(const HostAddress &remoteHost, std::uint16_t port)
 
     Connect to ``remoteHost`` at ``port`` via this proxy.
 
-    Return new ``Socket`` connect to ``remoteHost`` if success, otherwise returns an zero pointer.
+    Return new ``Socket`` connect to ``remoteHost`` if success.
 
     This function block current coroutine until the connection is made, or failed.
 
     This function is similar to ``connect(std::string, std::uint16_t)`` except that there is no DNS query made.
+
+    If the connection cannot be made, a ``Socks5Exception`` is thrown (see below).
 
 .. method:: std::shared_ptr<SocketLike> listen(std::uint16_t port)
 
@@ -1449,6 +1453,32 @@ The second constructor use the ``hostName`` and ``port`` to create a valid Socks
 .. method:: void setPassword(const std::string &password)
 
     Set the ``password`` used for autherication of proxy server.
+
+.. class:: Socks5Exception
+
+    Thrown by ``Socks5Proxy::connect()`` when the connection through the proxy
+    fails. The failure is classified with ``error()`` and described by
+    ``errorString()``.
+
+    .. method:: Error error() const
+
+        Return the error classification:
+
+        - ``ProxyConnectionRefusedError`` -- the connection to the proxy server was refused.
+        - ``ProxyConnectionClosedError`` -- the proxy server closed the connection.
+        - ``ProxyConnectionTimeoutError`` -- the connection to the proxy server timed out.
+        - ``ProxyNotFoundError`` -- the proxy host name could not be resolved.
+        - ``ProxyProtocolError`` -- SOCKS version 5 protocol error.
+        - ``ProxyAuthenticationRequiredError`` -- proxy authentication failed.
+        - ``SocksFailure``, ``ConnectionNotAllowed``, ``NetworkUnreachable``,
+          ``HostUnreachable``, ``ConnectionRefused``, ``TTLExpired``,
+          ``CommandNotSupported``, ``AddressTypeNotSupported`` -- the proxy server
+          replied the corresponding CONNECT error code.
+
+    .. method:: std::string errorString() const
+
+        Return a human-readable message describing the error. ``what()`` returns
+        the same string.
 
 2.4 SocketServer
 ^^^^^^^^^^^^^^^^
@@ -1686,7 +1716,7 @@ KCP protocol server implementation.
 3. Http Client
 --------------
 
-``HttpSession`` is an HTTP 1.0/1.1 and HTTP/2 client (HTTPS negotiates ``h2`` via ALPN; Server Push is not supported, and there is no HTTP/2 server). The HTTP/2 path supports multiplexing, connection/stream flow control, ``MAX_CONCURRENT_STREAMS``, HEADERS/CONTINUATION fragmentation, trailer consumption, and streaming reads via ``streamResponse``. It has automatic cookie management and automatic redirection. ``HttpSession::send()`` is the core function, which sends request to web server, then parses the response. Other than these, ``HttpSession`` provides many shortcut function, such as ``get()``, ``post()``, ``head()``, etc. Those functions help you to make http request in one line code.
+``HttpSession`` is an HTTP 1.0/1.1 and HTTP/2 client (HTTPS negotiates ``h2`` via ALPN; Server Push is not supported, and there is no HTTP/2 server). The HTTP/2 path supports multiplexing, connection/stream flow control, ``MAX_CONCURRENT_STREAMS``, HEADERS/CONTINUATION fragmentation, trailer consumption, and streaming reads via ``streamResponse``. It has automatic cookie management and automatic redirection. ``HttpSession::send()`` is the core function, which sends request to web server, then parses the response. Other than these, ``HttpSession`` provides many shortcut function, such as ``get()``, ``post()``, ``query()``, ``head()``, etc. Those functions help you to make http request in one line code.
 
 ``HttpSession`` can use Socks5 proxy which is default to none. However the support for HTTP proxy has not been implemented yet.
 
@@ -1732,7 +1762,7 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
 
     Send http request to web server, and parses the response.
 
-.. method:: HttpCookieJar &cookieJar()
+.. method:: std::shared_ptr<HttpCookieJar> cookieJar()
 
     Return the cookie manager.
 
@@ -1807,6 +1837,10 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
 .. method:: std::shared_ptr<Socks5Proxy> socks5Proxy() const
 
     Return the SOCKS5 proxy.
+
+.. method:: void setProxySwitcher(HttpSession *session, std::shared_ptr<BaseProxySwitcher> switcher)
+
+    Installs a proxy switcher on the session. Each request asks the switcher through ``selectSocketProxy()`` / ``selectHttpProxy()`` which proxy (if any) to use, so a custom ``BaseProxySwitcher`` subclass really participates in per-request routing. Passing a null switcher resets the session to a default ``SimpleProxySwitcher``.
 
 .. method:: void setCacheManager(std::shared_ptr<HttpCacheManager> cacheManager)
 
@@ -1885,6 +1919,17 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
         HttpResponse post(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
         HttpResponse post(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
+        HttpResponse query(const std::string &url, const std::string &body);
+        HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body);
+        HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body);
+        HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body);
+        HttpResponse query(const std::string &url, const FormData &body);
+        HttpResponse query(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
+
         HttpResponse patch(const std::string &url, const std::string &body);
         HttpResponse patch(const std::string &url, const std::map<std::string, std::string> &body);
         HttpResponse patch(const std::string &url, const qtng::utils::UrlQuery &body);
@@ -1919,6 +1964,36 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
         HttpResponse put(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
         HttpResponse put(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
+
+.. method:: HttpResponse query(const std::string &url, const std::string &body)
+
+    Send HTTP request to web server using the QUERY method, defined by `RFC 10008 <https://www.rfc-editor.org/rfc/rfc10008.html>`_.
+
+    QUERY is a safe and idempotent method: on the wire it looks like POST
+    (the input travels as request content), but it carries GET semantics, so
+    caches and automatic retries may treat it as harmless. This is the right
+    tool when the query parameters are too long for a URI, hard to encode as a
+    URI, or should stay out of access logs and browser history.
+
+    Per RFC 10008 the server must reject a QUERY request that lacks a
+    ``Content-Type`` header, so pass one explicitly when sending a raw body.
+    On redirects, QUERY keeps its method and content for 301/302/307/308 and
+    only degrades to a plain GET on 303.
+
+    There are many similar functions:
+
+    .. code-block:: c++
+
+        HttpResponse query(const std::string &url, const std::string &body);
+        HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body);
+        HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body);
+        HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body);
+        HttpResponse query(const std::string &url, const FormData &body);
+        HttpResponse query(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+        HttpResponse query(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
 .. method:: int webSocketErrorCode() const
 
@@ -1932,6 +2007,22 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
 
     Return the last WebSocket handshake error reason from ``HttpSession::ws(...)``.
     Empty string means no error.
+
+.. method:: std::shared_ptr<SslConfiguration> sslConfiguration()
+
+    Return the SSL configuration used by ``HttpSession`` for HTTPS connections.
+
+.. method:: void setSslConfiguration(const std::shared_ptr<SslConfiguration> &configuration)
+
+    Set the SSL configuration used by ``HttpSession`` for HTTPS connections.
+
+.. method:: std::shared_ptr<WebSocketConfiguration> webSocketConfiguration()
+
+    Return the WebSocket configuration used by ``HttpSession`` for WebSocket connections.
+
+.. method:: void setWebSocketConfiguration(const std::shared_ptr<WebSocketConfiguration> &configuration)
+
+    Set the WebSocket configuration used by ``HttpSession`` for WebSocket connections.
 
 3.2 HttpResponse
 ^^^^^^^^^^^^^^^^
@@ -2089,6 +2180,19 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
 
     Return the body of request.
 
+.. method:: std::string bodyAsString() const
+
+    Return the body of request as an in-memory string.
+
+    The content is extracted from the body ``FileLike`` itself, so no separate
+    copy is kept: only ``BytesIO`` (what ``setBody(std::string)`` and its
+    map/UrlQuery/FormData helpers construct) exposes its full content
+    regardless of the read position, and returns it here. Any other
+    ``FileLike`` stream is consumed by the first send attempt and yields an
+    empty string, in which case the caller must rewind the stream itself
+    before retrying. This lets the session re-send a QUERY/POST body when
+    following a redirect.
+
 .. method:: void setBody(const std::string &body)
 
     Set the body of request.
@@ -2201,7 +2305,7 @@ Before using the ``HttpResponse``, you should check ``HttpResonse::isOk()``. If 
 
 * HTTPError
 
-    Web server returns an HTTP error. The error code is ``HTTPError::statusCode``.
+    Web server returns an HTTP error. The error code is ``HTTPError::statusCode()``.
 
 * ConnectionError
 
@@ -2317,6 +2421,7 @@ Base class for handling HTTP requests, providing core functionality for HTTP pro
 
         virtual void doGET();
         virtual void doPOST();
+        virtual void doQUERY();  // RFC 10008
         virtual void doPUT();
         virtual void doDELETE();
         virtual void doPATCH();
@@ -2349,9 +2454,17 @@ Base class for handling HTTP requests, providing core functionality for HTTP pro
 
     Reads request body via Content-Length or Transfer-Encoding, handles GZIP/DEFLATE decompression (requires QTNG_HAVE_ZLIB), supports chunked encoding. Returns readable FileLike object containing request body.
 
+.. method:: bool readBody()
+
+    Reads the complete request body into the ``body`` member, honoring ``Content-Length`` / ``Transfer-Encoding``, the ``maxBodySize`` limit and content decoding (see ``bodyAsFile()``). Returns true on success, false on error (for example when the body exceeds the configured limit).
+
+.. method:: static std::string normalizePath(const std::string &path)
+
+    Normalizes a request path using strict URL parsing: collapses ``.`` / ``..`` path segments and keeps the query string. For example ``/a/../b`` becomes ``/b`` and ``/a?x=1`` stays ``/a?x=1``.
+
 .. method:: bool switchToWebSocket()
 
-    Validates Upgrade: websocket and the Connection header containing an "Upgrade" token (case-insensitive), calculates and returns Sec-WebSocket-Accept, marks connection upgrade to WebSocket.
+    Validates Upgrade: websocket and the Connection header containing an "Upgrade" token (case-insensitive), then responds with 101 Switching Protocols and ``Sec-WebSocket-Accept`` computed per RFC6455 as ``base64(SHA1(sec-websocket-key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))``, marking the connection upgraded to WebSocket.
 
 .. method:: virtual void logRequest(HttpStatus status, int bodySize);
 
@@ -2507,10 +2620,6 @@ MD4 and Whirlpool are not provided. SHA-3, SHA-512/224, SHA-512/256, BLAKE2, SM3
 
     Computes an HMAC (RFC 2104) of ``data`` with the given ``key`` using the specified digest. Returns an empty string on failure (unsupported digest or empty key). Requires OpenSSL/LibreSSL; not available in the ``QTNG_NO_CRYPTO`` software fallback.
 
-.. method:: std::string scrypt(int keylen, const std::string &password, const std::string &salt, int n = 1048576, int r = 8, int p = 1)
-
-    Not yet implemented.
-
 5.2 Symmetric Encryption and Decryption
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Cipher
@@ -2523,7 +2632,7 @@ Provides symmetric encryption/decryption functionality. Supports multiple algori
 
 .. method:: Cipher *copy(Operation operation)
 
-    Copies the current configuration and creates a new Cipher instance.
+    Creates a new Cipher with the same algorithm and mode, but the given operation. Deep-copies the key, IV and padding settings, so the copy is immediately usable for encryption/decryption. Returns ``nullptr`` if the source cipher is not valid (not initialized).
 
 .. method:: bool isValid()
 
@@ -3075,7 +3184,7 @@ Handshake patterns (X25519):
 * ``KK`` (``Noise_KK_25519_*_*``) — two messages; both sides must already know
   each other's static public keys.
 
-Hash is ``NoiseConfig::hash`` (default ``Sha256``):
+Hash is ``NoiseConfig::hash()`` (default ``Sha256``):
 
 * ``Sha256`` (HASHLEN 32) and ``Sha512`` (HASHLEN 64) — protocol-name suffixes
   ``SHA256`` / ``SHA512``.
@@ -3124,7 +3233,7 @@ PSK is a ``NoisePskModifier`` (``None`` / ``Psk0``–``Psk3``), not a separate p
   ``MaxNonce``. ``setNonce(n)`` accepts only ``n <= MaxNonce``; larger values are
   ignored with a warning. ``2^64-1`` is reserved for ``rekey()``
   (``ENCRYPT(k, 2^64-1, zerolen, zeros)``) and is never used as a transport nonce.
-  ``rekey()`` replaces the key without resetting the nonce.
+  ``rekey()`` replaces the key and resets the nonce to ``0`` (Noise spec ``Rekey``).
 * ``NoiseHandshakeState`` — XX / IK / XK / KK handshake state machine;
   ``initialize(const NoiseConfig &)`` applies MixHash to ``prologue`` (including empty),
   accepts only 32-byte-key ``ChaCha20Poly1305`` / ``Aes256Gcm`` (AES-128-GCM is rejected),
@@ -3164,8 +3273,8 @@ PSK is a ``NoisePskModifier`` (``None`` / ``Psk0``–``Psk3``), not a separate p
     NoiseKey bob = NoiseKey::generate();
     auto client = make_shared<NoiseSocket>(asSocketLike(tcpClient));
     auto server = make_shared<NoiseSocket>(asSocketLike(tcpServer));
-    NoiseConfig clientCfg(alice.privateKey);  // XX initiator, SHA-256, ChaChaPoly
-    NoiseConfig serverCfg(bob.privateKey);
+    NoiseConfig clientCfg(alice.privateKey());  // XX initiator, SHA-256, ChaChaPoly
+    NoiseConfig serverCfg(bob.privateKey());
     serverCfg.role = NoiseRole::Responder;
     client->initialize(clientCfg);
     server->initialize(serverCfg);
@@ -3317,6 +3426,10 @@ Core Functions:
     * bytesToCopy: Bytes to copy (-1 for full content)
     * suitableBlockSize: Buffer size (default 8KB).
 
+    Returns ``false`` if a read fails (e.g. a decompression error reported by a
+    ``GzipFile``, or any negative read) or if the input ends before ``bytesToCopy``
+    bytes have been copied; ``true`` otherwise.
+
 7.1.1 FileLike
 +++++++++++++++
 
@@ -3451,7 +3564,7 @@ POSIX-compliant path handling for cross-platform file operations.
 
 .. method:: std::int64_t size()
 
-    Get file size.
+    Get file size; returns 0 for a non-existent path.
 
 .. method:: std::string path()
 
@@ -3485,23 +3598,23 @@ POSIX-compliant path handling for cross-platform file operations.
 
 .. method:: std::string name() const
 
-    Get filename (without extension).
+    Get the last path component (the file name, including any extension).
 
 .. method:: std::string baseName() const
 
-    Alias of name().
+    Get the file name without its last extension (e.g. ``"archive"`` for ``"archive.tar.bz"``).
 
 .. method:: std::string suffix() const
 
-    Get last extension.
+    Get the last extension without the leading dot (e.g. ``"bz"``).
 
 .. method:: std::string completeBaseName() const
 
-    Get multi-segment filename.
+    Get the file name with all but the last extension segment (e.g. ``"archive.tar"``).
 
 .. method:: std::string completeSuffix() const
 
-    Get multi-segment extension.
+    Get all extension segments after the first dot, joined (e.g. ``"tar.bz"``).
 
 .. method:: std::string toAbsolute() const
 
@@ -3509,15 +3622,17 @@ POSIX-compliant path handling for cross-platform file operations.
 
 .. method:: std::string relativePath(const std::string &other) const
 
-    Get relative path (string version).
+    Get ``other`` relative to this path (string version).
 
 .. method:: std::string relativePath(const PosixPath &other) const
 
-    Get relative path (object version).
+    Get ``other`` relative to this path (object version), with
+    ``QDir::relativeFilePath`` semantics (up-levels keep a trailing slash, e.g. ``"../"``).
 
 .. method:: bool isChildOf(const PosixPath &other) const
 
-    Check descendant relationship.
+    Check whether this path is inside ``other``. A path is a child of itself and of a
+    null path.
 
 .. method:: bool hasChildOf(const PosixPath &other) const
 
@@ -3529,7 +3644,7 @@ POSIX-compliant path handling for cross-platform file operations.
 
 .. method:: bool touch()
 
-    Update file access/modification times.
+    Not implemented: always returns ``false`` and never creates the file.
 
 .. method:: std::shared_ptr<FileLike> open(const std::string &mode = std::string()) const
 
@@ -3548,9 +3663,10 @@ POSIX-compliant path handling for cross-platform file operations.
 
 .. method:: std::pair<std::string, std::string> safeJoinPath(const std::string &parentDir, const std::string &subPath)
 
-    Safely join ``subPath`` under ``parentDir``. Leading separators in ``subPath``
-    are treated as relative to the parent (as with HTTP URL paths). Rejects
-    ``..`` segments. On failure both strings in the returned pair are empty.
+    Safely join ``subPath`` under ``parentDir`` (leading separators in ``subPath`` are
+    treated as relative to the parent, as with HTTP URL paths). ``.`` segments are
+    dropped and ``..`` segments pop the previous segment, so the result never escapes
+    ``parentDir``. Returns the joined path and the normalized safe sub-path.
 
 7.2 Bencode
 ^^^^^^^^^^^
@@ -3791,7 +3907,7 @@ Example (plaintext)::
         client->publish(qtng::MqttMessage("sensors/temp", "22.5", qtng::MqttQos::AtLeastOnce));
 
         qtng::MqttMessage msg = client->recv();
-        std::cout << msg.topic << ": " << msg.payload << std::endl;
+        std::cout << msg.topic() << ": " << msg.payload() << std::endl;
         client->disconnect();
         return 0;
     }
@@ -4095,6 +4211,12 @@ It does **not** expose KCP-specific APIs (``Mode``, ``setMode``, ``setSendQueueS
 Wire protocol is µTP v1 (``ST_DATA`` / ``ST_FIN`` / ``ST_STATE`` / ``ST_RESET`` / ``ST_SYN``)
 with connection-id demultiplexing. Runtime does not depend on libutp.
 
+``connect()`` performs a SYN/SYN-ACK handshake under a hard 10-second deadline: an
+unanswered SYN fails with ``SocketTimeoutError`` and returns to ``UnconnectedState``
+instead of blocking forever. Once a session is established, the internal update
+coroutine sleeps between ticks (50 ms) and yields the event loop, so an active uTP
+session never stalls the scheduler.
+
 ``UtpSocket`` (``udp.h``) is the thin UDP façade around ``UdpDatagramLink`` + ``UtpStream``,
 analogous to ``KcpSocket``. Use ``wrapUtpStreamAsSocket``, ``asSocketLike``, and
 ``UtpServer`` the same way as the KCP counterparts. Factory helpers
@@ -4110,7 +4232,7 @@ subset). It does **not** implement HTTP/3.
   certificate / private key, flow-control windows.
 * ``QuicConnection`` — ``connect`` (UDP address, hostname, or ``DatagramPath``),
   ``serve`` (single-connection server handshake on a bound link), ``openStream`` /
-  ``acceptStream``, ``close`` / ``abort``, ``handshakeDone`` event.
+  ``acceptStream``, ``close`` / ``abort``, ``handshakeDone()`` event.
 * ``QuicStream`` — blocking coroutine ``recv`` / ``send`` / ``close`` / ``reset``;
   ``asSocketLike(shared_ptr<QuicStream>)`` for adapters that expect ``SocketLike``.
 
@@ -4291,6 +4413,9 @@ qtng network APIs).
     .. method:: std::uint16_t localPort() const
     .. method:: std::shared_ptr<DhtStore> store() const
 
+        Returns the store in use. When ``open()`` was called without an explicit
+        store, this is the ``MemoryDhtStore`` created internally by the node.
+
     .. method:: bool bootstrap(const std::vector<DhtEndpoint> &seeds)
 
         Ping each seed, then iterative ``find_node(self)`` to populate the table.
@@ -4401,7 +4526,7 @@ Example::
     h.wait();  // coroutine-blocking until finished or error
 
     qtng::TorrentStats st = h.stats();
-    // st.progress, st.peersConnected, st.state, ...
+    // st.progress(), st.peersConnected(), st.state(), ...
 
 A Qt Widgets demo lives under ``examples/btclient/`` (accepts ``.torrent`` paths or
 magnet URIs).

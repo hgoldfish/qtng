@@ -328,7 +328,7 @@ API设计灵感源自Python的*requests*模块。
 
     HttpResponse resp = session.get(url);
     ngDebug() << resp.isOk();       // 无错误返回true
-    ngDebug() << resp.getContentType();  // 响应内容类型
+    ngDebug() << resp.contentType();  // 响应内容类型
     ngDebug() << resp.statusCode();      // 状态码如200
     ngDebug() << resp.statusText();      // 状态文本如OK
     
