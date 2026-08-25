@@ -1,4 +1,5 @@
 #include <limits>
+#include <utility>
 #include <QtCore/qiodevice.h>
 #include <QtCore/qbuffer.h>
 #include <QtCore/qstringlist.h>
@@ -132,7 +133,59 @@ QVariantWireKind variantWireKind(quint8 b)
     return QVariantWireKind::Unknown;
 }
 
+// Mirror of qtng_core::detail::msgPackUnpackDatetime: decodes a msgpack timestamp ext payload of
+// 4/8/12 bytes into a QDateTime. The caller guarantees the size already.
+QDateTime unpackDatetime(const QByteArray &bs)
+{
+    quint64 seconds = 0;
+    quint64 nanoseconds = 0;
+    if (bs.size() == 4) {
+        seconds = qFromBigEndian<quint32>(static_cast<const void *>(bs.constData()));
+    } else if (bs.size() == 8) {
+        const quint64 t = qFromBigEndian<quint64>(static_cast<const void *>(bs.constData()));
+        seconds = t & 0x00000003ffffffffULL;
+        nanoseconds = t >> 34;
+    } else if (bs.size() == 12) {
+        nanoseconds = qFromBigEndian<quint32>(static_cast<const void *>(bs.constData()));
+        seconds = static_cast<quint64>(qFromBigEndian<qint64>(static_cast<const void *>(bs.constData() + 4)));
+    } else {
+        return QDateTime();
+    }
+    return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(seconds * 1000 + nanoseconds / 1000000));
+}
+
 }  // namespace
+
+MsgPackExtData::MsgPackExtData()
+    : type_(0)
+{
+}
+
+MsgPackExtData::MsgPackExtData(quint8 type, QByteArray payload)
+    : type_(type)
+    , payload_(std::move(payload))
+{
+}
+
+quint8 MsgPackExtData::type() const
+{
+    return type_;
+}
+
+void MsgPackExtData::setType(quint8 type)
+{
+    type_ = type;
+}
+
+const QByteArray &MsgPackExtData::payload() const
+{
+    return payload_;
+}
+
+void MsgPackExtData::setPayload(const QByteArray &payload)
+{
+    payload_ = payload;
+}
 
 class MsgPackStreamPrivate
 {
@@ -365,6 +418,10 @@ MsgPackStream &MsgPackStream::operator>>(QDateTime &dt)
 MsgPackStream &MsgPackStream::operator<<(const QDateTime &dt)
 {
     Q_D(MsgPackStream);
+    if (!dt.isValid()) {
+        d->core.setStatus(qtng_core::MsgPackStream::WriteFailed);
+        return *this;
+    }
     d->core << qtng_core::utils::DateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch());
     return *this;
 }
@@ -374,8 +431,8 @@ MsgPackStream &MsgPackStream::operator>>(MsgPackExtData &ext)
     Q_D(MsgPackStream);
     qtng_core::MsgPackExtData cext;
     d->core >> cext;
-    ext.type = cext.type;
-    ext.payload = toQByteArray(cext.payload);
+    ext.setType(cext.type());
+    ext.setPayload(toQByteArray(cext.payload()));
     return *this;
 }
 
@@ -383,8 +440,8 @@ MsgPackStream &MsgPackStream::operator<<(const MsgPackExtData &ext)
 {
     Q_D(MsgPackStream);
     qtng_core::MsgPackExtData cext;
-    cext.type = ext.type;
-    cext.payload = toStdString(ext.payload);
+    cext.setType(ext.type());
+    cext.setPayload(toStdString(ext.payload()));
     d->core << cext;
     return *this;
 }
@@ -437,9 +494,15 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
         break;
     }
     case QVariantWireKind::Float: {
-        double x = 0;
-        s >> x;
-        v = x;
+        if (b == qtng_core::FirstByte::FLOAT32) {
+            float f = 0;
+            s >> f;
+            v = static_cast<double>(f);
+        } else {
+            double x = 0;
+            s >> x;
+            v = x;
+        }
         break;
     }
     case QVariantWireKind::String: {
@@ -495,15 +558,28 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
         break;
     }
     case QVariantWireKind::Ext: {
-        // Only the timestamp extension is supported (lafrpc serialization uses QDateTime as its only
-        // extension type).
-        qtng_core::utils::DateTime dt;
-        s >> dt;
-        if (s.status() == qtng_core::MsgPackStream::Ok) {
-            v = QDateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch());
-        } else {
+        // Timestamp ext (type 0xff) becomes a QDateTime; any other ext type is preserved as
+        // MsgPackExtData (lafrpc serialization uses QDateTime as its only extension type).
+        qtng_core::MsgPackExtData cext;
+        s >> cext;
+        if (s.status() != qtng_core::MsgPackStream::Ok) {
             s.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
             v = QVariant();
+            break;
+        }
+        if (cext.type() == 0xff) {
+            const QByteArray payload = toQByteArray(cext.payload());
+            if (payload.size() == 4 || payload.size() == 8 || payload.size() == 12) {
+                v = unpackDatetime(payload);
+            } else {
+                s.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+                v = QVariant();
+            }
+        } else {
+            MsgPackExtData ext;
+            ext.setType(cext.type());
+            ext.setPayload(toQByteArray(cext.payload()));
+            v = QVariant::fromValue(ext);
         }
         break;
     }
@@ -567,8 +643,13 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
         s.writeBytes(toStdString(v.toByteArray()));
         break;
     case QMetaType::QDateTime:
-        s << qtng_core::utils::DateTime::fromMSecsSinceEpoch(v.toDateTime().toMSecsSinceEpoch());
+        *this << v.toDateTime();
         break;
+    case QMetaType::QDate: {
+        const QDateTime dayStart(v.toDate(), QTime(0, 0, 0));
+        *this << dayStart;
+        break;
+    }
     case QMetaType::QVariantList: {
         const QVariantList &list = v.toList();
         if (!s.writeArrayHeader(static_cast<uint32_t>(list.size()))) {
@@ -618,6 +699,8 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
 #endif
             static const char nilByte[1] = {static_cast<char>(qtng_core::FirstByte::NIL)};
             s.writeBytes(nilByte, 1);
+        } else if (v.canConvert<MsgPackExtData>()) {
+            *this << v.value<MsgPackExtData>();
         } else {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
             qWarning() << "msgpack cannot write QVariant type:" << v.metaType().id() << "name:" << v.typeName();

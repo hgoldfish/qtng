@@ -46,13 +46,17 @@ QString toString(KnownHeader knownHeader)
 
 QDataStream &operator>>(QDataStream &ds, HttpHeader &header)
 {
-    ds >> header.name >> header.value;
+    QString name;
+    QByteArray value;
+    ds >> name >> value;
+    header.setName(name);
+    header.setValue(value);
     return ds;
 }
 
 QDataStream &operator<<(QDataStream &ds, const HttpHeader &header)
 {
-    ds << header.name << header.value;
+    ds << header.name() << header.value();
     return ds;
 }
 
@@ -66,13 +70,69 @@ QList<QByteArray> splitBytes(const QByteArray &bs, char sep, int maxSplit)
     return result;
 }
 
+class HeaderSplitterPrivate
+{
+public:
+    HeaderSplitterPrivate(QSharedPointer<SocketLike> connection, const QByteArray &buf, int debugLevel)
+        : core(toCoreSocketLike(std::move(connection)), toStdString(buf), debugLevel)
+    {
+    }
+    HeaderSplitterPrivate(QSharedPointer<SocketLike> connection, int debugLevel)
+        : core(toCoreSocketLike(std::move(connection)), debugLevel)
+    {
+    }
+    qtng_core::HeaderSplitter core;
+};
+
+class ChunkedBlockReaderPrivate
+{
+public:
+    ChunkedBlockReaderPrivate(QSharedPointer<FileLike> connection, const QByteArray &buf)
+        : core(toCoreFileLike(std::move(connection)), toStdString(buf))
+    {
+    }
+    qtng_core::ChunkedBlockReader core;
+};
+
+class PlainBodyFilePrivate
+{
+public:
+    PlainBodyFilePrivate(qint64 contentLength, const QByteArray &partialBody, QSharedPointer<SocketLike> stream)
+        : core(contentLength, toStdString(partialBody), toCoreSocketLike(std::move(stream)))
+    {
+    }
+    qtng_core::PlainBodyFile core;
+};
+
+class ChunkedBodyFilePrivate
+{
+public:
+    ChunkedBodyFilePrivate(qint64 maxBodySize, const QByteArray &partialBody, QSharedPointer<FileLike> stream)
+        : core(maxBodySize, toStdString(partialBody), toCoreFileLike(std::move(stream)))
+    {
+    }
+    qtng_core::ChunkedBodyFile core;
+};
+
+HeaderSplitter::HeaderSplitter(QSharedPointer<SocketLike> connection, const QByteArray &buf, int debugLevel)
+    : d_ptr(new HeaderSplitterPrivate(std::move(connection), buf, debugLevel))
+{
+}
+
+HeaderSplitter::HeaderSplitter(QSharedPointer<SocketLike> connection, int debugLevel)
+    : d_ptr(new HeaderSplitterPrivate(std::move(connection), debugLevel))
+{
+}
+
+HeaderSplitter::~HeaderSplitter()
+{
+    delete d_ptr;
+}
+
 QByteArray HeaderSplitter::nextLine(Error *error)
 {
-    qtng_core::HeaderSplitter splitter(toCoreSocketLike(connection), toStdString(buf), debugLevel);
     qtng_core::HeaderSplitter::Error coreError = qtng_core::HeaderSplitter::NoError;
-    const string line = splitter.nextLine(&coreError);
-    buf = toQByteArray(splitter.buf);
-    connection = toQtSocketLike(splitter.connection);
+    const string line = d_ptr->core.nextLine(&coreError);
     if (error) {
         *error = static_cast<Error>(coreError);
     }
@@ -81,11 +141,8 @@ QByteArray HeaderSplitter::nextLine(Error *error)
 
 HttpHeader HeaderSplitter::nextHeader(Error *error)
 {
-    qtng_core::HeaderSplitter splitter(toCoreSocketLike(connection), toStdString(buf), debugLevel);
     qtng_core::HeaderSplitter::Error coreError = qtng_core::HeaderSplitter::NoError;
-    const qtng_core::HttpHeader header = splitter.nextHeader(&coreError);
-    buf = toQByteArray(splitter.buf);
-    connection = toQtSocketLike(splitter.connection);
+    const qtng_core::HttpHeader header = d_ptr->core.nextHeader(&coreError);
     if (error) {
         *error = static_cast<Error>(coreError);
     }
@@ -94,11 +151,8 @@ HttpHeader HeaderSplitter::nextHeader(Error *error)
 
 QList<HttpHeader> HeaderSplitter::headers(int maxHeaders, Error *error)
 {
-    qtng_core::HeaderSplitter splitter(toCoreSocketLike(connection), toStdString(buf), debugLevel);
     qtng_core::HeaderSplitter::Error coreError = qtng_core::HeaderSplitter::NoError;
-    const vector<qtng_core::HttpHeader> coreHeaders = splitter.headers(maxHeaders, &coreError);
-    buf = toQByteArray(splitter.buf);
-    connection = toQtSocketLike(splitter.connection);
+    const vector<qtng_core::HttpHeader> coreHeaders = d_ptr->core.headers(maxHeaders, &coreError);
     if (error) {
         *error = static_cast<Error>(coreError);
     }
@@ -109,14 +163,30 @@ QList<HttpHeader> HeaderSplitter::headers(int maxHeaders, Error *error)
     return result;
 }
 
+QByteArray HeaderSplitter::buf() const
+{
+    return toQByteArray(d_ptr->core.buf());
+}
+
+void HeaderSplitter::setBuf(const QByteArray &buf)
+{
+    d_ptr->core.setBuf(toStdString(buf));
+}
+
+ChunkedBlockReader::ChunkedBlockReader(QSharedPointer<FileLike> connection, const QByteArray &buf)
+    : d_ptr(new ChunkedBlockReaderPrivate(std::move(connection), buf))
+{
+}
+
+ChunkedBlockReader::~ChunkedBlockReader()
+{
+    delete d_ptr;
+}
+
 QByteArray ChunkedBlockReader::nextBlock(qint64 leftBytes, Error *error)
 {
-    qtng_core::ChunkedBlockReader reader(toCoreFileLike(connection), toStdString(buf));
-    reader.debugLevel = debugLevel;
     qtng_core::ChunkedBlockReader::Error coreError = qtng_core::ChunkedBlockReader::NoError;
-    const string block = reader.nextBlock(leftBytes, &coreError);
-    buf = toQByteArray(reader.buf);
-    connection = toQtFileLike(reader.connection);
+    const string block = d_ptr->core.nextBlock(leftBytes, &coreError);
     if (error) {
         *error = static_cast<Error>(coreError);
     }
@@ -124,51 +194,62 @@ QByteArray ChunkedBlockReader::nextBlock(qint64 leftBytes, Error *error)
 }
 
 PlainBodyFile::PlainBodyFile(qint64 contentLength, const QByteArray &partialBody, QSharedPointer<SocketLike> stream)
-    : contentLength(contentLength)
-    , stream(std::move(stream))
-    , partialBody(partialBody)
-    , count(0)
+    : d_ptr(new PlainBodyFilePrivate(contentLength, partialBody, std::move(stream)))
 {
+}
+
+PlainBodyFile::~PlainBodyFile()
+{
+    delete d_ptr;
 }
 
 qint32 PlainBodyFile::read(char *data, qint32 size)
 {
-    qtng_core::PlainBodyFile file(contentLength, toStdString(partialBody), toCoreSocketLike(stream));
-    file.count = count;
-    const qint32 readBytes = file.read(data, size);
-    partialBody = toQByteArray(file.partialBody);
-    count = file.count;
-    return readBytes;
+    return d_ptr->core.read(data, size);
+}
+
+qint64 PlainBodyFile::contentLength() const
+{
+    return d_ptr->core.contentLength();
 }
 
 ChunkedBodyFile::ChunkedBodyFile(qint64 maxBodySize, const QByteArray &partialBody, QSharedPointer<FileLike> stream)
-    : reader(stream, partialBody)
-    , error(ChunkedBlockReader::NoError)
-    , maxBodySize(maxBodySize)
-    , count(0)
-    , eof(false)
+    : d_ptr(new ChunkedBodyFilePrivate(maxBodySize, partialBody, std::move(stream)))
 {
+}
+
+ChunkedBodyFile::~ChunkedBodyFile()
+{
+    delete d_ptr;
 }
 
 qint32 ChunkedBodyFile::read(char *data, qint32 size)
 {
-    qtng_core::ChunkedBodyFile file(maxBodySize, toStdString(reader.buf), toCoreFileLike(reader.connection));
-    file.reader = qtng_core::ChunkedBlockReader(toCoreFileLike(reader.connection), toStdString(reader.buf));
-    file.reader.debugLevel = reader.debugLevel;
-    file.error = static_cast<qtng_core::ChunkedBlockReader::Error>(error);
-    file.buf = toStdString(buf);
-    file.count = count;
-    file.eof = eof;
-    const qint32 readBytes = file.read(data, size);
-    reader.buf = toQByteArray(file.reader.buf);
-    reader.connection = toQtFileLike(file.reader.connection);
-    error = static_cast<ChunkedBlockReader::Error>(file.error);
-    buf = toQByteArray(file.buf);
-    count = file.count;
-    eof = file.eof;
-    return readBytes;
+    return d_ptr->core.read(data, size);
 }
 
+ChunkedBlockReader::Error ChunkedBodyFile::error() const
+{
+    return static_cast<ChunkedBlockReader::Error>(d_ptr->core.error());
+}
+
+// ChunkedWriter is implemented here instead of wrapping qtng_core::ChunkedWriter:
+// 1. The core destructor writes the terminator chunk "0\r\n\r\n". If we created a
+//    temporary core writer on every write() call like the old binding did, the
+//    temporary would destruct right away and terminate the stream, degrading to
+//    "write is close": one write() emits a single chunk and all later calls fail.
+//    (See the BINDING defect note in test_http_utils.cpp "ChunkedWriter 编码输出与
+//    close 幂等性".)
+// 2. Holding one core instance long-term is viable, but its destructor also writes
+//    the terminator chunk, so the Qt destructor must stay empty and rely on the core
+//    destructor to finish the stream; any residual close() layer (explicit close +
+//    Qt destructor + core destructor) would emit 3 terminator chunks and break the
+//    test assertions. A stateless encoder does not warrant a d-pointer for this.
+// So the encoding is replicated here: hex length + "\r\n" + data + "\r\n" per chunk,
+// chunk size capped at 0xffff, terminated by "0\r\n\r\n". Do not revert to wrapping
+// the core with a temporary writer.
+// Note: close() is not idempotent; an explicit close() followed by destruction
+// duplicates the terminator chunk (original quirk, asserted by the tests).
 ChunkedWriter::~ChunkedWriter()
 {
     close();
@@ -176,14 +257,32 @@ ChunkedWriter::~ChunkedWriter()
 
 qint32 ChunkedWriter::write(const char *data, qint32 size)
 {
-    qtng_core::ChunkedWriter writer(toCoreFileLike(stream));
-    return writer.write(data, size);
+    if (!data) {
+        return -1;
+    }
+    // the chunked block can not greater than 0xffff!
+    qint64 sent = 0;
+    while (sent < size) {
+        qint32 blockSize = qMin<qint32>(0xffff, size - sent);
+        QByteArray buf;
+        buf.reserve(blockSize + 8);
+        buf.append(QByteArray::number(blockSize, 16));
+        buf.append("\r\n", 2);
+        buf.append(data + sent, blockSize);
+        buf.append("\r\n", 2);
+
+        const qint32 writtenBytes = stream_->write(buf);
+        if (writtenBytes != buf.size()) {
+            return -1;
+        }
+        sent += blockSize;
+    }
+    return size;
 }
 
 void ChunkedWriter::close()
 {
-    qtng_core::ChunkedWriter writer(toCoreFileLike(stream));
-    writer.close();
+    stream_->write("0\r\n\r\n", 5);
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

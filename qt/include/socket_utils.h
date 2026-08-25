@@ -74,6 +74,9 @@ public:
 private:
     ExchangerPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(Exchanger)
+    Q_DISABLE_COPY(Exchanger)
+    Exchanger(Exchanger &&) = delete;
+    Exchanger &operator=(Exchanger &&) = delete;
 };
 
 class SocketProxy

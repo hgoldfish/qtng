@@ -68,16 +68,15 @@ bool SslCipher::operator==(const SslCipher &other) const { return d->core == oth
 class SslConfigurationPrivate : public QSharedData
 {
 public:
-    qtng_core::SslConfiguration core;
-    qtng_core::SslConfiguration *external = nullptr;
+    std::shared_ptr<qtng_core::SslConfiguration> core = std::make_shared<qtng_core::SslConfiguration>();
 
-    qtng_core::SslConfiguration &config() { return external ? *external : core; }
-    const qtng_core::SslConfiguration &config() const { return external ? *external : core; }
+    qtng_core::SslConfiguration &config() { return *core; }
+    const qtng_core::SslConfiguration &config() const { return *core; }
 
-    static void bind(SslConfiguration *config, qtng_core::SslConfiguration *core)
+    static void bindCore(SslConfiguration *config, std::shared_ptr<qtng_core::SslConfiguration> core)
     {
         if (config) {
-            config->d->external = core;
+            config->d->core = std::move(core);
         }
     }
 
@@ -91,10 +90,15 @@ public:
         return config.d->config();
     }
 
+    static std::shared_ptr<qtng_core::SslConfiguration> sharedCoreOf(const SslConfiguration &config)
+    {
+        return config.d->core;
+    }
+
     static SslConfiguration fromCore(const qtng_core::SslConfiguration &config)
     {
         SslConfiguration result;
-        result.d->core = config;
+        result.d->core = std::make_shared<qtng_core::SslConfiguration>(config);
         return result;
     }
 };
@@ -887,9 +891,22 @@ std::shared_ptr<qtng_core::SslSocket> sslSocketCoreOf(QTNETWORKNG_NAMESPACE::Ssl
     return QTNETWORKNG_NAMESPACE::SslSocketPrivate::coreOf(socket);
 }
 
-void bindSslConfigurationToCore(QTNETWORKNG_NAMESPACE::SslConfiguration *config, qtng_core::SslConfiguration *core)
+std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration>
+sslConfigurationFromCore(std::shared_ptr<qtng_core::SslConfiguration> core)
 {
-    QTNETWORKNG_NAMESPACE::SslConfigurationPrivate::bind(config, core);
+    std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration> config =
+            std::make_shared<QTNETWORKNG_NAMESPACE::SslConfiguration>();
+    QTNETWORKNG_NAMESPACE::SslConfigurationPrivate::bindCore(config.get(), std::move(core));
+    return config;
+}
+
+std::shared_ptr<qtng_core::SslConfiguration>
+sslConfigurationToCore(const std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration> &config)
+{
+    if (!config) {
+        return std::shared_ptr<qtng_core::SslConfiguration>();
+    }
+    return QTNETWORKNG_NAMESPACE::SslConfigurationPrivate::sharedCoreOf(*config);
 }
 
 }  // namespace qtng_bridge

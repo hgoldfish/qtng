@@ -18,13 +18,22 @@ enum class AeadAlgorithm {
 
 struct NoiseKey
 {
-    QByteArray privateKey;
-    QByteArray publicKey;
+public:
+    NoiseKey() = default;
 
-    bool isValid() const { return privateKey.size() == 32 && publicKey.size() == 32; }
+    QByteArray privateKey() const { return privateKey_; }
+    void setPrivateKey(const QByteArray &privateKey) { privateKey_ = privateKey; }
+    QByteArray publicKey() const { return publicKey_; }
+    void setPublicKey(const QByteArray &publicKey) { publicKey_ = publicKey; }
+
+    bool isValid() const { return privateKey_.size() == 32 && publicKey_.size() == 32; }
     static NoiseKey generate();
     static NoiseKey fromPrivateKey(const QByteArray &privateKey32);
     static QByteArray dh(const QByteArray &privateKey32, const QByteArray &peerPublicKey32);
+
+private:
+    QByteArray privateKey_;
+    QByteArray publicKey_;
 };
 
 class NoiseCipherStatePrivate;
@@ -88,20 +97,41 @@ enum class NoiseRole {
 
 struct NoiseConfig
 {
-    NoiseKey localStatic;
-    NoisePattern pattern = NoisePattern::XX;
-    NoiseRole role = NoiseRole::Initiator;
-    QByteArray remoteStaticPublic;
-    QByteArray psk;
-    NoisePskModifier pskModifier = NoisePskModifier::None;
-    QByteArray prologue;
-    AeadAlgorithm cipher = AeadAlgorithm::ChaCha20Poly1305;
-    NoiseHash hash = NoiseHash::Sha256;
-
+public:
     // Empty localPrivateKey generates a static key. N patterns are not supported.
     // NoiseKey is copied as-is (empty/invalid is left empty).
     explicit NoiseConfig(const QByteArray &localPrivateKey = QByteArray());
     explicit NoiseConfig(const NoiseKey &key);
+
+    const NoiseKey &localStatic() const { return localStatic_; }
+    void setLocalStatic(const NoiseKey &key) { localStatic_ = key; }
+    NoisePattern pattern() const { return pattern_; }
+    void setPattern(NoisePattern pattern) { pattern_ = pattern; }
+    NoiseRole role() const { return role_; }
+    void setRole(NoiseRole role) { role_ = role; }
+    QByteArray remoteStaticPublic() const { return remoteStaticPublic_; }
+    void setRemoteStaticPublic(const QByteArray &remoteStaticPublic) { remoteStaticPublic_ = remoteStaticPublic; }
+    QByteArray psk() const { return psk_; }
+    void setPsk(const QByteArray &psk) { psk_ = psk; }
+    NoisePskModifier pskModifier() const { return pskModifier_; }
+    void setPskModifier(NoisePskModifier pskModifier) { pskModifier_ = pskModifier; }
+    QByteArray prologue() const { return prologue_; }
+    void setPrologue(const QByteArray &prologue) { prologue_ = prologue; }
+    AeadAlgorithm cipher() const { return cipher_; }
+    void setCipher(AeadAlgorithm cipher) { cipher_ = cipher; }
+    NoiseHash hash() const { return hash_; }
+    void setHash(NoiseHash hash) { hash_ = hash; }
+
+private:
+    NoiseKey localStatic_;
+    NoisePattern pattern_ = NoisePattern::XX;
+    NoiseRole role_ = NoiseRole::Initiator;
+    QByteArray remoteStaticPublic_;
+    QByteArray psk_;
+    NoisePskModifier pskModifier_ = NoisePskModifier::None;
+    QByteArray prologue_;
+    AeadAlgorithm cipher_ = AeadAlgorithm::ChaCha20Poly1305;
+    NoiseHash hash_ = NoiseHash::Sha256;
 };
 
 // Full protocol name: Noise_<handshake>_25519_<ChaChaPoly|AESGCM>_<SHA256|...>.

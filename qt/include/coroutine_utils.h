@@ -200,6 +200,9 @@ public:
 private:
     CoroutineThreadPrivate * const dd_ptr;
     Q_DECLARE_PRIVATE_D(dd_ptr, CoroutineThread)
+    Q_DISABLE_COPY(CoroutineThread)
+    CoroutineThread(CoroutineThread &&) = delete;
+    CoroutineThread &operator=(CoroutineThread &&) = delete;
 };
 
 bool waitThread(QThread *thread);
@@ -331,6 +334,9 @@ private:
     void deleteCoroutine(BaseCoroutine *coroutine);
 private:
     QSet<QSharedPointer<Coroutine>> coroutines;
+    Q_DISABLE_COPY(CoroutineGroup)
+    CoroutineGroup(CoroutineGroup &&) = delete;
+    CoroutineGroup &operator=(CoroutineGroup &&) = delete;
 };
 
 QSharedPointer<Coroutine> CoroutineGroup::spawnWithName(const QString &name, const std::function<void()> &func,
@@ -338,7 +344,7 @@ QSharedPointer<Coroutine> CoroutineGroup::spawnWithName(const QString &name, con
 {
     QSharedPointer<Coroutine> old = get(name);
     if (!old.isNull()) {
-        if (replace) {
+        if (replace || old->isFinished()) {
             old->kill();
             coroutines.remove(old);
             old->join();
@@ -431,6 +437,9 @@ private:
 private:
     QList<QSharedPointer<class ThreadPoolWorkThread>> threads;
     QSharedPointer<Semaphore> semaphore;
+    Q_DISABLE_COPY(ThreadPool)
+    ThreadPool(ThreadPool &&) = delete;
+    ThreadPool &operator=(ThreadPool &&) = delete;
 };
 
 template<typename T, typename S>

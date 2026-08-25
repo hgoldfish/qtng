@@ -46,57 +46,72 @@ private:
 
 struct DhtEndpoint
 {
-    HostAddress address;
-    quint16 port;
-
     DhtEndpoint()
-        : port(0)
+        : m_port(0)
     {
     }
     DhtEndpoint(const HostAddress &addr, quint16 p)
-        : address(addr)
-        , port(p)
+        : m_address(addr)
+        , m_port(p)
     {
     }
 
-    bool isValid() const { return !address.isNull() && port != 0; }
+    bool isValid() const { return !m_address.isNull() && m_port != 0; }
+
+    HostAddress address() const { return m_address; }
+    void setAddress(const HostAddress &addr) { m_address = addr; }
+    quint16 port() const { return m_port; }
+    void setPort(quint16 p) { m_port = p; }
+private:
+    HostAddress m_address;
+    quint16 m_port;
 };
 
 struct DhtNodeInfo
 {
-    NodeId id;
-    DhtEndpoint endpoint;
-
     DhtNodeInfo() { }
     DhtNodeInfo(const NodeId &nid, const DhtEndpoint &ep)
-        : id(nid)
-        , endpoint(ep)
+        : m_id(nid)
+        , m_endpoint(ep)
     {
     }
 
-    bool isValid() const { return id.isValid() && endpoint.isValid(); }
+    bool isValid() const { return m_id.isValid() && m_endpoint.isValid(); }
+
+    NodeId id() const { return m_id; }
+    void setId(const NodeId &nid) { m_id = nid; }
+    DhtEndpoint endpoint() const { return m_endpoint; }
+    void setEndpoint(const DhtEndpoint &ep) { m_endpoint = ep; }
+private:
+    NodeId m_id;
+    DhtEndpoint m_endpoint;
 };
 
 struct DhtPeer
 {
-    HostAddress address;
-    quint16 port;
-
     DhtPeer()
-        : port(0)
+        : m_port(0)
     {
     }
     DhtPeer(const HostAddress &addr, quint16 p)
-        : address(addr)
-        , port(p)
+        : m_address(addr)
+        , m_port(p)
     {
     }
 
-    bool isValid() const { return !address.isNull() && port != 0; }
+    bool isValid() const { return !m_address.isNull() && m_port != 0; }
     bool operator==(const DhtPeer &other) const
     {
-        return address == other.address && port == other.port;
+        return m_address == other.m_address && m_port == other.m_port;
     }
+
+    HostAddress address() const { return m_address; }
+    void setAddress(const HostAddress &addr) { m_address = addr; }
+    quint16 port() const { return m_port; }
+    void setPort(quint16 p) { m_port = p; }
+private:
+    HostAddress m_address;
+    quint16 m_port;
 };
 
 QByteArray encodeCompactNodes(const QList<DhtNodeInfo> &nodes);
@@ -112,8 +127,15 @@ class DhtStore
 {
 public:
     struct StoredPeer {
-        DhtPeer peer;
-        qint64 expireUnix;
+        StoredPeer() { }
+
+        DhtPeer peer() const { return m_peer; }
+        void setPeer(const DhtPeer &p) { m_peer = p; }
+        qint64 expireUnix() const { return m_expireUnix; }
+        void setExpireUnix(qint64 t) { m_expireUnix = t; }
+    private:
+        DhtPeer m_peer;
+        qint64 m_expireUnix;
     };
 
     virtual ~DhtStore() { }
@@ -148,6 +170,9 @@ public:
     QString errorString() const override;
 
 private:
+    friend class DhtNode;
+    friend class DhtNodePrivate;
+    explicit MemoryDhtStore(MemoryDhtStorePrivate *priv);
     MemoryDhtStorePrivate * const d_ptr;
     Q_DECLARE_PRIVATE(MemoryDhtStore)
     Q_DISABLE_COPY(MemoryDhtStore)

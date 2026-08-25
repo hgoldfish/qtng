@@ -40,7 +40,16 @@ Cipher::~Cipher() { delete d_ptr; }
 Cipher *Cipher::copy(Operation operation)
 {
     Q_D(Cipher);
-    return new Cipher(d->algorithm, d->mode, operation);
+    if (!d->core->isValid()) {
+        return nullptr;
+    }
+    Cipher *newOne = new Cipher(d->algorithm, d->mode, operation);
+    newOne->setKey(toQByteArray(d->core->key()));
+    newOne->setInitialVector(toQByteArray(d->core->initialVector()));
+    if (!d->core->padding()) {
+        newOne->setPadding(false);
+    }
+    return newOne;
 }
 
 bool Cipher::isValid() const { Q_D(const Cipher); return d->core->isValid(); }

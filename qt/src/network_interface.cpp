@@ -159,6 +159,9 @@ void NetworkAddressEntry::setAddressLifetime(QDeadlineTimer preferred, QDeadline
 void NetworkAddressEntry::clearAddressLifetime()
 {
     d->core.clearAddressLifetime();
+    // 与原版一致：clear 后本层缓存的生存期 QDeadlineTimer 一并重置为 Forever。
+    d->preferredLifetime = QDeadlineTimer(QDeadlineTimer::Forever);
+    d->validityLifetime = QDeadlineTimer(QDeadlineTimer::Forever);
 }
 
 bool NetworkAddressEntry::isPermanent() const

@@ -75,6 +75,9 @@ public:
 private:
     CipherPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(Cipher)
+    Q_DISABLE_COPY(Cipher)
+    Cipher(Cipher &&) = delete;
+    Cipher &operator=(Cipher &&) = delete;
 };
 
 QTNETWORKNG_NAMESPACE_END

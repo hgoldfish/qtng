@@ -18,6 +18,9 @@ struct IPv6Address
 {
     inline quint8 &operator[](int index) { return c[index]; }
     inline quint8 operator[](int index) const { return c[index]; }
+    inline quint8 *data() { return c; }
+    inline const quint8 *data() const { return c; }
+private:
     quint8 c[16];
 };
 
@@ -67,7 +70,7 @@ public:
         if (address.protocol() == QAbstractSocket::IPv4Protocol) {
             setAddress(address.toIPv4Address());
         } else {
-            setAddress(address.toIPv6Address().c);
+            setAddress(address.toIPv6Address().data());
         }
     }
     HostAddress(QHostAddress::SpecialAddress address)
@@ -82,7 +85,7 @@ public:
     }
     operator QHostAddress() const
     {
-        return protocol() == IPv4Protocol ? QHostAddress(toIPv4Address()) : QHostAddress(toIPv6Address().c);
+        return protocol() == IPv4Protocol ? QHostAddress(toIPv4Address()) : QHostAddress(toIPv6Address().data());
     }
 #endif
     ~HostAddress();

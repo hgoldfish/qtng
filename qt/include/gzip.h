@@ -28,6 +28,9 @@ public:
 private:
     GzipFilePrivate * const d_ptr;
     Q_DECLARE_PRIVATE(GzipFile);
+    Q_DISABLE_COPY(GzipFile)
+    GzipFile(GzipFile &&) = delete;
+    GzipFile &operator=(GzipFile &&) = delete;
 };
 
 bool qGzipCompress(QSharedPointer<FileLike> input, QSharedPointer<FileLike> output, int level = -1, int blockSize = 1024 * 8);

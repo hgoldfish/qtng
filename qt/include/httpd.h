@@ -26,6 +26,7 @@ protected:  // most common methods to override
     virtual void doMethod();
     virtual void doGET();
     virtual void doPOST();
+    virtual void doQUERY();  // RFC 10008
     virtual void doPUT();
     virtual void doDELETE();
     virtual void doPATCH();

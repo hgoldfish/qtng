@@ -51,6 +51,16 @@ public:
             setPrevious(previous);
         }
         registerQtWrapper(this, wrapper);
+        // Match upstream qtnetworkng 1.0 semantics: the finished Deferred fires immediately and
+        // synchronously while the core coroutine is still running on its own stack. The wrapper is
+        // alive here (its destruction would delete this still-running adapter). Callbacks that drop
+        // the last reference (e.g. CoroutineGroup) must defer destruction themselves, as upstream
+        // CoroutineGroup::deleteCoroutine does.
+        this->finished.addCallback([this](qtng_core::BaseCoroutine *) {
+            if (this->wrapper) {
+                this->wrapper->finished.callback(this->wrapper);
+            }
+        });
     }
     ~CoreCoroutineAdapter() override { unregisterQtWrapper(this); }
     void run() override

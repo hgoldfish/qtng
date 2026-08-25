@@ -67,7 +67,7 @@ HostAddress::HostAddress(const quint8 *ip6Addr)
 HostAddress::HostAddress(const IPv6Address &ip6Addr)
     : d(new HostAddressPrivate)
 {
-    d->core.setAddress(ip6Addr.c);
+    d->core.setAddress(ip6Addr.data());
 }
 
 HostAddress::HostAddress(const sockaddr *sockaddr)
@@ -122,7 +122,7 @@ void HostAddress::setAddress(const IPv4Address ipv4)
 
 void HostAddress::setAddress(const IPv6Address &ipv6)
 {
-    d->core.setAddress(ipv6.c);
+    d->core.setAddress(ipv6.data());
 }
 
 void HostAddress::setAddress(const quint8 *ipv6)
@@ -160,7 +160,7 @@ IPv6Address HostAddress::toIPv6Address() const
     const qtng_core::IPv6Address v6 = d->core.toIPv6Address();
     IPv6Address result;
     for (int i = 0; i < 16; ++i) {
-        result.c[i] = v6.c[i];
+        result.data()[i] = v6.data()[i];
     }
     return result;
 }

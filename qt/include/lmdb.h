@@ -1,6 +1,8 @@
 #ifndef QTNG_LMDB_H
 #define QTNG_LMDB_H
 
+#include <memory>
+
 #include <QtCore/qobject.h>
 #include <QtCore/qpointer.h>
 #include <QtCore/qstring.h>
@@ -199,8 +201,8 @@ class Transaction
 public:
     ~Transaction();
 public:
-    const Database &db(const QString &name) const;
-    Database &db(const QString &name);
+    std::shared_ptr<const Database> db(const QString &name) const;
+    std::shared_ptr<Database> db(const QString &name);
     QSharedPointer<Transaction> sub();
     QSharedPointer<const Transaction> sub() const;
     QSharedPointer<Transaction> fork();

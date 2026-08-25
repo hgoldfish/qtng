@@ -18,15 +18,6 @@ public:
     static const qtng_core::HttpProxy *coreOf(const HttpProxy *proxy) { return proxy ? &proxy->d_ptr->core : nullptr; }
 };
 
-namespace {
-
-void syncHeadersToCore(const WithHttpHeaders<SocketProxy> *from, qtng_core::HttpProxy *to)
-{
-    to->setHeaders(toCoreHeaders(from->allHeaders()));
-}
-
-}  // namespace
-
 HttpProxy::HttpProxy()
     : d_ptr(new HttpProxyPrivate)
 {
@@ -52,13 +43,11 @@ HttpProxy::~HttpProxy()
 
 QSharedPointer<SocketLike> HttpProxy::connect(const QString &remoteHost, quint16 port)
 {
-    syncHeadersToCore(this, &d_ptr->core);
     return toQtSocketLike(d_ptr->core.connect(toStdString(remoteHost), port));
 }
 
 QSharedPointer<SocketLike> HttpProxy::connect(const HostAddress &remoteHost, quint16 port)
 {
-    syncHeadersToCore(this, &d_ptr->core);
     return toQtSocketLike(d_ptr->core.connect(toCoreAddress(remoteHost), port));
 }
 

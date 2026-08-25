@@ -61,6 +61,9 @@ protected:
     BaseStreamServerPrivate * const d_ptr;
 private:
     Q_DECLARE_PRIVATE(BaseStreamServer)
+    Q_DISABLE_COPY(BaseStreamServer)
+    BaseStreamServer(BaseStreamServer &&) = delete;
+    BaseStreamServer &operator=(BaseStreamServer &&) = delete;
 };
 
 template<typename RequestHandler>

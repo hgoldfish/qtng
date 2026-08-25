@@ -23,32 +23,32 @@ NodeId fromCoreNodeId(const qtng_core::NodeId &id);
 
 qtng_core::DhtEndpoint toCoreEndpoint(const DhtEndpoint &ep)
 {
-    return qtng_core::DhtEndpoint(toCoreAddress(ep.address), ep.port);
+    return qtng_core::DhtEndpoint(toCoreAddress(ep.address()), ep.port());
 }
 
 DhtEndpoint fromCoreEndpoint(const qtng_core::DhtEndpoint &ep)
 {
-    return DhtEndpoint(toQtAddress(ep.address), ep.port);
+    return DhtEndpoint(toQtAddress(ep.address()), ep.port());
 }
 
 qtng_core::DhtNodeInfo toCoreNodeInfo(const DhtNodeInfo &info)
 {
-    return qtng_core::DhtNodeInfo(toCoreNodeId(info.id), toCoreEndpoint(info.endpoint));
+    return qtng_core::DhtNodeInfo(toCoreNodeId(info.id()), toCoreEndpoint(info.endpoint()));
 }
 
 DhtNodeInfo fromCoreNodeInfo(const qtng_core::DhtNodeInfo &info)
 {
-    return DhtNodeInfo(fromCoreNodeId(info.id), fromCoreEndpoint(info.endpoint));
+    return DhtNodeInfo(fromCoreNodeId(info.id()), fromCoreEndpoint(info.endpoint()));
 }
 
 qtng_core::DhtPeer toCorePeer(const DhtPeer &peer)
 {
-    return qtng_core::DhtPeer(toCoreAddress(peer.address), peer.port);
+    return qtng_core::DhtPeer(toCoreAddress(peer.address()), peer.port());
 }
 
 DhtPeer fromCorePeer(const qtng_core::DhtPeer &peer)
 {
-    return DhtPeer(toQtAddress(peer.address), peer.port);
+    return DhtPeer(toQtAddress(peer.address()), peer.port());
 }
 
 QList<DhtNodeInfo> fromCoreNodeList(const vector<qtng_core::DhtNodeInfo> &nodes)
@@ -123,8 +123,8 @@ public:
         result.reserve(static_cast<size_t>(peers.size()));
         for (const ::qtng::DhtStore::StoredPeer &peer : peers) {
             qtng_core::DhtStore::StoredPeer item;
-            item.peer = toCorePeer(peer.peer);
-            item.expireUnix = peer.expireUnix;
+            item.setPeer(toCorePeer(peer.peer()));
+            item.setExpireUnix(peer.expireUnix());
             result.push_back(item);
         }
         return result;
@@ -335,11 +335,21 @@ public:
     {
     }
 
+    explicit MemoryDhtStorePrivate(const shared_ptr<qtng_core::MemoryDhtStore> &c)
+        : core(c)
+    {
+    }
+
     shared_ptr<qtng_core::MemoryDhtStore> core;
 };
 
 MemoryDhtStore::MemoryDhtStore()
     : d_ptr(new MemoryDhtStorePrivate)
+{
+}
+
+MemoryDhtStore::MemoryDhtStore(MemoryDhtStorePrivate *priv)
+    : d_ptr(priv)
 {
 }
 
@@ -387,8 +397,8 @@ QList<DhtStore::StoredPeer> MemoryDhtStore::loadPeers(const NodeId &infoHash)
     result.reserve(static_cast<int>(peers.size()));
     for (const qtng_core::DhtStore::StoredPeer &peer : peers) {
         DhtStore::StoredPeer item;
-        item.peer = fromCorePeer(peer.peer);
-        item.expireUnix = peer.expireUnix;
+        item.setPeer(fromCorePeer(peer.peer()));
+        item.setExpireUnix(peer.expireUnix());
         result.append(item);
     }
     return result;
@@ -478,8 +488,8 @@ QList<DhtStore::StoredPeer> LmdbDhtStore::loadPeers(const NodeId &infoHash)
     result.reserve(static_cast<int>(peers.size()));
     for (const qtng_core::DhtStore::StoredPeer &peer : peers) {
         DhtStore::StoredPeer item;
-        item.peer = fromCorePeer(peer.peer);
-        item.expireUnix = peer.expireUnix;
+        item.setPeer(fromCorePeer(peer.peer()));
+        item.setExpireUnix(peer.expireUnix());
         result.append(item);
     }
     return result;
@@ -516,9 +526,38 @@ public:
         delete core;
     }
 
+    // 以 core DhtNode 的 store 状态为唯一事实来源，把 core store 转回 qt store：
+    // - core store 是 QtDhtStoreAdapter（用户显式传入的 qt store 的适配器）→ 取回原始 qt store；
+    // - core store 是 core 默认创建的 MemoryDhtStore → 包装为 qt 版 MemoryDhtStore；
+    // - 其它情况 → 返回空。
+    static QSharedPointer<DhtStore> qtStoreFromCore(const shared_ptr<qtng_core::DhtStore> &coreStore);
+
     qtng_core::DhtNode *core;
+    // 例外处理：qt store 视图缓存。
+    // core 的 DhtNode 是 DhtStore（core 类型）的唯一事实来源；qt binding 的 store() 必须返回
+    // QSharedPointer<qtng::DhtStore>，而 core store → qt store 的转换（qtStoreFromCore）每次都要
+    // 动态识别 store 的真实类型（QtDhtStoreAdapter / MemoryDhtStore 等）并构造包装，有真实成本。
+    // 因为 store 只会在 open() 时被整体替换、之后内容由 core 自身维护，所以把转换结果缓存下来、
+    // getter 直接返回。它与"qt binding 不再镜像状态"的总原则不同，是有意保留的例外：
+    // 这里缓存的是 core store 的只读视图，唯一的写入路径仍是 core->store()，不存在双向同步。
     QSharedPointer< ::qtng::DhtStore> qtStore;
 };
+
+QSharedPointer<DhtStore> DhtNodePrivate::qtStoreFromCore(const shared_ptr<qtng_core::DhtStore> &coreStore)
+{
+    if (!coreStore) {
+        return QSharedPointer<DhtStore>();
+    }
+    if (const QtDhtStoreAdapter *adapter = dynamic_cast<const QtDhtStoreAdapter *>(coreStore.get())) {
+        return adapter->qtStore;
+    }
+    const shared_ptr<qtng_core::MemoryDhtStore> memory =
+            dynamic_pointer_cast<qtng_core::MemoryDhtStore>(coreStore);
+    if (memory) {
+        return QSharedPointer<MemoryDhtStore>(new MemoryDhtStore(new MemoryDhtStorePrivate(memory)));
+    }
+    return QSharedPointer<DhtStore>();
+}
 
 DhtNode::DhtNode(const NodeId &id)
     : d_ptr(new DhtNodePrivate(id))
@@ -533,9 +572,13 @@ DhtNode::~DhtNode()
 bool DhtNode::open(quint16 bindPort, QSharedPointer< ::qtng::DhtStore> store, HostAddress::NetworkLayerProtocol proto)
 {
     Q_D(DhtNode);
-    d->qtStore = store;
-    return d->core->open(bindPort, toCoreStore(store),
-                         static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(proto));
+    d->qtStore.clear();
+    const bool ok = d->core->open(bindPort, toCoreStore(store),
+                                  static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(proto));
+    if (ok) {
+        d->qtStore = DhtNodePrivate::qtStoreFromCore(d->core->store());
+    }
+    return ok;
 }
 
 void DhtNode::close()

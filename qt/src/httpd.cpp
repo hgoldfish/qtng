@@ -58,6 +58,7 @@ public:
     void doMethodCore() { qtng_core::BaseHttpRequestHandler::doMethod(); }
     void doGETCore() { qtng_core::BaseHttpRequestHandler::doGET(); }
     void doPOSTCore() { qtng_core::BaseHttpRequestHandler::doPOST(); }
+    void doQUERYCore() { qtng_core::BaseHttpRequestHandler::doQUERY(); }
     void doPUTCore() { qtng_core::BaseHttpRequestHandler::doPUT(); }
     void doDELETECore() { qtng_core::BaseHttpRequestHandler::doDELETE(); }
     void doPATCHCore() { qtng_core::BaseHttpRequestHandler::doPATCH(); }
@@ -133,6 +134,7 @@ public:
     void doMethod() override { q->doMethod(); }
     void doGET() override { q->doGET(); }
     void doPOST() override { q->doPOST(); }
+    void doQUERY() override { q->doQUERY(); }
     void doPUT() override { q->doPUT(); }
     void doDELETE() override { q->doDELETE(); }
     void doPATCH() override { q->doPATCH(); }
@@ -206,7 +208,7 @@ public:
                 static_cast<QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler::CloseConnectionStatus>(closeConnection);
         QList<HttpHeader> qtHeaders;
         for (const qtng_core::HttpHeader &h : allHeaders()) {
-            qtHeaders.append(HttpHeader(toQString(h.name), toQByteArray(h.value)));
+            qtHeaders.append(HttpHeader(toQString(h.name()), toQByteArray(h.value())));
         }
         q->setHeaders(qtHeaders);
     }
@@ -251,7 +253,7 @@ void BaseHttpRequestHandler::handleOneRequest()
 
 QString BaseHttpRequestHandler::normalizePath(const QString &path)
 {
-    return QUrl(path).path();
+    return QUrl::fromEncoded(path.toLatin1(), QUrl::StrictMode).toString(QUrl::NormalizePathSegments);
 }
 
 void BaseHttpRequestHandler::doMethod()
@@ -261,6 +263,7 @@ void BaseHttpRequestHandler::doMethod()
 
 void BaseHttpRequestHandler::doGET() { coreBridge->doGETCore(); }
 void BaseHttpRequestHandler::doPOST() { coreBridge->doPOSTCore(); }
+void BaseHttpRequestHandler::doQUERY() { coreBridge->doQUERYCore(); }
 void BaseHttpRequestHandler::doPUT() { coreBridge->doPUTCore(); }
 void BaseHttpRequestHandler::doDELETE() { coreBridge->doDELETECore(); }
 void BaseHttpRequestHandler::doPATCH() { coreBridge->doPATCHCore(); }
@@ -356,7 +359,11 @@ bool BaseHttpRequestHandler::endHeader()
 
 bool BaseHttpRequestHandler::readBody()
 {
-    return coreBridge->readBody();
+    const bool ok = coreBridge->readBody();
+    // core 的 readBody() 会把完整请求体写入 core 侧 body 成员；需同步回 Qt 包装层，
+    // 否则 Qt 侧 readBody() 之后读取 body 成员仍是解析时的残留（大 POST 回显长度错误）。
+    coreBridge->syncToQt();
+    return ok;
 }
 
 QByteArray BaseHttpRequestHandler::tryToHandleMagicCode(bool &done)

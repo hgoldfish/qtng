@@ -137,24 +137,39 @@ QByteArray PrivateKey::save(Ssl::EncodingFormat format, const QByteArray &passwo
                                                                     toStdString(password)));
 }
 
+class QtPasswordCallbackAdapter : public qtng_core::PasswordCallback
+{
+public:
+    explicit QtPasswordCallbackAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::PasswordCallback> callback)
+        : callback(std::move(callback))
+    {
+    }
+    std::string get(bool writing) override { return toStdString(callback->get(writing)); }
+
+private:
+    QSharedPointer<QTNETWORKNG_NAMESPACE::PasswordCallback> callback;
+};
+
 class PrivateKeyWriterPrivate
 {
 public:
-    explicit PrivateKeyWriterPrivate(qtng_core::PrivateKeyWriter writer)
+    explicit PrivateKeyWriterPrivate(shared_ptr<qtng_core::PrivateKeyWriter> writer)
         : core(std::move(writer))
     {
     }
 
-    qtng_core::PrivateKeyWriter core;
+    shared_ptr<qtng_core::PrivateKeyWriter> core;
 };
 
 PrivateKeyWriter::PrivateKeyWriter(const PrivateKey &key)
-    : d_ptr(new PrivateKeyWriterPrivate(qtng_core::PrivateKeyWriter(PublicKeyPrivate::privateCoreOf(const_cast<PrivateKey &>(key)))))
+    : d_ptr(new PrivateKeyWriterPrivate(
+            make_shared<qtng_core::PrivateKeyWriter>(PublicKeyPrivate::privateCoreOf(const_cast<PrivateKey &>(key)))))
 {
 }
 
 PrivateKeyWriter::PrivateKeyWriter(const PublicKey &key)
-    : d_ptr(new PrivateKeyWriterPrivate(qtng_core::PrivateKeyWriter(PublicKeyPrivate::coreOf(const_cast<PublicKey &>(key)))))
+    : d_ptr(new PrivateKeyWriterPrivate(
+            make_shared<qtng_core::PrivateKeyWriter>(PublicKeyPrivate::coreOf(const_cast<PublicKey &>(key)))))
 {
 }
 
@@ -162,35 +177,41 @@ PrivateKeyWriter::~PrivateKeyWriter() { delete d_ptr; }
 PrivateKeyWriter &PrivateKeyWriter::setCipher(Cipher::Algorithm algo, Cipher::Mode mode)
 {
     Q_D(PrivateKeyWriter);
-    d->core.setCipher(static_cast<qtng_core::Cipher::Algorithm>(algo), static_cast<qtng_core::Cipher::Mode>(mode));
+    d->core->setCipher(static_cast<qtng_core::Cipher::Algorithm>(algo), static_cast<qtng_core::Cipher::Mode>(mode));
     return *this;
 }
 PrivateKeyWriter &PrivateKeyWriter::setPassword(const QByteArray &password)
 {
     Q_D(PrivateKeyWriter);
-    d->core.setPassword(toStdString(password));
+    d->core->setPassword(toStdString(password));
+    return *this;
+}
+PrivateKeyWriter &PrivateKeyWriter::setPassword(QSharedPointer<PasswordCallback> callback)
+{
+    Q_D(PrivateKeyWriter);
+    d->core->setPassword(make_shared<QtPasswordCallbackAdapter>(std::move(callback)));
     return *this;
 }
 PrivateKeyWriter &PrivateKeyWriter::setPublicOnly(bool publicOnly)
 {
     Q_D(PrivateKeyWriter);
-    d->core.setPublicOnly(publicOnly);
+    d->core->setPublicOnly(publicOnly);
     return *this;
 }
 QByteArray PrivateKeyWriter::asPem()
 {
     Q_D(PrivateKeyWriter);
-    return toQByteArray(d->core.asPem());
+    return toQByteArray(d->core->asPem());
 }
 QByteArray PrivateKeyWriter::asDer()
 {
     Q_D(PrivateKeyWriter);
-    return toQByteArray(d->core.asDer());
+    return toQByteArray(d->core->asDer());
 }
 bool PrivateKeyWriter::save(const QString &filePath)
 {
     Q_D(PrivateKeyWriter);
-    return d->core.save(toStdString(filePath));
+    return d->core->save(toStdString(filePath));
 }
 
 class PrivateKeyReaderPrivate
@@ -209,6 +230,12 @@ PrivateKeyReader &PrivateKeyReader::setPassword(const QByteArray &password)
 {
     Q_D(PrivateKeyReader);
     d->core.setPassword(toStdString(password));
+    return *this;
+}
+PrivateKeyReader &PrivateKeyReader::setPassword(QSharedPointer<PasswordCallback> callback)
+{
+    Q_D(PrivateKeyReader);
+    d->core.setPassword(make_shared<QtPasswordCallbackAdapter>(std::move(callback)));
     return *this;
 }
 PrivateKeyReader &PrivateKeyReader::setFormat(Ssl::EncodingFormat format)
@@ -230,12 +257,12 @@ PublicKey PrivateKeyReader::readPublic(const QByteArray &data)
 PrivateKey PrivateKeyReader::read(const QString &filePath)
 {
     Q_D(PrivateKeyReader);
-    return PublicKeyPrivate::privateFromCore(make_shared<qtng_core::PrivateKey>(d->core.read(toStdString(filePath))));
+    return PublicKeyPrivate::privateFromCore(make_shared<qtng_core::PrivateKey>(d->core.readFile(toStdString(filePath))));
 }
 PublicKey PrivateKeyReader::readPublic(const QString &filePath)
 {
     Q_D(PrivateKeyReader);
-    return PublicKeyPrivate::fromCore(make_shared<qtng_core::PublicKey>(d->core.readPublic(toStdString(filePath))));
+    return PublicKeyPrivate::fromCore(make_shared<qtng_core::PublicKey>(d->core.readPublicFile(toStdString(filePath))));
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

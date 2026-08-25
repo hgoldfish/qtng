@@ -1,6 +1,8 @@
 #ifndef QTNG_HTTP_H
 #define QTNG_HTTP_H
 
+#include <memory>
+
 #include <QtCore/qstring.h>
 #include <QtCore/qmap.h>
 #include <QtCore/qjsondocument.h>
@@ -23,6 +25,45 @@ public:
     FormData();
     QByteArray toByteArray() const;
 
+    struct Query
+    {
+        Query(const QString &name, const QString &value)
+            : name_(name)
+            , value_(value)
+        {
+        }
+        QString name() const { return name_; }
+        void setName(const QString &name) { name_ = name; }
+        QString value() const { return value_; }
+        void setValue(const QString &value) { value_ = value; }
+    private:
+        QString name_;
+        QString value_;
+    };
+    struct File
+    {
+        File(const QString &name, const QString &filename, const QByteArray &data, const QString &contentType)
+            : name_(name)
+            , filename_(filename)
+            , data_(data)
+            , contentType_(contentType)
+        {
+        }
+        QString name() const { return name_; }
+        void setName(const QString &name) { name_ = name; }
+        QString filename() const { return filename_; }
+        void setFilename(const QString &filename) { filename_ = filename; }
+        QByteArray data() const { return data_; }
+        void setData(const QByteArray &data) { data_ = data; }
+        QString contentType() const { return contentType_; }
+        void setContentType(const QString &contentType) { contentType_ = contentType; }
+    private:
+        QString name_;
+        QString filename_;
+        QByteArray data_;
+        QString contentType_;
+    };
+
     void addFile(const QString &name, const QString &filename, const QByteArray &data,
                  const QString &contentType = QString())
     {
@@ -38,39 +79,22 @@ public:
         if (newContentType.isEmpty()) {
             newContentType = QString::fromLatin1("application/octet-stream");
         }
-        files.append(File(name, filename, data, newContentType));
+        files_.append(File(name, filename, data, newContentType));
     }
 
-    void addQuery(const QString &key, const QString &value) { queries.append(Query(key, value)); }
-public:
-    struct Query
-    {
-        Query(const QString &name, const QString &value)
-            : name(name)
-            , value(value)
-        {
-        }
-        QString name;
-        QString value;
-    };
-    struct File
-    {
-        File(const QString &name, const QString &filename, const QByteArray &data, const QString &contentType)
-            : name(name)
-            , filename(filename)
-            , data(data)
-            , contentType(contentType)
-        {
-        }
-        QString name;
-        QString filename;
-        QByteArray data;
-        QString contentType;
-    };
-
-    QList<Query> queries;
-    QList<File> files;
-    QByteArray boundary;
+    void addQuery(const QString &key, const QString &value) { queries_.append(Query(key, value)); }
+    QList<Query> &queries() { return queries_; }
+    const QList<Query> &queries() const { return queries_; }
+    void setQueries(const QList<Query> &queries) { queries_ = queries; }
+    QList<File> &files() { return files_; }
+    const QList<File> &files() const { return files_; }
+    void setFiles(const QList<File> &files) { files_ = files; }
+    QByteArray boundary() const { return boundary_; }
+    void setBoundary(const QByteArray &boundary) { boundary_ = boundary; }
+private:
+    QList<Query> queries_;
+    QList<File> files_;
+    QByteArray boundary_;
 };
 
 class HttpRequestPrivate;
@@ -138,15 +162,15 @@ public:
     void setBody(const QUrlQuery &form);
 public:
     void setContentType(const QString &contentType);
-    QString getContentType() const;
+    QString contentType() const;
     void setContentLength(qint64 contentLength);
-    qint64 getContentLength() const;
+    qint64 contentLength() const;
     void setLocation(const QUrl &url);
-    QUrl getLocation() const;
+    QUrl location() const;
     void setLastModified(const QDateTime &lastModified);
-    QDateTime getLastModified() const;
+    QDateTime lastModified() const;
     void setModifiedSince(const QDateTime &modifiedSince);
-    QDateTime getModifedSince() const;
+    QDateTime modifiedSince() const;
 
     void setHeader(const QString &name, const QByteArray &value);
     void addHeader(const QString &name, const QByteArray &value);
@@ -165,6 +189,7 @@ public:
     void setHeaders(const QMap<QString, QByteArray> headers);
     void setHeaders(const QList<HttpHeader> &headers);
 private:
+    // Copy is intentional: QSharedDataPointer shares private state (stream/body/consumed).
     QSharedDataPointer<HttpRequestPrivate> d;
     friend class HttpSessionPrivate;
     friend class QtHttpBridgeAccess;
@@ -225,15 +250,15 @@ public:
     void setError(RequestError *error) { setError(QSharedPointer<RequestError>(error)); }
 public:
     void setContentType(const QString &contentType);
-    QString getContentType() const;
+    QString contentType() const;
     void setContentLength(qint64 contentLength);
-    qint64 getContentLength() const;
+    qint64 contentLength() const;
     void setLocation(const QUrl &url);
-    QUrl getLocation() const;
+    QUrl location() const;
     void setLastModified(const QDateTime &lastModified);
-    QDateTime getLastModified() const;
+    QDateTime lastModified() const;
     void setModifiedSince(const QDateTime &modifiedSince);
-    QDateTime getModifedSince() const;
+    QDateTime modifiedSince() const;
 
     void setHeader(const QString &name, const QByteArray &value);
     void addHeader(const QString &name, const QByteArray &value);
@@ -252,6 +277,7 @@ public:
     void setHeaders(const QMap<QString, QByteArray> headers);
     void setHeaders(const QList<HttpHeader> &headers);
 private:
+    // Copy is intentional: QSharedDataPointer shares private state (stream/body/consumed).
     QSharedDataPointer<HttpResponsePrivate> d;
     friend class HttpSessionPrivate;
     friend class QtHttpBridgeAccess;
@@ -262,6 +288,8 @@ class HttpProxy;
 class HttpSessionPrivate;
 class HttpCacheManager;
 class WebSocketConnection;
+class SslConfiguration;
+class WebSocketConfiguration;
 class HttpSession
 {
 public:
@@ -350,6 +378,43 @@ public:
     HttpResponse post(const QString &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers);
     HttpResponse post(const QString &url, const FormData &body, const QMap<QString, QByteArray> &headers);
 
+    // RFC 10008 (The HTTP QUERY Method): a safe and idempotent request that
+    // carries its input as request content, like POST on the wire but with GET
+    // semantics, so caches and automatic retries may treat it as harmless.
+    // The query content is passed as the body; a Content-Type is required.
+    HttpResponse query(const QUrl &url, const QByteArray &body);
+    HttpResponse query(const QUrl &url, QSharedPointer<FileLike> body);
+    HttpResponse query(const QUrl &url, const QJsonDocument &body);
+    HttpResponse query(const QUrl &url, const QJsonObject &body);
+    HttpResponse query(const QUrl &url, const QJsonArray &body);
+    HttpResponse query(const QUrl &url, const QMap<QString, QString> &body);
+    HttpResponse query(const QUrl &url, const QUrlQuery &body);
+    HttpResponse query(const QUrl &url, const FormData &body);
+    HttpResponse query(const QUrl &url, const QByteArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QUrl &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QUrl &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QUrl &url, const QMap<QString, QString> &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QUrl &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QUrl &url, const FormData &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QString &url, const QByteArray &body);
+    HttpResponse query(const QString &url, QSharedPointer<FileLike> body);
+    HttpResponse query(const QString &url, const QJsonDocument &body);
+    HttpResponse query(const QString &url, const QJsonObject &body);
+    HttpResponse query(const QString &url, const QJsonArray &body);
+    HttpResponse query(const QString &url, const QMap<QString, QString> &body);
+    HttpResponse query(const QString &url, const QUrlQuery &body);
+    HttpResponse query(const QString &url, const FormData &body);
+    HttpResponse query(const QString &url, const QByteArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QString &url, QSharedPointer<FileLike> body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QString &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QString &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QString &url, const QJsonArray &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QString &url, const QMap<QString, QString> &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QString &url, const QUrlQuery &body, const QMap<QString, QByteArray> &headers);
+    HttpResponse query(const QString &url, const FormData &body, const QMap<QString, QByteArray> &headers);
+
     HttpResponse patch(const QUrl &url, const QByteArray &body);
     HttpResponse patch(const QUrl &url, QSharedPointer<FileLike> body);
     HttpResponse patch(const QUrl &url, const QJsonDocument &body);
@@ -434,7 +499,7 @@ public:
     QSharedPointer<WebSocketConnection> ws(const QString &url, const QUrlQuery &query, const QMap<QString, QByteArray> &headers);
 
     HttpResponse send(HttpRequest &request);
-    HttpCookieJar &cookieJar();
+    std::shared_ptr<HttpCookieJar> cookieJar();
     HttpCookie cookie(const QUrl &url, const QString &name);
     void setManagingCookies(bool managingCookies);
 
@@ -465,13 +530,18 @@ public:
     QSharedPointer<HttpCacheManager> cacheManager() const;
     void setCacheManager(QSharedPointer<HttpCacheManager> cacheManager);
 #ifndef QTNG_NO_CRYPTO
-    class SslConfiguration &sslConfiguration();
+    std::shared_ptr<SslConfiguration> sslConfiguration();
+    void setSslConfiguration(const std::shared_ptr<SslConfiguration> &configuration);
 #endif
-    class WebSocketConfiguration &webSocketConfiguration();
+    std::shared_ptr<WebSocketConfiguration> webSocketConfiguration();
+    void setWebSocketConfiguration(const std::shared_ptr<WebSocketConfiguration> &configuration);
     friend void setProxySwitcher(HttpSession *session, QSharedPointer<BaseProxySwitcher> switcher);
 private:
     HttpSessionPrivate *d_ptr;
     Q_DECLARE_PRIVATE(HttpSession)
+    Q_DISABLE_COPY(HttpSession)
+    HttpSession(HttpSession &&) = delete;
+    HttpSession &operator=(HttpSession &&) = delete;
 };
 
 class HttpCacheManagerPrivate;
@@ -508,6 +578,9 @@ protected:
 private:
     HttpMemoryCacheManagerPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(HttpMemoryCacheManager)
+    Q_DISABLE_COPY(HttpMemoryCacheManager)
+    HttpMemoryCacheManager(HttpMemoryCacheManager &&) = delete;
+    HttpMemoryCacheManager &operator=(HttpMemoryCacheManager &&) = delete;
 };
 
 class HttpDiskCacheManager : public HttpCacheManager
@@ -531,12 +604,13 @@ class HTTPError : public RequestError
 {
 public:
     HTTPError(int statusCode)
-        : statusCode(statusCode)
+        : statusCode_(statusCode)
     {
     }
     virtual QString what() const;
-public:
-    int statusCode;
+    int statusCode() const { return statusCode_; }
+private:
+    int statusCode_;
 };
 
 class ConnectionError : public RequestError

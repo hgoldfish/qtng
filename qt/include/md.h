@@ -46,6 +46,9 @@ public:
 private:
     MessageDigestPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(MessageDigest)
+    Q_DISABLE_COPY(MessageDigest)
+    MessageDigest(MessageDigest &&) = delete;
+    MessageDigest &operator=(MessageDigest &&) = delete;
 };
 
 inline QByteArray MessageDigest::hash(const QByteArray &data, Algorithm algo)
@@ -64,9 +67,6 @@ inline QByteArray MessageDigest::digest(const QByteArray &data, Algorithm algo)
 
 QByteArray PBKDF2_HMAC(int keylen, const QByteArray &password, const QByteArray &salt,
                        const MessageDigest::Algorithm hashAlgo = MessageDigest::Sha256, int i = 10000);
-
-QByteArray scrypt(int keylen, const QByteArray &password, const QByteArray &salt, int n = 1048576, int r = 8,
-                  int p = 1);
 
 QTNETWORKNG_NAMESPACE_END
 

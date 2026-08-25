@@ -160,6 +160,8 @@ private:
     SocketPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(Socket)
     Q_DISABLE_COPY(Socket)
+    Socket(Socket &&) = delete;
+    Socket &operator=(Socket &&) = delete;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(Socket::BindMode)
@@ -183,6 +185,9 @@ public:
 private:
     PollPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(Poll)
+    Q_DISABLE_COPY(Poll)
+    Poll(Poll &&) = delete;
+    Poll &operator=(Poll &&) = delete;
 };
 
 class SocketDnsCachePrivate;
@@ -201,6 +206,9 @@ public:
 private:
     SocketDnsCachePrivate * const d_ptr;
     Q_DECLARE_PRIVATE(SocketDnsCache)
+    Q_DISABLE_COPY(SocketDnsCache)
+    SocketDnsCache(SocketDnsCache &&) = delete;
+    SocketDnsCache &operator=(SocketDnsCache &&) = delete;
 };
 
 template<typename SocketType>

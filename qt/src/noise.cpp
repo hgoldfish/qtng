@@ -122,8 +122,8 @@ NoiseKey NoiseKey::generate()
 {
     const qtng_core::NoiseKey key = qtng_core::NoiseKey::generate();
     NoiseKey result;
-    result.privateKey = toQByteArray(key.privateKey);
-    result.publicKey = toQByteArray(key.publicKey);
+    result.setPrivateKey(toQByteArray(key.privateKey()));
+    result.setPublicKey(toQByteArray(key.publicKey()));
     return result;
 }
 
@@ -131,8 +131,8 @@ NoiseKey NoiseKey::fromPrivateKey(const QByteArray &privateKey32)
 {
     const qtng_core::NoiseKey key = qtng_core::NoiseKey::fromPrivateKey(toStdString(privateKey32));
     NoiseKey result;
-    result.privateKey = toQByteArray(key.privateKey);
-    result.publicKey = toQByteArray(key.publicKey);
+    result.setPrivateKey(toQByteArray(key.privateKey()));
+    result.setPublicKey(toQByteArray(key.publicKey()));
     return result;
 }
 
@@ -142,12 +142,12 @@ QByteArray NoiseKey::dh(const QByteArray &privateKey32, const QByteArray &peerPu
 }
 
 NoiseConfig::NoiseConfig(const QByteArray &localPrivateKey)
-    : localStatic(localPrivateKey.isEmpty() ? NoiseKey::generate() : NoiseKey::fromPrivateKey(localPrivateKey))
+    : localStatic_(localPrivateKey.isEmpty() ? NoiseKey::generate() : NoiseKey::fromPrivateKey(localPrivateKey))
 {
 }
 
 NoiseConfig::NoiseConfig(const NoiseKey &key)
-    : localStatic(key)
+    : localStatic_(key)
 {
 }
 
@@ -156,17 +156,17 @@ namespace {
 qtng_core::NoiseConfig toCoreConfig(const NoiseConfig &cfg)
 {
     qtng_core::NoiseKey key;
-    key.privateKey = toStdString(cfg.localStatic.privateKey);
-    key.publicKey = toStdString(cfg.localStatic.publicKey);
+    key.setPrivateKey(toStdString(cfg.localStatic().privateKey()));
+    key.setPublicKey(toStdString(cfg.localStatic().publicKey()));
     qtng_core::NoiseConfig core(key);
-    core.pattern = static_cast<qtng_core::NoisePattern>(cfg.pattern);
-    core.role = static_cast<qtng_core::NoiseRole>(cfg.role);
-    core.remoteStaticPublic = toStdString(cfg.remoteStaticPublic);
-    core.psk = toStdString(cfg.psk);
-    core.pskModifier = static_cast<qtng_core::NoisePskModifier>(cfg.pskModifier);
-    core.prologue = toStdString(cfg.prologue);
-    core.cipher = static_cast<qtng_core::Aead::Algorithm>(cfg.cipher);
-    core.hash = static_cast<qtng_core::NoiseHash>(cfg.hash);
+    core.setPattern(static_cast<qtng_core::NoisePattern>(cfg.pattern()));
+    core.setRole(static_cast<qtng_core::NoiseRole>(cfg.role()));
+    core.setRemoteStaticPublic(toStdString(cfg.remoteStaticPublic()));
+    core.setPsk(toStdString(cfg.psk()));
+    core.setPskModifier(static_cast<qtng_core::NoisePskModifier>(cfg.pskModifier()));
+    core.setPrologue(toStdString(cfg.prologue()));
+    core.setCipher(static_cast<qtng_core::Aead::Algorithm>(cfg.cipher()));
+    core.setHash(static_cast<qtng_core::NoiseHash>(cfg.hash()));
     return core;
 }
 
@@ -213,10 +213,10 @@ bool applyNoiseProtocolName(const QString &name, NoiseConfig *config, QString *e
     if (!parseNoiseProtocolName(name, &pattern, &pskModifier, &cipher, &hash, errorMessage)) {
         return false;
     }
-    config->pattern = pattern;
-    config->pskModifier = pskModifier;
-    config->cipher = cipher;
-    config->hash = hash;
+    config->setPattern(pattern);
+    config->setPskModifier(pskModifier);
+    config->setCipher(cipher);
+    config->setHash(hash);
     return true;
 }
 

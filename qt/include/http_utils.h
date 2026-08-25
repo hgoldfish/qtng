@@ -11,6 +11,11 @@
 
 QTNETWORKNG_NAMESPACE_BEGIN
 
+class HeaderSplitterPrivate;
+class ChunkedBlockReaderPrivate;
+class PlainBodyFilePrivate;
+class ChunkedBodyFilePrivate;
+
 enum HttpVersion {
     Unknown = 0,
     Http1_0 = 1,
@@ -100,6 +105,7 @@ enum KnownHeader {
     UserAgentHeader,
     AcceptHeader,
     AcceptLanguageHeader,
+    AcceptQueryHeader,  // RFC 10008: media types a resource accepts for QUERY requests
     AcceptEncodingHeader,
     PragmaHeader,
     CacheControlHeader,
@@ -121,16 +127,21 @@ QString toString(KnownHeader knownHeader);
 struct HttpHeader
 {
     HttpHeader(const QString &name, const QByteArray &value)
-        : name(name)
-        , value(value)
+        : name_(name)
+        , value_(value)
     {
     }
     HttpHeader() { }
-    bool isValid() const { return !name.isEmpty(); }
-    bool operator==(const HttpHeader &other) const { return name == other.name && value == other.value; }
+    bool isValid() const { return !name_.isEmpty(); }
+    bool operator==(const HttpHeader &other) const { return name_ == other.name_ && value_ == other.value_; }
     bool operator!=(const HttpHeader &other) const { return !(*this == other); }
-    QString name;
-    QByteArray value;
+    QString name() const { return name_; }
+    void setName(const QString &name) { name_ = name; }
+    QByteArray value() const { return value_; }
+    void setValue(const QByteArray &value) { value_ = value; }
+private:
+    QString name_;
+    QByteArray value_;
 };
 
 QDataStream &operator>>(QDataStream &ds, HttpHeader &header);
@@ -141,15 +152,15 @@ class WithHttpHeaders : public Base
 {
 public:
     void setContentType(const QString &contentType);
-    QString getContentType() const;
+    QString contentType() const;
     void setContentLength(qint64 contentLength);
-    qint64 getContentLength() const;
+    qint64 contentLength() const;
     void setLocation(const QUrl &url);
-    QUrl getLocation() const;
+    QUrl location() const;
     void setLastModified(const QDateTime &lastModified);
-    QDateTime getLastModified() const;
+    QDateTime lastModified() const;
     void setModifiedSince(const QDateTime &modifiedSince);
-    QDateTime getModifedSince() const;
+    QDateTime modifiedSince() const;
 
     void setHeader(const QString &name, const QByteArray &value);
     void addHeader(const QString &name, const QByteArray &value);
@@ -189,7 +200,7 @@ void WithHttpHeaders<Base>::setContentLength(qint64 contentLength)
 }
 
 template<typename Base>
-qint64 WithHttpHeaders<Base>::getContentLength() const
+qint64 WithHttpHeaders<Base>::contentLength() const
 {
     bool ok;
     QByteArray s = header(QString::fromLatin1("Content-Length"));
@@ -212,13 +223,13 @@ void WithHttpHeaders<Base>::setContentType(const QString &contentType)
 }
 
 template<typename Base>
-QString WithHttpHeaders<Base>::getContentType() const
+QString WithHttpHeaders<Base>::contentType() const
 {
     return QString::fromUtf8(header(QString::fromLatin1("Content-Type"), "text/plain"));
 }
 
 template<typename Base>
-QUrl WithHttpHeaders<Base>::getLocation() const
+QUrl WithHttpHeaders<Base>::location() const
 {
     const QByteArray &value = header(QString::fromLatin1("Location"));
     if (value.isEmpty()) {
@@ -239,7 +250,7 @@ void WithHttpHeaders<Base>::setLocation(const QUrl &url)
 }
 
 template<typename Base>
-QDateTime WithHttpHeaders<Base>::getLastModified() const
+QDateTime WithHttpHeaders<Base>::lastModified() const
 {
     const QByteArray &value = header(QString::fromLatin1("Last-Modified"));
     if (value.isEmpty()) {
@@ -261,7 +272,7 @@ void WithHttpHeaders<Base>::setModifiedSince(const QDateTime &modifiedSince)
 }
 
 template<typename Base>
-QDateTime WithHttpHeaders<Base>::getModifedSince() const
+QDateTime WithHttpHeaders<Base>::modifiedSince() const
 {
     const QByteArray &value = header(QString::fromLatin1("Modified-Since"));
     if (value.isEmpty()) {
@@ -275,7 +286,7 @@ bool WithHttpHeaders<Base>::hasHeader(const QString &headerName) const
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers.at(i);
-        if (header.name.compare(headerName, Qt::CaseInsensitive) == 0) {
+        if (header.name().compare(headerName, Qt::CaseInsensitive) == 0) {
             return true;
         }
     }
@@ -287,7 +298,7 @@ bool WithHttpHeaders<Base>::removeHeader(const QString &headerName)
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers.at(i);
-        if (header.name.compare(headerName, Qt::CaseInsensitive) == 0) {
+        if (header.name().compare(headerName, Qt::CaseInsensitive) == 0) {
             headers.removeAt(i);
             return true;
         }
@@ -343,8 +354,8 @@ QByteArray WithHttpHeaders<Base>::header(const QString &headerName, const QByteA
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers.at(i);
-        if (header.name.compare(headerName, Qt::CaseInsensitive) == 0) {
-            return header.value;
+        if (header.name().compare(headerName, Qt::CaseInsensitive) == 0) {
+            return header.value();
         }
     }
     return defaultValue;
@@ -368,8 +379,8 @@ QBYTEARRAYLIST WithHttpHeaders<Base>::multiHeader(const QString &headerName) con
     QBYTEARRAYLIST l;
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers.at(i);
-        if (header.name.compare(headerName, Qt::CaseInsensitive) == 0) {
-            l.append(header.value);
+        if (header.name().compare(headerName, Qt::CaseInsensitive) == 0) {
+            l.append(header.value());
         }
     }
     return l;
@@ -405,24 +416,19 @@ public:
         LineTooLong,
     };
 public:
-    HeaderSplitter(QSharedPointer<SocketLike> connection, const QByteArray &buf, int debugLevel = 0)
-        : connection(connection)
-        , buf(buf)
-        , debugLevel(debugLevel)
-    {
-    }
-    HeaderSplitter(QSharedPointer<SocketLike> connection, int debugLevel = 0)
-        : connection(connection)
-        , debugLevel(debugLevel)
-    {
-    }
+    HeaderSplitter(QSharedPointer<SocketLike> connection, const QByteArray &buf, int debugLevel = 0);
+    HeaderSplitter(QSharedPointer<SocketLike> connection, int debugLevel = 0);
+    ~HeaderSplitter();
     QByteArray nextLine(Error *error);
     HttpHeader nextHeader(Error *error);
     QList<HttpHeader> headers(int maxHeaders, Error *error);
-public:
-    QSharedPointer<SocketLike> connection;
-    QByteArray buf;
-    int debugLevel;
+    QByteArray buf() const;
+    void setBuf(const QByteArray &buf);
+private:
+    Q_DISABLE_COPY(HeaderSplitter)
+    HeaderSplitter(HeaderSplitter &&) = delete;
+    HeaderSplitter &operator=(HeaderSplitter &&) = delete;
+    HeaderSplitterPrivate * const d_ptr;
 };
 
 class ChunkedBlockReader
@@ -435,63 +441,65 @@ public:
         ConnectionError,
     };
 public:
-    ChunkedBlockReader(QSharedPointer<FileLike> connection, const QByteArray &buf)
-        : connection(connection)
-        , buf(buf)
-    {
-    }
-public:
+    ChunkedBlockReader(QSharedPointer<FileLike> connection, const QByteArray &buf);
+    ~ChunkedBlockReader();
     QByteArray nextBlock(qint64 leftBytes, Error *error);
-public:
-    int debugLevel;
-    QSharedPointer<FileLike> connection;
-    QByteArray buf;
+private:
+    Q_DISABLE_COPY(ChunkedBlockReader)
+    ChunkedBlockReader(ChunkedBlockReader &&) = delete;
+    ChunkedBlockReader &operator=(ChunkedBlockReader &&) = delete;
+    ChunkedBlockReaderPrivate * const d_ptr;
 };
 
 class PlainBodyFile : public FileLike
 {
 public:
     PlainBodyFile(qint64 contentLength, const QByteArray &partialBody, QSharedPointer<SocketLike> stream);
+    virtual ~PlainBodyFile() override;
     virtual qint32 read(char *data, qint32 size) override;
     virtual qint32 write(const char *, qint32) override { return -1; }
     virtual void close() override { }
-    virtual qint64 size() override { return contentLength; }
-public:
-    const qint64 contentLength;
-    const QSharedPointer<SocketLike> stream;
-    QByteArray partialBody;
-    qint64 count;
+    virtual qint64 size() override { return contentLength(); }
+    qint64 contentLength() const;
+private:
+    Q_DISABLE_COPY(PlainBodyFile)
+    PlainBodyFile(PlainBodyFile &&) = delete;
+    PlainBodyFile &operator=(PlainBodyFile &&) = delete;
+    PlainBodyFilePrivate * const d_ptr;
 };
 
 class ChunkedBodyFile : public FileLike
 {
 public:
     ChunkedBodyFile(qint64 maxBodySize, const QByteArray &partialBody, QSharedPointer<FileLike> stream);
+    virtual ~ChunkedBodyFile() override;
     virtual qint32 read(char *data, qint32 size) override;
     virtual qint32 write(const char *, qint32) override { return -1; }
     virtual void close() override { }
     virtual qint64 size() override { return -1; }
-public:
-    ChunkedBlockReader reader;
-    ChunkedBlockReader::Error error;
-    QByteArray buf;
-    qint64 maxBodySize;
-    qint64 count;
-    bool eof;
+    ChunkedBlockReader::Error error() const;
+private:
+    Q_DISABLE_COPY(ChunkedBodyFile)
+    ChunkedBodyFile(ChunkedBodyFile &&) = delete;
+    ChunkedBodyFile &operator=(ChunkedBodyFile &&) = delete;
+    ChunkedBodyFilePrivate * const d_ptr;
 };
 
 class ChunkedWriter: public FileLike
 {
 public:
     ChunkedWriter(QSharedPointer<FileLike> stream)
-        : stream(stream) {}
+        : stream_(stream) {}
     virtual ~ChunkedWriter() override;
     virtual qint32 read(char *, qint32) override { return -1; }
     virtual qint32 write(const char *data, qint32 size) override;
     virtual void close() override;
     virtual qint64 size() override { return -1; }
-public:
-    QSharedPointer<FileLike> stream;
+private:
+    Q_DISABLE_COPY(ChunkedWriter)
+    ChunkedWriter(ChunkedWriter &&) = delete;
+    ChunkedWriter &operator=(ChunkedWriter &&) = delete;
+    QSharedPointer<FileLike> stream_;
 };
 QTNETWORKNG_NAMESPACE_END
 

@@ -182,32 +182,24 @@ public:
 
 KcpSocket::KcpSocket(HostAddress::NetworkLayerProtocol protocol)
     : d_ptr(new KcpSocketPrivate(this, static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(protocol)))
-    , busy()
-    , notBusy()
 {
     linkSocketEvents(this);
 }
 
 KcpSocket::KcpSocket(qintptr socketDescriptor)
     : d_ptr(new KcpSocketPrivate(this, socketDescriptor))
-    , busy()
-    , notBusy()
 {
     linkSocketEvents(this);
 }
 
 KcpSocket::KcpSocket(QSharedPointer<Socket> rawSocket)
     : d_ptr(new KcpSocketPrivate(this, socketCoreOf(rawSocket.data())))
-    , busy()
-    , notBusy()
 {
     linkSocketEvents(this);
 }
 
 KcpSocket::KcpSocket(KcpSocketPrivate *d)
     : d_ptr(d)
-    , busy()
-    , notBusy()
 {
     linkSocketEvents(this);
 }
@@ -595,32 +587,24 @@ public:
 
 UtpSocket::UtpSocket(HostAddress::NetworkLayerProtocol protocol)
     : d_ptr(new UtpSocketPrivate(this, static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(protocol)))
-    , busy()
-    , notBusy()
 {
     linkSocketEvents(this);
 }
 
 UtpSocket::UtpSocket(qintptr socketDescriptor)
     : d_ptr(new UtpSocketPrivate(this, socketDescriptor))
-    , busy()
-    , notBusy()
 {
     linkSocketEvents(this);
 }
 
 UtpSocket::UtpSocket(QSharedPointer<Socket> rawSocket)
     : d_ptr(new UtpSocketPrivate(this, socketCoreOf(rawSocket.data())))
-    , busy()
-    , notBusy()
 {
     linkSocketEvents(this);
 }
 
 UtpSocket::UtpSocket(UtpSocketPrivate *d)
     : d_ptr(d)
-    , busy()
-    , notBusy()
 {
     linkSocketEvents(this);
 }

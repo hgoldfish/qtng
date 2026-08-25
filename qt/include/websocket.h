@@ -1,6 +1,7 @@
 #ifndef QTNG_WEBSOCKET_H
 #define QTNG_WEBSOCKET_H
 
+#include <memory>
 #include <QtCore/qstring.h>
 #include <QtCore/qurl.h>
 #include <QtCore/qsharedpointer.h>
@@ -13,7 +14,9 @@ class WebSocketConfiguration
 {
 public:
     WebSocketConfiguration();
+    WebSocketConfiguration(const WebSocketConfiguration &other);
     ~WebSocketConfiguration();
+    WebSocketConfiguration &operator=(const WebSocketConfiguration &other);
 public:
     void setKeepaliveInterval(float interval);
     float keepaliveInterval() const;
@@ -68,7 +71,7 @@ public:
                         const WebSocketConfiguration &config = WebSocketConfiguration());
     ~WebSocketConnection();
 public:
-    QSharedPointer<Event> disconnected;
+    QSharedPointer<Event> disconnected() const;
 public:
     void setConfiguration(const WebSocketConfiguration &config);
     bool send(const QByteArray &packet);
@@ -91,11 +94,16 @@ public:
     bool mustMask() const;
     QString origin() const;
     QUrl url() const;
-    const HttpResponse &response() const;
+    std::shared_ptr<const HttpResponse> response() const;
 private:
     WebSocketConnectionPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(WebSocketConnection);
-    friend class HttpSessionPrivate;
+    friend class WebSocketConnectionPrivate;
+    // 接管已填充好的 d（仅供内部 bridge 使用）。
+    WebSocketConnection(WebSocketConnectionPrivate *d);
+    Q_DISABLE_COPY(WebSocketConnection)
+    WebSocketConnection(WebSocketConnection &&) = delete;
+    WebSocketConnection &operator=(WebSocketConnection &&) = delete;
 };
 
 QTNETWORKNG_NAMESPACE_END

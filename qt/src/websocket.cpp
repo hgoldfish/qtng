@@ -32,17 +32,21 @@ qtng_core::WebSocketConfiguration toCoreConfig(const WebSocketConfiguration &con
 class WebSocketConfigurationPrivate
 {
 public:
-    qtng_core::WebSocketConfiguration core;
-    qtng_core::WebSocketConfiguration *external = nullptr;
+    std::shared_ptr<qtng_core::WebSocketConfiguration> core = std::make_shared<qtng_core::WebSocketConfiguration>();
 
-    qtng_core::WebSocketConfiguration &config() { return external ? *external : core; }
-    const qtng_core::WebSocketConfiguration &config() const { return external ? *external : core; }
+    qtng_core::WebSocketConfiguration &config() { return *core; }
+    const qtng_core::WebSocketConfiguration &config() const { return *core; }
 
-    static void bind(WebSocketConfiguration *config, qtng_core::WebSocketConfiguration *core)
+    static void bindCore(WebSocketConfiguration *config, std::shared_ptr<qtng_core::WebSocketConfiguration> core)
     {
         if (config) {
-            config->d_ptr->external = core;
+            config->d_ptr->core = std::move(core);
         }
+    }
+
+    static std::shared_ptr<qtng_core::WebSocketConfiguration> sharedCoreOf(const WebSocketConfiguration &config)
+    {
+        return config.d_ptr->core;
     }
 };
 
@@ -51,9 +55,22 @@ WebSocketConfiguration::WebSocketConfiguration()
 {
 }
 
+WebSocketConfiguration::WebSocketConfiguration(const WebSocketConfiguration &other)
+    : d_ptr(new WebSocketConfigurationPrivate(*other.d_ptr))
+{
+}
+
 WebSocketConfiguration::~WebSocketConfiguration()
 {
     delete d_ptr;
+}
+
+WebSocketConfiguration &WebSocketConfiguration::operator=(const WebSocketConfiguration &other)
+{
+    if (this != &other) {
+        *d_ptr = *other.d_ptr;
+    }
+    return *this;
 }
 
 void WebSocketConfiguration::setKeepaliveInterval(float interval)
@@ -153,9 +170,28 @@ class WebSocketConnectionPrivate
 public:
     shared_ptr<qtng_core::WebSocketConnection> core;
     QSharedPointer<Event> disconnectedEvent;
-    mutable HttpResponse response;
-    mutable bool responseReady = false;
+
+    static WebSocketConnection *create(std::shared_ptr<qtng_core::WebSocketConnection> core);
 };
+
+namespace {
+// 桥接 core 的 disconnected 事件到 Qt 层 Event：core 连接断开（abort）时同步转发。
+// 捕获事件对象副本而非 this/d，因为 core 析构（abort 路径）可能晚于 d_ptr 释放。
+void attachDisconnectedBridge(WebSocketConnectionPrivate *d)
+{
+    d->disconnectedEvent = QSharedPointer<Event>(new Event());
+    QSharedPointer<Event> disconnected = d->disconnectedEvent;
+    d->core->setDisconnectedNotifier([disconnected]() { disconnected->set(); });
+}
+}  // namespace
+
+WebSocketConnection *WebSocketConnectionPrivate::create(std::shared_ptr<qtng_core::WebSocketConnection> core)
+{
+    WebSocketConnectionPrivate *d = new WebSocketConnectionPrivate;
+    d->core = std::move(core);
+    attachDisconnectedBridge(d);
+    return new WebSocketConnection(d);
+}
 
 WebSocketConnection::WebSocketConnection(QSharedPointer<SocketLike> connection, const QByteArray &headBytes, Side side,
                                          const WebSocketConfiguration &config)
@@ -165,13 +201,23 @@ WebSocketConnection::WebSocketConnection(QSharedPointer<SocketLike> connection, 
     d->core = make_shared<qtng_core::WebSocketConnection>(
             toCoreSocketLike(connection), toStdString(headBytes),
             static_cast<qtng_core::WebSocketConnection::Side>(side), toCoreConfig(config));
-    d->disconnectedEvent = QSharedPointer<Event>(new Event());
-    disconnected = d->disconnectedEvent;
+    attachDisconnectedBridge(d);
+}
+
+WebSocketConnection::WebSocketConnection(WebSocketConnectionPrivate *d)
+    : d_ptr(d)
+{
 }
 
 WebSocketConnection::~WebSocketConnection()
 {
     delete d_ptr;
+}
+
+QSharedPointer<Event> WebSocketConnection::disconnected() const
+{
+    Q_D(const WebSocketConnection);
+    return d->disconnectedEvent;
 }
 
 void WebSocketConnection::setConfiguration(const WebSocketConfiguration &config)
@@ -183,7 +229,7 @@ void WebSocketConnection::setConfiguration(const WebSocketConfiguration &config)
 bool WebSocketConnection::send(const QByteArray &packet) { Q_D(WebSocketConnection); return d->core->send(toStdString(packet)); }
 bool WebSocketConnection::send(const QString &text) { Q_D(WebSocketConnection); return d->core->sendText(toStdString(text)); }
 bool WebSocketConnection::post(const QByteArray &packet) { Q_D(WebSocketConnection); return d->core->post(toStdString(packet)); }
-bool WebSocketConnection::post(const QString &text) { Q_D(WebSocketConnection); return d->core->post(toStdString(text)); }
+bool WebSocketConnection::post(const QString &text) { Q_D(WebSocketConnection); return d->core->postText(toStdString(text)); }
 QByteArray WebSocketConnection::recv(FrameType *type)
 {
     Q_D(WebSocketConnection);
@@ -208,23 +254,46 @@ void WebSocketConnection::setMustMask(bool yes) { Q_D(WebSocketConnection); d->c
 bool WebSocketConnection::mustMask() const { Q_D(const WebSocketConnection); return d->core->mustMask(); }
 QString WebSocketConnection::origin() const { Q_D(const WebSocketConnection); return toQString(d->core->origin()); }
 QUrl WebSocketConnection::url() const { Q_D(const WebSocketConnection); return toQUrl(qtng_core::utils::Url(d->core->url())); }
-const HttpResponse &WebSocketConnection::response() const
+std::shared_ptr<const HttpResponse> WebSocketConnection::response() const
 {
     Q_D(const WebSocketConnection);
-    if (!d->responseReady) {
-        d->response = qtng_bridge::httpResponseFromCore(d->core->response());
-        d->responseReady = true;
+    const shared_ptr<const qtng_core::HttpResponse> coreResponse = d->core->response();
+    if (!coreResponse) {
+        return std::shared_ptr<const HttpResponse>();
     }
-    return d->response;
+    return std::make_shared<const HttpResponse>(httpResponseFromCore(*coreResponse));
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE
 
 namespace qtng_bridge {
 
-void bindWebSocketConfiguration(QTNETWORKNG_NAMESPACE::WebSocketConfiguration *config, qtng_core::WebSocketConfiguration *core)
+QSharedPointer<QTNETWORKNG_NAMESPACE::WebSocketConnection>
+webSocketConnectionFromCore(std::shared_ptr<qtng_core::WebSocketConnection> core)
 {
-    QTNETWORKNG_NAMESPACE::WebSocketConfigurationPrivate::bind(config, core);
+    if (!core) {
+        return QSharedPointer<QTNETWORKNG_NAMESPACE::WebSocketConnection>();
+    }
+    return QSharedPointer<QTNETWORKNG_NAMESPACE::WebSocketConnection>(
+            QTNETWORKNG_NAMESPACE::WebSocketConnectionPrivate::create(std::move(core)));
+}
+
+std::shared_ptr<QTNETWORKNG_NAMESPACE::WebSocketConfiguration>
+webSocketConfigurationFromCore(std::shared_ptr<qtng_core::WebSocketConfiguration> core)
+{
+    std::shared_ptr<QTNETWORKNG_NAMESPACE::WebSocketConfiguration> config =
+            std::make_shared<QTNETWORKNG_NAMESPACE::WebSocketConfiguration>();
+    QTNETWORKNG_NAMESPACE::WebSocketConfigurationPrivate::bindCore(config.get(), std::move(core));
+    return config;
+}
+
+std::shared_ptr<qtng_core::WebSocketConfiguration>
+webSocketConfigurationToCore(const std::shared_ptr<QTNETWORKNG_NAMESPACE::WebSocketConfiguration> &config)
+{
+    if (!config) {
+        return std::shared_ptr<qtng_core::WebSocketConfiguration>();
+    }
+    return QTNETWORKNG_NAMESPACE::WebSocketConfigurationPrivate::sharedCoreOf(*config);
 }
 
 }  // namespace qtng_bridge

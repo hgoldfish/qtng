@@ -4,6 +4,7 @@
 #include <memory>
 
 #include <QtCore/qdatetime.h>
+#include <QtCore/qtimezone.h>
 
 #include "bridge/core_access.h"
 #include "bridge/hostaddress_access.h"
@@ -27,6 +28,22 @@ std::shared_ptr<qtng_core::FileLike> toCoreFileLike(const QSharedPointer<QTNETWO
 QSharedPointer<QTNETWORKNG_NAMESPACE::FileLike> toQtFileLike(const std::shared_ptr<qtng_core::FileLike> &core);
 
 inline QDateTime toQDateTime(const qtng_core::utils::DateTime &dt)
+{
+    if (!dt.isValid()) {
+        return QDateTime();
+    }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    return QDateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch(), QTimeZone::UTC);
+#else
+    // QTimeZone::UTC is a constant since Qt 6.5; older Qt only offers QTimeZone::utc().
+    return QDateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch(), QTimeZone::utc());
+#endif
+}
+
+// Last-Modified/Modified-Since round-trips through an HTTP date string; the
+// original qtnetworkng yields a Qt::UTC spec here (fromHttpDate calls
+// setTimeSpec(Qt::UTC)), so mirror that instead of a timezone-specified value.
+inline QDateTime toQDateTimeUtc(const qtng_core::utils::DateTime &dt)
 {
     if (!dt.isValid()) {
         return QDateTime();

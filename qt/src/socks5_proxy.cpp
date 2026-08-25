@@ -49,12 +49,20 @@ Socks5Proxy::~Socks5Proxy()
 
 QSharedPointer<SocketLike> Socks5Proxy::connect(const QString &remoteHost, quint16 port)
 {
-    return toQtSocketLike(d_ptr->core.connect(toStdString(remoteHost), port));
+    try {
+        return toQtSocketLike(d_ptr->core.connect(toStdString(remoteHost), port));
+    } catch (const qtng_core::Socks5Exception &e) {
+        throw Socks5Exception(static_cast<Socks5Exception::Error>(e.error()));
+    }
 }
 
 QSharedPointer<SocketLike> Socks5Proxy::connect(const HostAddress &remoteHost, quint16 port)
 {
-    return toQtSocketLike(d_ptr->core.connect(toCoreAddress(remoteHost), port));
+    try {
+        return toQtSocketLike(d_ptr->core.connect(toCoreAddress(remoteHost), port));
+    } catch (const qtng_core::Socks5Exception &e) {
+        throw Socks5Exception(static_cast<Socks5Exception::Error>(e.error()));
+    }
 }
 
 QSharedPointer<SocketLike> Socks5Proxy::listen(quint16 port)

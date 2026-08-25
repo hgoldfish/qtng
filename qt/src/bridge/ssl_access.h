@@ -18,7 +18,10 @@ QTNETWORKNG_NAMESPACE_END
 namespace qtng_bridge {
 
 std::shared_ptr<qtng_core::SslSocket> sslSocketCoreOf(QTNETWORKNG_NAMESPACE::SslSocket *socket);
-void bindSslConfigurationToCore(QTNETWORKNG_NAMESPACE::SslConfiguration *config, qtng_core::SslConfiguration *core);
+std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration>
+sslConfigurationFromCore(std::shared_ptr<qtng_core::SslConfiguration> core);
+std::shared_ptr<qtng_core::SslConfiguration>
+sslConfigurationToCore(const std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration> &config);
 
 }  // namespace qtng_bridge
 

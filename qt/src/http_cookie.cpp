@@ -167,16 +167,15 @@ QList<HttpCookie> HttpCookie::parseCookies(const QByteArray &cookieString)
 class HttpCookieJarPrivate
 {
 public:
-    qtng_core::HttpCookieJar core;
-    qtng_core::HttpCookieJar *externalCore = nullptr;
+    std::shared_ptr<qtng_core::HttpCookieJar> core = std::make_shared<qtng_core::HttpCookieJar>();
 
-    qtng_core::HttpCookieJar &coreRef() { return externalCore ? *externalCore : core; }
-    const qtng_core::HttpCookieJar &coreRef() const { return externalCore ? *externalCore : core; }
+    qtng_core::HttpCookieJar &coreRef() { return *core; }
+    const qtng_core::HttpCookieJar &coreRef() const { return *core; }
 
-    static void bindToCore(HttpCookieJar *jar, qtng_core::HttpCookieJar *core)
+    static void bindCore(HttpCookieJar *jar, std::shared_ptr<qtng_core::HttpCookieJar> core)
     {
         if (jar) {
-            jar->d_ptr->externalCore = core;
+            jar->d_ptr->core = std::move(core);
         }
     }
 };
@@ -265,9 +264,12 @@ QDebug operator<<(QDebug debug, const HttpCookie &cookie)
 
 namespace qtng_bridge {
 
-void bindHttpCookieJarToCore(QTNETWORKNG_NAMESPACE::HttpCookieJar *jar, qtng_core::HttpCookieJar *core)
+std::shared_ptr<QTNETWORKNG_NAMESPACE::HttpCookieJar>
+httpCookieJarFromCore(std::shared_ptr<qtng_core::HttpCookieJar> core)
 {
-    QTNETWORKNG_NAMESPACE::HttpCookieJarPrivate::bindToCore(jar, core);
+    std::shared_ptr<QTNETWORKNG_NAMESPACE::HttpCookieJar> jar(new QTNETWORKNG_NAMESPACE::HttpCookieJar);
+    QTNETWORKNG_NAMESPACE::HttpCookieJarPrivate::bindCore(jar.get(), std::move(core));
+    return jar;
 }
 
 }  // namespace qtng_bridge

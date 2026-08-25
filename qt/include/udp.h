@@ -37,8 +37,6 @@ public:
     quint32 payloadSizeHint() const;
     void setTearDownTime(float secs);
     float tearDownTime() const;
-    Event busy;
-    Event notBusy;
 public:
     Socket::SocketError error() const;
     QString errorString() const;
@@ -107,6 +105,9 @@ private:
     friend class KcpSocketPrivate;
     KcpSocketPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(KcpSocket)
+    Q_DISABLE_COPY(KcpSocket)
+    KcpSocket(KcpSocket &&) = delete;
+    KcpSocket &operator=(KcpSocket &&) = delete;
 };
 
 QSharedPointer<class SocketLike> asSocketLike(QSharedPointer<KcpSocket> s);
@@ -138,8 +139,6 @@ public:
     quint32 receiveBufferSize() const;
     void setIdleTimeout(float seconds);
     float idleTimeout() const;
-    Event busy;
-    Event notBusy;
 public:
     Socket::SocketError error() const;
     QString errorString() const;
@@ -205,6 +204,9 @@ private:
     friend class UtpSocketPrivate;
     UtpSocketPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(UtpSocket)
+    Q_DISABLE_COPY(UtpSocket)
+    UtpSocket(UtpSocket &&) = delete;
+    UtpSocket &operator=(UtpSocket &&) = delete;
 };
 
 QSharedPointer<class SocketLike> asSocketLike(QSharedPointer<UtpSocket> s);

@@ -155,10 +155,9 @@ public:
     void clear() { event.clear(); }
     bool isSet() const { return event.isSet(); }
     quint32 getting() const { return event.getting(); }
-public:
+private:
     Event event;
     Value value;
-private:
     Q_DISABLE_COPY(ValueEvent)
 };
 
@@ -343,13 +342,19 @@ public:
     inline quint32 size() const;
     inline quint32 getting() const;
     inline bool contains(const T &e);
-public:
+    // Wait until the queue becomes non-empty (or the timeout elapses).
+    bool waitNotEmpty(quint32 msecs = UINT_MAX) { return notEmpty.tryWait(msecs); }
+    // Wake waiters blocked on an empty queue.
+    void notifyNotEmpty() { notEmpty.set(); }
+private:
     QQueue<T> queue;
     EventType notEmpty;
     EventType notFull;
     ReadWriteLockType lock;
     quint32 mCapacity;
     quint32 currentSize;
+    template<typename T2, typename E2, typename R2>
+    friend class MultiQueueType;
     Q_DISABLE_COPY(SizedQueueType)
 };
 

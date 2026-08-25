@@ -15,12 +15,12 @@ namespace qtng_bridge {
 
 inline qtng_core::HttpHeader toCoreHeader(const QTNETWORKNG_NAMESPACE::HttpHeader &h)
 {
-    return qtng_core::HttpHeader(toStdString(h.name), toStdString(h.value));
+    return qtng_core::HttpHeader(toStdString(h.name()), toStdString(h.value()));
 }
 
 inline QTNETWORKNG_NAMESPACE::HttpHeader toQtHeader(const qtng_core::HttpHeader &h)
 {
-    return QTNETWORKNG_NAMESPACE::HttpHeader(toQString(h.name), toQByteArray(h.value));
+    return QTNETWORKNG_NAMESPACE::HttpHeader(toQString(h.name()), toQByteArray(h.value()));
 }
 
 inline std::vector<qtng_core::HttpHeader> toCoreHeaders(const QList<QTNETWORKNG_NAMESPACE::HttpHeader> &headers)
@@ -46,8 +46,12 @@ inline QList<QTNETWORKNG_NAMESPACE::HttpHeader> toQtHeaders(const std::vector<qt
 qtng_core::HttpProxy *httpProxyCoreOf(QTNETWORKNG_NAMESPACE::HttpProxy *proxy);
 const qtng_core::HttpProxy *httpProxyCoreOf(const QTNETWORKNG_NAMESPACE::HttpProxy *proxy);
 
-void bindHttpCookieJarToCore(QTNETWORKNG_NAMESPACE::HttpCookieJar *jar, qtng_core::HttpCookieJar *core);
-void bindWebSocketConfiguration(QTNETWORKNG_NAMESPACE::WebSocketConfiguration *config, qtng_core::WebSocketConfiguration *core);
+std::shared_ptr<QTNETWORKNG_NAMESPACE::HttpCookieJar>
+httpCookieJarFromCore(std::shared_ptr<qtng_core::HttpCookieJar> core);
+std::shared_ptr<QTNETWORKNG_NAMESPACE::WebSocketConfiguration>
+webSocketConfigurationFromCore(std::shared_ptr<qtng_core::WebSocketConfiguration> core);
+std::shared_ptr<qtng_core::WebSocketConfiguration>
+webSocketConfigurationToCore(const std::shared_ptr<QTNETWORKNG_NAMESPACE::WebSocketConfiguration> &config);
 
 QTNETWORKNG_NAMESPACE::HttpResponse httpResponseFromCore(qtng_core::HttpResponse core);
 

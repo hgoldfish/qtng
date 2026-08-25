@@ -199,8 +199,11 @@ bool CoroutineGroup::add(QSharedPointer<Coroutine> coroutine, const QString &nam
     }
     QWeakPointer<Coroutine> weak = coroutine.toWeakRef();
     coroutine->finished.addCallback([this, weak](BaseCoroutine *) {
+        // finished fires synchronously on the coroutine's own stack; dropping the last reference
+        // here would destroy the still-running coroutine. deleteCoroutine defers the removal to
+        // the event loop instead.
         if (QSharedPointer<Coroutine> c = weak.toStrongRef()) {
-            coroutines.remove(c);
+            deleteCoroutine(c.data());
         }
     });
     coroutines.insert(coroutine);
@@ -341,11 +344,30 @@ QSharedPointer<Coroutine> CoroutineGroup::any()
     }
 }
 
+namespace {
+
+class DeleteCoroutineFunctor : public Functor
+{
+public:
+    bool operator()() override { return true; }
+    QSharedPointer<Coroutine> coroutine;
+};
+
+}  // namespace
+
 void CoroutineGroup::deleteCoroutine(BaseCoroutine *coroutine)
 {
-    if (Coroutine *c = dynamic_cast<Coroutine *>(coroutine)) {
-        coroutines.remove(c->sharedFromThis());
+    Coroutine *c = dynamic_cast<Coroutine *>(coroutine);
+    if (!c) {
+        return;
     }
+    // Hold the last strong reference until the event loop runs this functor, so the coroutine
+    // object is destroyed only after the core coroutine has fully exited its own stack.
+    QSharedPointer<Coroutine> keep = c->sharedFromThis();
+    DeleteCoroutineFunctor *callback = new DeleteCoroutineFunctor();
+    callback->coroutine = keep;
+    EventLoopCoroutine::get()->callLater(0, callback);
+    coroutines.remove(keep);
 }
 
 class ThreadPoolWorkThread : public QThread

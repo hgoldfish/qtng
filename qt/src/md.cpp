@@ -48,9 +48,4 @@ QByteArray PBKDF2_HMAC(int keylen, const QByteArray &password, const QByteArray 
                                               static_cast<qtng_core::MessageDigest::Algorithm>(hashAlgo), i));
 }
 
-QByteArray scrypt(int keylen, const QByteArray &password, const QByteArray &salt, int n, int r, int p)
-{
-    return toQByteArray(qtng_core::scrypt(keylen, toStdString(password), toStdString(salt), n, r, p));
-}
-
 }  // namespace QTNETWORKNG_NAMESPACE

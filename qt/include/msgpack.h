@@ -11,10 +11,21 @@
 
 QTNETWORKNG_NAMESPACE_BEGIN
 
-struct MsgPackExtData
+class MsgPackExtData
 {
-    quint8 type;
-    QByteArray payload;
+public:
+    MsgPackExtData();
+    MsgPackExtData(quint8 type, QByteArray payload);
+
+    quint8 type() const;
+    void setType(quint8 type);
+
+    const QByteArray &payload() const;
+    void setPayload(const QByteArray &payload);
+
+private:
+    quint8 type_;
+    QByteArray payload_;
 };
 
 class MsgPackExtUserData

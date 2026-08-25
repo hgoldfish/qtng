@@ -47,6 +47,10 @@ public:
     static QSharedPointer<RawFile> open(const QString &filepath, QIODevice::OpenMode mode);
 public:
     QSharedPointer<QFile> f;
+private:
+    Q_DISABLE_COPY(RawFile)
+    RawFile(RawFile &&) = delete;
+    RawFile &operator=(RawFile &&) = delete;
 };
 
 class BytesIOPrivate;
@@ -66,6 +70,9 @@ public:
 private:
     BytesIOPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(BytesIO)
+    Q_DISABLE_COPY(BytesIO)
+    BytesIO(BytesIO &&) = delete;
+    BytesIO &operator=(BytesIO &&) = delete;
 };
 
 bool sendfile(QSharedPointer<FileLike> inputFile, QSharedPointer<FileLike> outputFile, qint64 bytesToCopy = -1,
@@ -90,6 +97,7 @@ public:
     QSharedPointer<QIODevice> deviceToRead(bool connectSignals = false, bool takePipe = false);
     QSharedPointer<QIODevice> deviceToWrite(bool connectSignals = false, bool takePipe = false);
 private:
+    // Copy is intentional (via QSharedPointer): shares PipePrivate.
     const QSharedPointer<PipePrivate> d;
 };
 

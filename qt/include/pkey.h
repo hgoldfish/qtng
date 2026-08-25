@@ -140,6 +140,9 @@ public:
 private:
     Q_DECLARE_PRIVATE(PrivateKeyWriter)
     PrivateKeyWriterPrivate * const d_ptr;
+    Q_DISABLE_COPY(PrivateKeyWriter)
+    PrivateKeyWriter(PrivateKeyWriter &&) = delete;
+    PrivateKeyWriter &operator=(PrivateKeyWriter &&) = delete;
 };
 
 class PrivateKeyReader
@@ -158,6 +161,9 @@ public:
 private:
     Q_DECLARE_PRIVATE(PrivateKeyReader)
     PrivateKeyReaderPrivate * const d_ptr;
+    Q_DISABLE_COPY(PrivateKeyReader)
+    PrivateKeyReader(PrivateKeyReader &&) = delete;
+    PrivateKeyReader &operator=(PrivateKeyReader &&) = delete;
 };
 
 QTNETWORKNG_NAMESPACE_END

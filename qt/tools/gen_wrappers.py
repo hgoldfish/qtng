@@ -91,7 +91,7 @@ def gen_hostaddress():
         HostAddress::HostAddress(const IPv6Address &ip6Addr)
             : d(new HostAddressPrivate)
         {
-            d->core.setAddress(ip6Addr.c);
+            d->core.setAddress(ip6Addr.data());
         }
 
         HostAddress::HostAddress(const sockaddr *sockaddr)
@@ -146,7 +146,7 @@ def gen_hostaddress():
 
         void HostAddress::setAddress(const IPv6Address &ipv6)
         {
-            d->core.setAddress(ipv6.c);
+            d->core.setAddress(ipv6.data());
         }
 
         void HostAddress::setAddress(const quint8 *ipv6)
@@ -184,7 +184,7 @@ def gen_hostaddress():
             const ::qtng::IPv6Address v6 = d->core.toIPv6Address();
             IPv6Address result;
             for (int i = 0; i < 16; ++i) {
-                result.c[i] = v6.c[i];
+                result.data()[i] = v6.data()[i];
             }
             return result;
         }

@@ -81,9 +81,9 @@ int main(int argc, char **argv)
         CHECK(g_session->webSocketConfiguration().protocols() == QStringList(QStringLiteral("chat")),
               "webSocketConfiguration protocols round-trip");
 #ifndef QTNG_NO_CRYPTO
-        CHECK(!g_session->sslConfiguration().caCertificates().isEmpty()
-                      || g_session->sslConfiguration().caCertificates().isEmpty(),
-              "sslConfiguration accessible");
+        g_session->sslConfiguration().setPeerVerifyDepth(6);
+        CHECK(g_session->sslConfiguration().peerVerifyDepth() == 6,
+              "sslConfiguration peerVerifyDepth round-trip");
 #endif
 
         // --- HttpCacheManager bridge: serialize through the core and read back ---
@@ -128,14 +128,14 @@ int main(int argc, char **argv)
         const QUrl indexUrl(QStringLiteral("http://127.0.0.1:%1/").arg(httpPort));
         HttpResponse resp = g_session->get(indexUrl);
         qDebug() << "plain response: status" << resp.statusCode() << "text" << resp.statusText() << "body"
-                 << resp.body() << "content-length" << resp.getContentLength();
+                 << resp.body() << "content-length" << resp.contentLength();
         CHECK(resp.isOk(), "plain http GET returns ok (httpd bridge)");
         if (resp.isOk()) {
             CHECK(resp.body() == body, "plain http GET returns index content");
             CHECK(resp.statusText() == QStringLiteral("OK"), "plain http GET status text");
             CHECK(resp.header(QStringLiteral("Content-Type")) == QByteArrayLiteral("text/html"),
                   "plain http GET content-type header");
-            CHECK(resp.getContentLength() == body.size(), "plain http GET content-length");
+            CHECK(resp.contentLength() == body.size(), "plain http GET content-length");
             CHECK(resp.request().method() == QStringLiteral("GET"), "plain http GET request method");
             CHECK(resp.request().url() == indexUrl, "plain http GET request url");
         }
@@ -152,7 +152,7 @@ int main(int argc, char **argv)
             CHECK(req.version() == Http1_0, "send does not mutate caller version");
             CHECK(req.header(QStringLiteral("X-Bridge-Test")) == QByteArrayLiteral("yes"),
                   "send keeps caller headers");
-            CHECK(r.getContentLength() == body.size(), "send response content-length");
+            CHECK(r.contentLength() == body.size(), "send response content-length");
         }
 
         // --- 3. socks5 bridge: tunnel an http request through Socks5RequestHandler ---

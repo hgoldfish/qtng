@@ -55,6 +55,9 @@ public:
 private:
     quint32 msecs;
     int timeoutId;
+    Q_DISABLE_COPY(Timeout)
+    Timeout(Timeout &&) = delete;
+    Timeout &operator=(Timeout &&) = delete;
 };
 
 // useful for qt application.
