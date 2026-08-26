@@ -440,7 +440,7 @@ static vector<NetworkInterfacePrivate *> createInterfaces(ifaddrs *rawList)
     int socket = -1;
 
     // ensure both structs start with the name field, of size IFNAMESIZ
-    static_assert(sizeof(mediareq.ifm_name) == sizeof(req.ifr_name));
+    static_assert(sizeof(mediareq.ifm_name) == sizeof(req.ifr_name), "interface name buffer sizes must match");
     assert(&mediareq.ifm_name == &req.ifr_name);
 
     // on NetBSD we use AF_LINK and sockaddr_dl
@@ -456,7 +456,7 @@ static vector<NetworkInterfacePrivate *> createInterfaces(ifaddrs *rawList)
             iface->flags = convertint(ptr->ifa_flags);
             iface->hardwareAddress = iface->makeHwAddress(sdl->sdl_alen, (uint8_t *) LLADDR(sdl));
 
-            qstrncpy(mediareq.ifm_name, ptr->ifa_name, sizeof(mediareq.ifm_name));
+            strlcpy(mediareq.ifm_name, ptr->ifa_name, sizeof(mediareq.ifm_name));
             iface->type = probeIfType(openSocket(socket), sdl->sdl_type, &mediareq);
             iface->mtu = getMtu(socket, &req);
         }
@@ -480,7 +480,7 @@ static void getAddressExtraInfo(NetworkAddressEntry *entry, struct sockaddr *sa,
         return;
     }
 
-    qstrncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+    strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 
     // get flags
     ifr.ifr_addr = *reinterpret_cast<struct sockaddr_in6 *>(sa);
@@ -502,7 +502,7 @@ static void getAddressExtraInfo(NetworkAddressEntry *entry, struct sockaddr *sa,
         return when ? static_cast<int64_t>(when) * 1000 : -1;
     };
     entry->setAddressLifetime(toDeadline(ifr.ifr_ifru.ifru_lifetime.ia6t_preferred),
-                              toDeadline(ifr.ifr_ifr_ifru.ifru_lifetime.ia6t_expire));
+                              toDeadline(ifr.ifr_ifru.ifru_lifetime.ia6t_expire));
 }
 
 #  else  // Generic version
