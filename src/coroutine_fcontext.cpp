@@ -11,12 +11,10 @@
 
 #include <cstdlib>
 #include <typeinfo>
-#if defined(__GLIBCXX__)
-#  include <cxxabi.h>
-extern "C" std::type_info *__cxa_current_exception_type();
-#endif
+#include <cxxabi.h>
 
 using namespace std;
+using abi::__cxa_current_exception_type;
 
 NG_LOGGER("qtng.fcontext");
 
@@ -81,7 +79,9 @@ extern "C" void run_stub(intptr_t data)
         coroutine->state = BaseCoroutine::Stopped;
         coroutine->q_ptr->finished.callback(coroutine->q_ptr);
     } catch (...) {
-        const char *tname = __cxa_current_exception_type() ? __cxa_current_exception_type()->name() : "unknown";
+
+	const std::type_info *ti = __cxa_current_exception_type();
+	const char *tname = ti ? ti->name() : "unknown";
         const std::string &coroutineName = coroutine->q_ptr->objectName();
 #if defined(__GLIBCXX__)
         int status = 0;
