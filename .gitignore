@@ -1,6 +1,8 @@
 CMakeLists.txt.user*
+# Mercurial metadata (dual-repo: tracked by hg, ignored by git)
 .hg/
 .hgignore
+.hgtags
 .directory
 *.kate-swp
 .cursor/
@@ -9,6 +11,10 @@ CMakeLists.txt.user*
 
 include/pool.h
 website/
+
+# Tests are Mercurial-only (never commit to git)
+/tests/
+/qt/tests/
 
 # Build trees (CMake out-of-source, Qt Creator, local variants)
 /build/
@@ -21,7 +27,6 @@ website/
 /docs/_build/
 /examples/*/build/
 /qt/examples/*/build/
-/qt/tests/*/build/
 /examples/*/dist/
 /examples/*/.build-in-docker/
 /examples/*/.build-winxp/
