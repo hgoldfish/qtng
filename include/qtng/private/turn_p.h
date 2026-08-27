@@ -104,8 +104,12 @@ public:
 
     bool allocate(float timeoutSecs);
     bool ensurePermission(const HostAddress &peer, std::uint16_t port, float timeoutSecs);
-    bool bindChannel(const HostAddress &peer, std::uint16_t port, float timeoutSecs);
-    void authenticate(StunMessage *msg) const;
+    // Binds a channel to the peer. Returns the bound channel number, or 0 on
+    // failure (or when the peer already has a channel).
+    std::uint16_t bindChannel(const HostAddress &peer, std::uint16_t port, float timeoutSecs);
+    // Stamp USERNAME/REALM/NONCE/MESSAGE-INTEGRITY onto a request using the
+    // credentials learned from the server challenge.
+    void applyCredentials(StunMessage *msg) const;
     std::string currentKey() const;
     StunReply rpc(const StunMessage &msg, float timeoutSecs);
 

@@ -271,7 +271,7 @@ string TurnClientPrivate::currentKey() const
     return stunLongTermKey(username, realm, password);
 }
 
-void TurnClientPrivate::authenticate(StunMessage *msg) const
+void TurnClientPrivate::applyCredentials(StunMessage *msg) const
 {
     if (realm.empty() || nonce.empty() || username.empty()) {
         return;
@@ -325,7 +325,7 @@ bool TurnClientPrivate::allocate(float timeoutSecs)
         msg.setMessageClass(StunRequestClass);
         msg.setTransactionId(StunMessage::newTransactionId());
         msg.setRequestedTransport(17);  // UDP
-        authenticate(&msg);
+        applyCredentials(&msg);
 
         const StunReply reply = rpc(msg, timeoutSecs);
         if (!reply.ok) {
@@ -391,7 +391,7 @@ bool TurnClientPrivate::refresh(float timeoutSecs)
     msg.setMessageClass(StunRequestClass);
     msg.setTransactionId(StunMessage::newTransactionId());
     msg.setLifetime(600);
-    authenticate(&msg);
+    applyCredentials(&msg);
     const StunReply reply = rpc(msg, timeoutSecs);
     if (reply.ok && reply.success) {
         uint32_t lt = 0;
@@ -413,7 +413,7 @@ bool TurnClientPrivate::ensurePermission(const HostAddress &peer, uint16_t port,
     msg.setMessageClass(StunRequestClass);
     msg.setTransactionId(StunMessage::newTransactionId());
     msg.setXorPeerAddress(peer, port);
-    authenticate(&msg);
+    applyCredentials(&msg);
     const StunReply reply = rpc(msg, timeoutSecs);
     if (reply.ok && reply.success) {
         permissions.insert(peer);
@@ -422,11 +422,11 @@ bool TurnClientPrivate::ensurePermission(const HostAddress &peer, uint16_t port,
     return false;
 }
 
-bool TurnClientPrivate::bindChannel(const HostAddress &peer, uint16_t port, float timeoutSecs)
+uint16_t TurnClientPrivate::bindChannel(const HostAddress &peer, uint16_t port, float timeoutSecs)
 {
     map<TurnEndpoint, uint16_t>::iterator existing = peerChannels.find(TurnEndpoint(peer, port));
     if (existing != peerChannels.end()) {
-        return true;
+        return existing->second;
     }
     ++channelCounter;
     if (channelCounter < 0x4000 || channelCounter > 0x7fff) {
@@ -439,14 +439,14 @@ bool TurnClientPrivate::bindChannel(const HostAddress &peer, uint16_t port, floa
     msg.setTransactionId(StunMessage::newTransactionId());
     msg.setChannelNumber(ch);
     msg.setXorPeerAddress(peer, port);
-    authenticate(&msg);
+    applyCredentials(&msg);
     const StunReply reply = rpc(msg, timeoutSecs);
     if (reply.ok && reply.success) {
         peerChannels[TurnEndpoint(peer, port)] = ch;
         channelPeers[ch] = TurnEndpoint(peer, port);
-        return true;
+        return ch;
     }
-    return false;
+    return 0;
 }
 
 bool TurnClientPrivate::sendTo(const HostAddress &peer, uint16_t port, const string &data)
@@ -461,14 +461,8 @@ bool TurnClientPrivate::sendTo(const HostAddress &peer, uint16_t port, const str
     map<TurnEndpoint, uint16_t>::iterator it = peerChannels.find(TurnEndpoint(peer, port));
     if (it != peerChannels.end()) {
         channel = it->second;
-    }
-    if (channel == 0) {
-        if (bindChannel(peer, port, 5.0f)) {
-            map<TurnEndpoint, uint16_t>::iterator it2 = peerChannels.find(TurnEndpoint(peer, port));
-            if (it2 != peerChannels.end()) {
-                channel = it2->second;
-            }
-        }
+    } else {
+        channel = bindChannel(peer, port, 5.0f);
     }
     if (channel != 0) {
         return socket->sendto(StunMessage::encodeChannelData(channel, data), serverAddr, serverPort) > 0;
@@ -802,22 +796,34 @@ void TurnServerPrivate::handleMessage(const string &data, const HostAddress &add
         }
         break;
     case StunRefreshMethod:
+        if (msg.messageClass() != StunRequestClass) {
+            break;
+        }
+        if (!alloc) {
+            sendError(msg, 437, "Allocation Mismatch", addr, port);
+            break;
+        }
+        handleRefresh(msg, alloc, addr, port);
+        break;
     case StunCreatePermissionMethod:
+        if (msg.messageClass() != StunRequestClass) {
+            break;
+        }
+        if (!alloc) {
+            sendError(msg, 437, "Allocation Mismatch", addr, port);
+            break;
+        }
+        handleCreatePermission(msg, alloc, addr, port);
+        break;
     case StunChannelBindMethod:
         if (msg.messageClass() != StunRequestClass) {
             break;
         }
-        if (alloc) {
-            if (msg.method() == StunRefreshMethod) {
-                handleRefresh(msg, alloc, addr, port);
-            } else if (msg.method() == StunCreatePermissionMethod) {
-                handleCreatePermission(msg, alloc, addr, port);
-            } else {
-                handleChannelBind(msg, alloc, addr, port);
-            }
-        } else {
+        if (!alloc) {
             sendError(msg, 437, "Allocation Mismatch", addr, port);
+            break;
         }
+        handleChannelBind(msg, alloc, addr, port);
         break;
     case StunSendMethod:
         if (msg.messageClass() == StunIndicationClass && alloc) {
