@@ -4577,3 +4577,120 @@ resizing and signal delivery::
     server.setLoginTimeout(60.0f);
     server.serveForever();                             // coroutine-blocking
 
+
+9. NAT Traversal: STUN / TURN / mDNS
+------------------------------------
+
+This chapter covers three UDP protocols for NAT traversal and local service
+discovery. All of them are always built (no CMake switch) and follow the same
+coroutine model as the rest of qtng: each peer runs a background ``recvLoop``
+coroutine and request/reply matching uses transaction-id waiters.
+
+* **STUN** (RFC 8489) — ``StunClient`` discovers the server-reflexive
+  (NAT-mapped) address of the local socket; ``StunServer`` answers Binding
+  requests with ``XOR-MAPPED-ADDRESS``.
+* **TURN** (RFC 8656) — ``TurnClient`` allocates a relay on ``TurnServer`` and
+  exchanges datagrams with arbitrary peers through it, which also works behind
+  symmetric NATs. Authentication uses long-term credentials
+  (``MD5(username:realm:password)``), and per-peer permissions plus channel
+  bindings reduce the per-packet overhead.
+* **mDNS** (RFC 6762/6763) — ``MdnsBrowser`` browses ``.local`` service
+  instances and resolves host names over the 224.0.0.251 / ff02::fb multicast
+  groups; ``MdnsResponder`` registers local services and host records and
+  answers queries.
+
+Headers: ``qtng/stun.h``, ``qtng/turn.h``, ``qtng/mdns.h``. The message-level
+codec (``StunMessage``, the DNS codec) lives in the private headers
+``qtng/private/stun_p.h`` / ``qtng/private/turn_p.h`` / ``qtng/private/mdns_p.h``
+and is validated against the RFC 5769 test vectors.
+
+9.1 STUN
+^^^^^^^^
+
+``StunClient`` binds an ephemeral UDP socket (``open()``) and sends Binding
+requests with ``query()``::
+
+    StunServer server;                    // run the server side
+    if (server.open(HostAddress::AnyIPv4, 3478)) {
+        // ... serve in the background recvLoop ...
+    }
+
+    StunClient client;
+    client.open();
+    StunClientInfo info = client.query("stun.example.com", 3478, 3.0f);
+    if (info.ok()) {
+        ngDebug() << "mapped address:" << info.mappedAddress()
+                  << "port:" << info.mappedPort() << "rtt:" << info.rtt();
+    }
+
+``StunServer`` replies to Binding requests with the source address XOR-encoded
+in ``XOR-MAPPED-ADDRESS`` (RFC 8489 §15.2); non-Binding requests receive a 400
+error response. The server also exposes ``localPort()`` for tests that bind port
+0 (ephemeral).
+
+9.2 TURN
+^^^^^^^^
+
+The TURN server allocates one relay UDP socket per client 5-tuple and runs a
+forwarding coroutine for each allocation: datagrams from permitted peers are
+delivered to the client either as ``DATA`` indications or as ``ChannelData``
+frames when the client bound a channel to the peer.
+
+Client example::
+
+    TurnServer server;                    // server side
+    server.open(HostAddress::AnyIPv4, 3478, "qtng",
+                [](const std::string &user, const std::string &) {
+                    return user == "alice" ? std::string("secret") : std::string();
+                });
+
+    TurnClient client;
+    if (client.open("turn.example.com", 3478, "alice", "secret", 5.0f)) {
+        HostAddress peer("192.0.2.7");
+        client.sendTo(peer, 5000, "hello via relay");
+        // or client.sendIndication(peer, 5000, "...");  // Send indication path
+        HostAddress from;
+        std::uint16_t fromPort = 0;
+        std::string data = client.recvFrom(&from, &fromPort, 5.0f);
+    }
+
+* ``open()`` performs Allocate and handles the 401 long-term-credential
+  challenge (realm/nonce) automatically. Empty username/password means "no
+  authentication" and requires a server opened without an auth callback.
+* ``sendTo()`` creates the permission and binds a channel on first use, then
+  relays via ``ChannelData``. ``sendIndication()`` always uses Send indications.
+* ``permit()`` creates a CreatePermission for a peer address; the peer's return
+  traffic is only delivered once the receiving client holds a permission for
+  the sender's address (RFC 8656 §9).
+* ``refresh()`` renews the allocation; ``setDefaultLifetime()`` on the server
+  controls the granted lifetime. Expired allocations are reaped by a
+  maintenance coroutine.
+
+9.3 mDNS
+^^^^^^^^
+
+``MdnsResponder`` registers service instances and host records; ``MdnsBrowser``
+discovers them. For deterministic tests both sides can run on loopback with
+directed unicast queries via ``MdnsBrowser::setServer()``; without it queries go
+to the multicast group (224.0.0.251 for IPv4).::
+
+    MdnsResponder responder;
+    responder.open(HostAddress::AnyIPv4, 5353);
+    responder.setHostName("printer.local");
+    responder.registerHost("printer.local", { HostAddress("192.168.1.5") });
+    responder.registerService("MyPrinter", "_http._tcp.local", 8080,
+                              { { "path", "/print" } });
+
+    MdnsBrowser browser;
+    browser.open();  // binds 5353 and joins the multicast group
+    std::vector<MdnsService> services = browser.browse("_http._tcp.local", 3.0f);
+    for (const MdnsService &svc : services) {
+        ngDebug() << svc.instance << svc.host << svc.port << svc.txt["path"];
+    }
+    std::vector<HostAddress> addrs = browser.lookup("printer.local", 3.0f);
+
+A PTR query is answered with the PTR records plus the corresponding SRV, TXT and
+A/AAAA records packed in the same response (RFC 6762 additional records), so one
+``browse()`` round-trip yields instance, port, TXT attributes and addresses.
+``resolve()`` re-queries A/AAAA for the SRV target when needed.
+

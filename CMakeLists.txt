@@ -134,6 +134,9 @@ set(QTNG_SRC
     src/kcp/ikcp.c
     src/kcp/ikcp.h
     src/utp.cpp
+    src/stun.cpp
+    src/turn.cpp
+    src/mdns.cpp
     src/network_interface/network_interface.cpp
     # Non-OpenSSL fallback exists; needed by http/kcp/websocket even without crypto.
     src/random.cpp
@@ -179,6 +182,9 @@ set(QTNG_PUBLIC_INCLUDE
     include/qtng/udp.h
     include/qtng/hostaddress.h
     include/qtng/network_interface.h
+    include/qtng/stun.h
+    include/qtng/turn.h
+    include/qtng/mdns.h
     include/qtng/gzip.h
     include/qtng/websocket.h
     include/qtng/mqtt.h
@@ -192,6 +198,9 @@ set(QTNG_PRIVATE_INCLUDE
     include/qtng/private/kcp.h
     include/qtng/private/utp.h
     include/qtng/private/kademlia_p.h
+    include/qtng/private/stun_p.h
+    include/qtng/private/turn_p.h
+    include/qtng/private/mdns_p.h
     include/qtng/private/http_p.h
     include/qtng/private/hostaddress_p.h
     include/qtng/private/network_interface_p.h
@@ -547,6 +556,13 @@ endif()
 install(DIRECTORY include/qtng
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.h")
+
+# Optional qtng/rpc sublibrary (wire-compatible with the legacy lafrpc/cpp).
+# Configured before tests so tests/ can depend on the qtng_rpc target.
+option(QTNG_BUILD_RPC "Build the qtng/rpc sublibrary" OFF)
+if(QTNG_BUILD_RPC)
+    add_subdirectory(rpc)
+endif()
 
 # Test configuration for internal development.
 option(QTNG_BUILD_TESTS "Build unit tests (requires a C++17 compiler)" OFF)

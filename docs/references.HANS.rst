@@ -4203,3 +4203,109 @@ shell：``SshApplication`` 回调收到终端字节流以及 resize/信号通知
     server.setLoginTimeout(60.0f);
     server.serveForever();                             // 协程内阻塞
 
+
+9. NAT 穿透：STUN / TURN / mDNS
+-------------------------------
+
+本章介绍三个用于 NAT 穿透与局域网服务发现的 UDP 协议。三者默认编译（无 CMake
+开关），与 qtng 其余部分一样采用协程模型：每个对端由后台 ``recvLoop`` 协程
+收发报文，请求/应答通过 transaction id 等待表匹配。
+
+* **STUN**（RFC 8489）—— ``StunClient`` 探测本地套接字的 server-reflexive
+  （NAT 映射）地址；``StunServer`` 用 ``XOR-MAPPED-ADDRESS`` 应答 Binding 请求。
+* **TURN**（RFC 8656）—— ``TurnClient`` 在 ``TurnServer`` 上分配中继地址，
+  通过中继与任意对端交换数据报，在对称 NAT 后也能工作。认证使用长期凭证
+  （``MD5(username:realm:password)``），按对端的权限（permission）与通道
+  （channel）绑定降低每包开销。
+* **mDNS**（RFC 6762/6763）—— ``MdnsBrowser`` 通过 224.0.0.251 / ff02::fb
+  多播组浏览 ``.local`` 服务实例并解析主机名；``MdnsResponder`` 注册本地服务
+  与主机记录并应答查询。
+
+头文件：``qtng/stun.h``、``qtng/turn.h``、``qtng/mdns.h``。报文级编解码
+（``StunMessage`` 与 DNS 编解码）位于私有头 ``qtng/private/stun_p.h`` /
+``qtng/private/turn_p.h`` / ``qtng/private/mdns_p.h``，并经过 RFC 5769 测试
+向量验证。
+
+9.1 STUN
+^^^^^^^^
+
+``StunClient`` 绑定临时 UDP 套接字（``open()``），用 ``query()`` 发送 Binding
+请求：:
+
+    StunServer server;                    // 服务端
+    if (server.open(HostAddress::AnyIPv4, 3478)) {
+        // ... 在后台 recvLoop 中提供服务 ...
+    }
+
+    StunClient client;
+    client.open();
+    StunClientInfo info = client.query("stun.example.com", 3478, 3.0f);
+    if (info.ok()) {
+        ngDebug() << "mapped address:" << info.mappedAddress()
+                  << "port:" << info.mappedPort() << "rtt:" << info.rtt();
+    }
+
+``StunServer`` 以 XOR 编码的 ``XOR-MAPPED-ADDRESS``（RFC 8489 §15.2）应答
+Binding 请求；非 Binding 请求返回 400。服务端同样提供 ``localPort()``，
+方便测试绑定 0（临时端口）。
+
+9.2 TURN
+^^^^^^^^
+
+TURN 服务器为每个客户端 5 元组分配一个中继 UDP 套接字，并为每个分配运行一个
+转发协程：来自已授权对端的数据报，在客户端为该对端绑定通道时以
+``ChannelData`` 帧投递，否则以 ``DATA`` indication 投递。
+
+客户端示例：::
+
+    TurnServer server;                    // 服务端
+    server.open(HostAddress::AnyIPv4, 3478, "qtng",
+                [](const std::string &user, const std::string &) {
+                    return user == "alice" ? std::string("secret") : std::string();
+                });
+
+    TurnClient client;
+    if (client.open("turn.example.com", 3478, "alice", "secret", 5.0f)) {
+        HostAddress peer("192.0.2.7");
+        client.sendTo(peer, 5000, "hello via relay");
+        // 或 client.sendIndication(peer, 5000, "...");  // Send indication 路径
+        HostAddress from;
+        std::uint16_t fromPort = 0;
+        std::string data = client.recvFrom(&from, &fromPort, 5.0f);
+    }
+
+* ``open()`` 完成 Allocate 并自动处理 401 长期凭证质询（realm/nonce）。
+  username/password 为空表示"无需认证"，要求服务端未配置 auth 回调。
+* ``sendTo()`` 首次使用时自动创建权限并绑定通道，之后以 ``ChannelData``
+  中继；``sendIndication()`` 始终走 Send indication。
+* ``permit()`` 为对端地址创建 CreatePermission；只有接收方持有发送方地址的
+  权限后，对端回程流量才会被投递（RFC 8656 §9）。
+* ``refresh()`` 续期分配；服务端 ``setDefaultLifetime()`` 控制授予的存活
+  时间。过期分配由维护协程清理。
+
+9.3 mDNS
+^^^^^^^^
+
+``MdnsResponder`` 注册服务实例与主机记录；``MdnsBrowser`` 负责发现。为了测试
+确定性，两端可在环回上通过 ``MdnsBrowser::setServer()`` 定向单播查询；不设置
+时查询发往多播组（IPv4 为 224.0.0.251）。::
+
+    MdnsResponder responder;
+    responder.open(HostAddress::AnyIPv4, 5353);
+    responder.setHostName("printer.local");
+    responder.registerHost("printer.local", { HostAddress("192.168.1.5") });
+    responder.registerService("MyPrinter", "_http._tcp.local", 8080,
+                              { { "path", "/print" } });
+
+    MdnsBrowser browser;
+    browser.open();  // 绑定 5353 并加入多播组
+    std::vector<MdnsService> services = browser.browse("_http._tcp.local", 3.0f);
+    for (const MdnsService &svc : services) {
+        ngDebug() << svc.instance << svc.host << svc.port << svc.txt["path"];
+    }
+    std::vector<HostAddress> addrs = browser.lookup("printer.local", 3.0f);
+
+对 PTR 查询的应答会在同一个报文中打包 PTR 记录及对应的 SRV、TXT 和 A/AAAA
+记录（RFC 6762 additional records），因此一次 ``browse()`` 往返即可拿到实例、
+端口、TXT 属性与地址。``resolve()`` 在需要时对 SRV 目标重新查询 A/AAAA。
+

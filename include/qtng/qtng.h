@@ -21,6 +21,9 @@
 #include "qtng/mqtt.h"
 #include "qtng/lmdb.h"
 #include "qtng/kademlia.h"
+#include "qtng/stun.h"
+#include "qtng/turn.h"
+#include "qtng/mdns.h"
 #ifndef QTNG_NO_BT
 #  include "qtng/bt.h"
 #endif

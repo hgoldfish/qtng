@@ -41,6 +41,9 @@ Features
 * `BencodeStream` / `Bencode` encode and decode BitTorrent bencode (torrents, trackers, DHT).
 * `DhtNode` implements BitTorrent DHT (BEP-5) with pluggable `DhtStore` (memory / LMDB).
 * `TorrentSession` implements a BitTorrent core download stack (peer wire, HTTP/UDP trackers, DHT + µTP/TCP) in `qtng/bt.h`.
+* `StunClient` / `StunServer` implement STUN (RFC 8489) for reflexive-address discovery in `qtng/stun.h`.
+* `TurnClient` / `TurnServer` implement TURN (RFC 8656) UDP relay with long-term credentials in `qtng/turn.h`.
+* `MdnsBrowser` / `MdnsResponder` implement mDNS/DNS-SD (RFC 6762/6763) for `.local` service discovery in `qtng/mdns.h`.
 * `Cipher`, `MessageDigest`, `PublicKey`, `PrivateKey` wrap OpenSSL/LibreSSL APIs.
 * `SshServer` / `SshClient` / `SshChannel` implement the SSH protocol (RFC 4251–4254) for hosting interactive terminal applications over `session` channels; `SshApplication` runs TUIs in-process (no fork/exec).
 
@@ -157,6 +160,7 @@ Towards 2.0
 - [x] Support QUIC (transport MVP: `QuicConnection` / `QuicStream`; no HTTP/3 yet)
 - [x] Support Kademlia
 - [x] Support BitTorrent protocol (core download stack + magnet/BEP-9 + ``examples/btclient``; MSE/PEX later)
+- [x] Support STUN / TURN / mDNS (NAT traversal + `.local` service discovery)
 - [x] Support MQTT
 
 

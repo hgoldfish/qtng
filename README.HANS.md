@@ -41,6 +41,9 @@ Qt 应用可选用 [`qt/`](qt/) 兼容层，以旧版 [qtnetworkng](https://gith
 * `BencodeStream` / `Bencode` 编解码 BitTorrent bencode（种子、tracker、DHT）。
 * `DhtNode` 实现 BitTorrent DHT（BEP-5），存储可插拔（`MemoryDhtStore` / `LmdbDhtStore`）。
 * `TorrentSession` 实现 BitTorrent 核心下载栈（peer wire、HTTP/UDP tracker、DHT + µTP/TCP），见 ``qtng/bt.h``。
+* `StunClient` / `StunServer` 实现 STUN（RFC 8489）反射地址探测，见 `qtng/stun.h`。
+* `TurnClient` / `TurnServer` 实现 TURN（RFC 8656）UDP 中继与长期凭证认证，见 `qtng/turn.h`。
+* `MdnsBrowser` / `MdnsResponder` 实现 mDNS/DNS-SD（RFC 6762/6763）`.local` 服务发现，见 `qtng/mdns.h`。
 * `Cipher`、`MessageDigest`、`PublicKey`、`PrivateKey` 封装 OpenSSL/LibreSSL API。
 * `SshServer` / `SshClient` / `SshChannel` 实现 SSH 协议（RFC 4251–4254），可在 `session` 通道上托管交互式终端应用；`SshApplication` 让 TUI 在进程内运行（不 fork/exec）。
 
@@ -154,6 +157,7 @@ gzip 压缩需要 zlib。
 - [x] 支持 QUIC（传输层 MVP：`QuicConnection` / `QuicStream`；尚无 HTTP/3）
 - [x] 支持 Kademlia
 - [x] 支持 BitTorrent 协议（核心下载栈 + magnet/BEP-9 + ``examples/btclient``；MSE/PEX 后续）
+- [x] 支持 STUN / TURN / mDNS（NAT 穿透 + `.local` 服务发现）
 - [x] 支持 MQTT
 
 
