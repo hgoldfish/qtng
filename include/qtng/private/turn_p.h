@@ -152,8 +152,7 @@ enum TurnAuthResult {
 class Allocation : public std::enable_shared_from_this<Allocation>
 {
 public:
-    Allocation(const HostAddress &clientAddr, std::uint16_t clientPort, const std::string &username,
-               const std::string &key);
+    Allocation(const HostAddress &clientAddr, std::uint16_t clientPort, const std::string &key);
 
     bool hasPermission(const HostAddress &peer) const;
     void addPermission(const HostAddress &peer);
@@ -162,7 +161,6 @@ public:
 
     HostAddress clientAddr;
     std::uint16_t clientPort;
-    std::string username;
     std::string key;
     std::shared_ptr<Socket> relaySocket;
     HostAddress relayedAddr;
@@ -221,7 +219,6 @@ public:
     std::string error;
     std::string realm;
     std::string nonce;
-    std::string prevNonce;
     std::uint32_t defaultLifetime;
     TurnServer::AuthCallback auth;
 };

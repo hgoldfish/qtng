@@ -25,10 +25,9 @@ int64_t nowUnix()
 // Allocation
 // ---------------------------------------------------------------------------
 
-Allocation::Allocation(const HostAddress &ca, uint16_t cp, const string &u, const string &k)
+Allocation::Allocation(const HostAddress &ca, uint16_t cp, const string &k)
     : clientAddr(ca)
     , clientPort(cp)
-    , username(u)
     , key(k)
     , relayedPort(0)
     , expireUnix(0)
@@ -667,7 +666,6 @@ bool TurnServerPrivate::open(const HostAddress &addr, uint16_t port, const strin
     realm = r;
     auth = a;
     nonce = utils::bytesToHex(randomBytes(16));
-    prevNonce.clear();
     defaultLifetime = 600;
 
     listener = make_shared<Socket>(proto, Socket::UdpSocket);
@@ -804,18 +802,21 @@ void TurnServerPrivate::handleMessage(const string &data, const HostAddress &add
         }
         break;
     case StunRefreshMethod:
-        if (msg.messageClass() == StunRequestClass && alloc) {
-            handleRefresh(msg, alloc, addr, port);
-        }
-        break;
     case StunCreatePermissionMethod:
-        if (msg.messageClass() == StunRequestClass && alloc) {
-            handleCreatePermission(msg, alloc, addr, port);
-        }
-        break;
     case StunChannelBindMethod:
-        if (msg.messageClass() == StunRequestClass && alloc) {
-            handleChannelBind(msg, alloc, addr, port);
+        if (msg.messageClass() != StunRequestClass) {
+            break;
+        }
+        if (alloc) {
+            if (msg.method() == StunRefreshMethod) {
+                handleRefresh(msg, alloc, addr, port);
+            } else if (msg.method() == StunCreatePermissionMethod) {
+                handleCreatePermission(msg, alloc, addr, port);
+            } else {
+                handleChannelBind(msg, alloc, addr, port);
+            }
+        } else {
+            sendError(msg, 437, "Allocation Mismatch", addr, port);
         }
         break;
     case StunSendMethod:
@@ -850,7 +851,7 @@ TurnAuthResult TurnServerPrivate::authenticate(const StunMessage &msg, string *k
     if (realmAttr->value != realm) {
         return TurnAuthNoCredentials;
     }
-    if (nonceAttr->value != nonce && nonceAttr->value != prevNonce) {
+    if (nonceAttr->value != nonce) {
         return TurnAuthStaleNonce;
     }
     const string pw = auth(user->value, realm);
@@ -926,9 +927,7 @@ void TurnServerPrivate::handleAllocate(const StunMessage &msg, const HostAddress
         return;
     }
 
-    const StunAttribute *userAttr = msg.attribute(StunAttrUsername);
-    const string allocUsername = userAttr ? userAttr->value : string();
-    shared_ptr<Allocation> alloc = make_shared<Allocation>(addr, port, allocUsername, key);
+    shared_ptr<Allocation> alloc = make_shared<Allocation>(addr, port, key);
     alloc->relaySocket = make_shared<Socket>(proto, Socket::UdpSocket);
     const HostAddress relayBind = (proto == HostAddress::IPv6Protocol) ? HostAddress::AnyIPv6
                                                                        : HostAddress::AnyIPv4;

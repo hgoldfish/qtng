@@ -113,7 +113,6 @@ public:
     }
 
     const std::vector<StunAttribute> &attributes() const { return m_attributes; }
-    std::vector<StunAttribute> &attributes() { return m_attributes; }
     const StunAttribute *attribute(std::uint16_t type) const;
     void addAttribute(std::uint16_t type, const std::string &value);
     void removeAttribute(std::uint16_t type);
