@@ -105,7 +105,7 @@ public:
     bool allocate(float timeoutSecs);
     bool ensurePermission(const HostAddress &peer, std::uint16_t port, float timeoutSecs);
     // Binds a channel to the peer. Returns the bound channel number, or 0 on
-    // failure (or when the peer already has a channel).
+    // failure; already-bound peers return their existing channel.
     std::uint16_t bindChannel(const HostAddress &peer, std::uint16_t port, float timeoutSecs);
     // Stamp USERNAME/REALM/NONCE/MESSAGE-INTEGRITY onto a request using the
     // credentials learned from the server challenge.
