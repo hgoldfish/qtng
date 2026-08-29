@@ -453,6 +453,12 @@ if(QTNG_WITH_BT)
         include/qtng/private/bt_p.h
     )
 endif()
+if(QTNG_WITH_HTTP3 AND QTNG_WITH_QUIC)
+    list(APPEND QTNG_LIB_SOURCES
+        src/http3.cpp
+        include/qtng/http3.h
+    )
+endif()
 
 add_library(qtng STATIC ${QTNG_LIB_SOURCES})
 
