@@ -106,6 +106,7 @@ User Guide
    intro
    qt_integration
    practices
+   rpc
    references
    index.HANS
    
