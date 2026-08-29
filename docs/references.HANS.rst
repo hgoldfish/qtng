@@ -3811,7 +3811,7 @@ API 对齐 ``WebSocketConnection``：协程阻塞式 ``publish`` / ``subscribe``
 8.2 KcpStream 与 DatagramLink
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``KcpStream``（私有头 ``qtng/private/kcp.h``）是传输无关的 KCP 会话核心：连接管理、
+``KcpStream``（头文件 ``qtng/kcp.h``）是传输无关的 KCP 会话核心：连接管理、
 listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠字节流，不实现 ``SocketLike``，
 也不暴露 bind / 组播 / DNS / 原始 UDP 收发。
 
@@ -3826,7 +3826,7 @@ listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠
 优雅 ``close()`` 最多等待 3 秒排空发送队列。``CLOSE`` 控制包仅在源 ``DatagramPath`` 与已记录
 对端路径一致时生效；其它路径发来的伪造关闭会被忽略。
 
-日常 UDP 场景请使用公开的 ``KcpSocket``（``udp.h``）。``KcpSocket`` 内部用私有
+日常 UDP 场景请使用公开的 ``KcpSocket``（``qtng/kcp.h``）。``KcpSocket`` 内部用私有
 ``UdpDatagramLink`` / ``UdpDatagramPath`` 把 ``HostAddress``+端口映射为 ``DatagramPath``。
 ``asSocketLike`` 仅针对 ``KcpSocket``，不适用于 ``KcpStream``。
 
@@ -3835,15 +3835,22 @@ listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠
 线成帧统一为：
 
 * DatagramLink 投递 ``[1 字节 cmd][payload...]``，不含前导 ikcp ``conv``。
-  接收缓冲区在线载荷前预留 4 字节 headroom，使原生 ikcp 命令（0x51–0x54）
-  无需拷贝即可交给 ``ikcp_input``（conv 置零）；旧版 ``DATA``（0x01）则原地
-  清零叠加的 conversation 字段。
+  接收缓冲区在线载荷前预留 4 字节 headroom，使原生 ikcp 命令（0x51–0x55；
+  其中 0x55 为 mKCP 紧凑 ACK 帧）无需拷贝即可交给 ``ikcp_input``（conv 置零）；
+  旧版 ``DATA``（0x01）则原地清零叠加的 conversation 字段。
 * KcpStream 控制包（CREATE_MULTIPATH / CLOSE / KEEPALIVE）始终在字节 1–4 携带
   4 字节大端 ``sessionId``。构造时传入，或使用 ``setSessionId()``。
 * ``protocolVersion`` 选择 ikcp 输出格式：版本 1（``KcpSocket`` 默认）将段包装为
   ``DATA`` 并在 conv 上叠加 ``sessionId``；版本 2（``SlowSocket`` 默认）剥掉
   4 字节 ``conv``，直接发送 ``[cmd][payload...]``。对端按入站线格式协商为
   ``min(local, peer)``。
+
+mKCP 式 ACK 优化（在版本 2 线格式下启用）：当两端协商为 ``protocolVersion`` 2 时，
+ACK 打包进紧凑的 ``0x55`` ACKN 帧——``[conv(4)][cmd(1)=0x55][count(2)][wnd(2)][una(4)]``
+后接每个 ACK 的 ``[sn(4) + ts(4)]``——而不是每个数据包一个 24 字节 ACK 段；
+待确认批次每 ``interval*3`` 毫秒重传一次，最多 5 次（重复 ACK 对端幂等无害，
+因此不需要跟踪提前确认）。``src/kcp/ikcp.c`` 暴露 ``ikcp_ackn_mode()`` /
+``ikcp_ackn_param()``；该优化默认关闭，关闭时线格式与上游 ikcp 逐字节一致。
 
 ``wrapKcpStreamAsSocket`` 为公开 API：可将任意 ``DatagramLink`` 上的 ``KcpStream``
 包装为 ``KcpSocket``；底层非 UDP 时，仅 UDP 相关方法会失败或空操作。
@@ -3854,7 +3861,7 @@ listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠
 8.2.1 UtpStream 与 UtpSocket
 +++++++++++++++++++++++++++
 
-``UtpStream``（私有头 ``qtng/private/utp.h``）在同样的 ``DatagramLink`` / ``DatagramPath``
+``UtpStream``（头文件 ``qtng/utp.h``）在同样的 ``DatagramLink`` / ``DatagramPath``
 抽象上对齐 ``KcpStream`` 会话形态：由 link 构造，然后 ``markBound`` / ``listen`` /
 ``accept`` 或 ``connect``，以及字节流 ``peek`` / ``recv`` / ``recvall`` / ``send`` /
 ``sendall``、``busy`` / ``notBusy``、``peerPath``。
@@ -3876,7 +3883,7 @@ ikcp MTU 相关接口），而是使用 BEP-29 / LEDBAT 参数：
 阻塞。连接建立后，内部更新协程以 50 ms 为周期睡眠并让出事件循环，活跃的 uTP 会话不会
 忙循环占用调度器。
 
-``UtpSocket``（``udp.h``）是 ``UdpDatagramLink`` + ``UtpStream`` 的薄 UDP 门面，用法对齐
+``UtpSocket``（``qtng/utp.h``）是 ``UdpDatagramLink`` + ``UtpStream`` 的薄 UDP 门面，用法对齐
 ``KcpSocket``。可用 ``wrapUtpStreamAsSocket``、``asSocketLike`` 与 ``UtpServer``。工厂
 ``UtpSocket::createConnection`` / ``createServer`` 不接受 KCP ``Mode`` 参数。
 
@@ -3897,10 +3904,33 @@ ikcp MTU 相关接口），而是使用 BEP-29 / LEDBAT 参数：
 收发包走 ``DatagramLink``（UDP 内部适配，或测试用自定义链路）。
 
 MVP 能力：``TLS_AES_128_GCM_SHA256`` + X25519 的 TLS 1.3 握手，Initial / Handshake /
-1-RTT 包保护（含合并包与客户端 Initial ≥1200 字节），CRYPTO / STREAM 帧，简化 ACK +
-PTO 重传，``CONNECTION_CLOSE``。可选通过 ``qtng_test_quic_picoquic`` 与
+1-RTT 包保护（含合并包与客户端 Initial ≥1200 字节），CRYPTO / STREAM 帧（支持乱序
+重组），多区间 ACK + 延迟 ACK，RFC 9002 丢包检测（包阈值 + 时间阈值）与 PTO 重传
+（指数退避），RFC 9002 Reno 拥塞控制（``QuicCongestionControl`` 可插拔接口，默认
+``QuicRenoCongestionControl``），发送侧/接收侧流控（``MAX_DATA`` /
+``MAX_STREAM_DATA`` / ``MAX_STREAMS``），``CONNECTION_CLOSE``。还支持：0-RTT 会话
+恢复（``takeSessionTicket`` / ``setSessionTicket``），连接迁移与多 CID
+（``NEW_CONNECTION_ID`` / ``RETIRE_CONNECTION_ID`` + 路径验证），服务端 RETRY 地址
+验证（``setRequireAddressValidation``），无状态重置，密钥更新（``updateKeys``），
+``HANDSHAKE_DONE`` / ``NEW_TOKEN``。可选通过 ``qtng_test_quic_picoquic`` 与
 ``picoquicdemo`` 做进程级互通（见 ``3rdparty/README.md``）。
-本阶段不含：HTTP/3、0-RTT、连接迁移、完整拥塞控制。
+本阶段不含：HTTP/3。
+
+8.2.3 Http3Connection 与 Http3Stream（HTTP/3）
+++++++++++++++++++++++++++++++++++++++++++++++++
+
+头文件 ``qtng/http3.h`` 提供基于本库 QUIC 的 HTTP/3（RFC 9114）客户端/服务端骨架：
+
+* ``Http3Connection`` — 包装 ``QuicConnection``，自动创建单向控制流并发送
+  ``SETTINGS``；``openStream`` / ``acceptStream`` 提供请求/响应流。
+* ``Http3Stream`` — 在 QUIC 双向流上收发 HTTP/3 帧（``DATA`` / ``HEADERS`` /
+  ``SETTINGS`` / ``GOAWAY`` 等）。
+* ``qpackEncodeHeaders`` / ``qpackDecodeHeaders`` — QPACK（RFC 9204）头部编码/解码，
+  使用静态表 + 字面量（无动态表）。
+
+可选通过 ``QTNG_HTTP3_SERVER`` 环境变量指向外部 HTTP/3 服务器（如 nghttpx / h2o /
+quiche）运行互操作测试（``qtng_test_http3_interop``）。本阶段不含：QPACK 动态表、
+服务端完整 HTTP 状态机、PUSH。
 
 8.3 Kademlia / BitTorrent DHT（BEP-5）
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

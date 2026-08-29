@@ -4143,7 +4143,7 @@ Flow control is credit-based: ``MAKE``/``SLAVE_MADE`` advertise the peer's initi
 8.2 KcpStream and DatagramLink
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``KcpStream`` (private header ``qtng/private/kcp.h``) is the transport-agnostic KCP session core:
+``KcpStream`` (header ``qtng/kcp.h``) is the transport-agnostic KCP session core:
 connection management, listen/connect/accept, keepalive, send-queue watermarks and Mode.
 It is a reliable byte stream only — no ``SocketLike`` adapter, and no bind / multicast / DNS /
 raw UDP I/O.
@@ -4161,7 +4161,7 @@ Graceful ``close()`` waits up to 3 seconds for the send queue to drain. A ``CLOS
 packet is accepted only when its source ``DatagramPath`` matches the recorded peer path;
 spoofed closes from other paths are ignored.
 
-For ordinary UDP use ``KcpSocket`` (``udp.h``). Internally it maps ``HostAddress``+port to
+For ordinary UDP use ``KcpSocket`` (``qtng/kcp.h``). Internally it maps ``HostAddress``+port to
 ``DatagramPath`` via private ``UdpDatagramLink`` / ``UdpDatagramPath``.
 ``asSocketLike`` applies to ``KcpSocket`` only, not ``KcpStream``.
 
@@ -4172,9 +4172,9 @@ Wire framing is unified:
 
 * DatagramLink delivers ``[1-byte cmd][payload...]`` with no leading ikcp ``conv``.
   The receive path reserves four bytes of headroom before the wire payload so
-  native ikcp commands (0x51–0x54) can be passed to ``ikcp_input`` with a zero
-  ``conv`` without copying; legacy ``DATA`` (0x01) zeroes the overlaid
-  conversation field in place.
+  native ikcp commands (0x51–0x55; 0x55 is the mKCP compact ACK frame) can be
+  passed to ``ikcp_input`` with a zero ``conv`` without copying; legacy ``DATA``
+  (0x01) zeroes the overlaid conversation field in place.
 * KcpStream control packets (CREATE_MULTIPATH / CLOSE / KEEPALIVE) always carry a
   4-byte big-endian ``sessionId`` at bytes 1–4. Pass the id to the constructor or
   use ``setSessionId()``.
@@ -4183,6 +4183,17 @@ Wire framing is unified:
   version 2 (``SlowSocket`` default) strips the four-byte ``conv`` and sends
   ``[cmd][payload...]``. Peers negotiate to ``min(local, peer)`` from the wire
   format of incoming packets.
+
+mKCP-style ACK optimization (enabled on the version-2 wire): when both peers
+settle on ``protocolVersion`` 2, ACKs are packed into compact ``0x55`` ACKN
+frames — ``[conv(4)][cmd(1)=0x55][count(2)][wnd(2)][una(4)]`` followed by
+``[sn(4) + ts(4)]`` per ack — instead of one 24-byte ACK segment per data
+packet, and the pending batch is retransmitted every ``interval*3`` ms for at
+most 5 attempts (duplicate ACKs are idempotent on the peer, so no early
+confirmation is tracked).
+``src/kcp/ikcp.c`` exposes ``ikcp_ackn_mode()`` / ``ikcp_ackn_param()``; the
+optimization stays off by default, so the wire format is byte-identical to
+upstream ikcp when it is disabled.
 
 ``wrapKcpStreamAsSocket`` is public: wrap any ``KcpStream`` (any ``DatagramLink``)
 as a ``KcpSocket``. UDP-only methods fail or no-op when the link is not UDP.
@@ -4193,7 +4204,7 @@ listening ``KcpSocket`` that owns the socket instead.
 8.2.1 UtpStream and UtpSocket
 ++++++++++++++++++++++++++++
 
-``UtpStream`` (private header ``qtng/private/utp.h``) mirrors the ``KcpStream`` session
+``UtpStream`` (header ``qtng/utp.h``) mirrors the ``KcpStream`` session
 shape on top of the same ``DatagramLink`` / ``DatagramPath`` abstractions: construct from a
 link, then ``markBound`` / ``listen`` / ``accept`` or ``connect``, plus byte-stream
 ``peek`` / ``recv`` / ``recvall`` / ``send`` / ``sendall``, ``busy`` / ``notBusy``, and
@@ -4217,7 +4228,7 @@ instead of blocking forever. Once a session is established, the internal update
 coroutine sleeps between ticks (50 ms) and yields the event loop, so an active uTP
 session never stalls the scheduler.
 
-``UtpSocket`` (``udp.h``) is the thin UDP façade around ``UdpDatagramLink`` + ``UtpStream``,
+``UtpSocket`` (``qtng/utp.h``) is the thin UDP façade around ``UdpDatagramLink`` + ``UtpStream``,
 analogous to ``KcpSocket``. Use ``wrapUtpStreamAsSocket``, ``asSocketLike``, and
 ``UtpServer`` the same way as the KCP counterparts. Factory helpers
 ``UtpSocket::createConnection`` / ``createServer`` take no KCP ``Mode`` argument.
@@ -4242,11 +4253,39 @@ exposes a **connection** that multiplexes streams. Packet I/O uses ``DatagramLin
 
 MVP coverage: TLS 1.3 handshake with ``TLS_AES_128_GCM_SHA256`` + X25519, Initial /
 Handshake / 1-RTT packet protection (including coalesced packets and the 1200-byte
-client Initial minimum), CRYPTO and STREAM frames, simplified ACK + PTO
-retransmission, ``CONNECTION_CLOSE``. Optional process-level interop against
+client Initial minimum), CRYPTO and STREAM frames (with out-of-order reassembly),
+multi-range ACK with delayed-ACK aggregation, RFC 9002 loss detection (packet and
+time thresholds) with exponential-backoff PTO retransmission, RFC 9002 Reno
+congestion control behind the pluggable ``QuicCongestionControl`` interface
+(default ``QuicRenoCongestionControl``), send- and receive-side flow control
+(``MAX_DATA`` / ``MAX_STREAM_DATA`` / ``MAX_STREAMS``), ``CONNECTION_CLOSE``.
+Also included: 0-RTT session resumption (``takeSessionTicket`` /
+``setSessionTicket``), connection migration with multiple CIDs
+(``NEW_CONNECTION_ID`` / ``RETIRE_CONNECTION_ID`` plus path validation), server
+RETRY address validation (``setRequireAddressValidation``), stateless reset, key
+update (``updateKeys``), ``HANDSHAKE_DONE`` / ``NEW_TOKEN``.
+Optional process-level interop against
 ``picoquicdemo`` is available via ``qtng_test_quic_picoquic`` (see
-``3rdparty/README.md``). Not in this MVP: HTTP/3, 0-RTT, connection migration, or
-full congestion control.
+``3rdparty/README.md``). Not in this MVP: HTTP/3.
+
+8.2.3 Http3Connection and Http3Stream (HTTP/3)
+++++++++++++++++++++++++++++++++++++++++++++++
+
+Header ``qtng/http3.h`` provides an HTTP/3 (RFC 9114) client/server skeleton on
+top of the library's QUIC:
+
+* ``Http3Connection`` — wraps a ``QuicConnection``, creates the unidirectional
+  control stream and sends ``SETTINGS``; ``openStream`` / ``acceptStream``
+  provide request/response streams.
+* ``Http3Stream`` — sends and receives HTTP/3 frames (``DATA`` / ``HEADERS`` /
+  ``SETTINGS`` / ``GOAWAY`` etc.) on a QUIC bidirectional stream.
+* ``qpackEncodeHeaders`` / ``qpackDecodeHeaders`` — QPACK (RFC 9204) header
+  encoding/decoding using the static table plus literals (no dynamic table).
+
+Point ``QTNG_HTTP3_SERVER`` at an external HTTP/3 server (e.g. nghttpx / h2o /
+quiche) to run the optional interop test (``qtng_test_http3_interop``).
+Not included yet: QPACK dynamic table, a full server-side HTTP state machine,
+and PUSH.
 
 8.3 Kademlia / BitTorrent DHT (BEP-5)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
