@@ -23,6 +23,16 @@ const uint16_t kExtAlpn = 0x0010;
 const uint16_t kExtSupportedVersions = 0x002b;
 const uint16_t kExtKeyShare = 0x0033;
 const uint16_t kExtQuicTp = 0x0039;
+const uint16_t kExtPreSharedKey = 0x0029;
+const uint16_t kExtEarlyData = 0x002a;
+
+const uint8_t kMsgClientHello = 1;
+const uint8_t kMsgServerHello = 2;
+const uint8_t kMsgNewSessionTicket = 4;
+const uint8_t kMsgEncryptedExtensions = 8;
+const uint8_t kMsgCertificate = 11;
+const uint8_t kMsgCertificateVerify = 15;
+const uint8_t kMsgFinished = 20;
 
 const uint16_t kGroupX25519 = 0x001d;
 const uint16_t kSigEcdsaSecp256r1Sha256 = 0x0403;
@@ -35,6 +45,13 @@ void putUint16(string *out, uint16_t v)
 {
     const size_t pos = out->size();
     out->append(2, '\0');
+    ngToBigEndian(v, &(*out)[pos]);
+}
+
+void putUint32(string *out, uint32_t v)
+{
+    const size_t pos = out->size();
+    out->append(4, '\0');
     ngToBigEndian(v, &(*out)[pos]);
 }
 
@@ -152,6 +169,15 @@ bool ecdsaVerify(EVP_PKEY *pkey, const string &data, const string &sig)
             && EVP_DigestVerify(ctx.get(), reinterpret_cast<const unsigned char *>(sig.data()), sig.size(),
                                 reinterpret_cast<const unsigned char *>(data.data()), data.size())
                     == 1;
+}
+
+// Process-wide session-ticket sealing key (RFC 9001 §8.1.1: ticket keys must
+// persist across connections; a multi-process deployment would store this on
+// disk instead).
+string quicTicketKey()
+{
+    static const string key = randomBytes(16);
+    return key;
 }
 
 }  // namespace
@@ -376,6 +402,34 @@ string QuicTlsHandshake::buildClientHello()
         extensions.append(tp);
     }
 
+    // 0-RTT: early_data + pre_shared_key (RFC 8446 §4.2.10, §4.2.11).
+    // The binder is computed over the truncated ClientHello whose length fields
+    // already include the binder itself. SHA-256 binders are always 32 bytes, so
+    // we can reserve that exact size before computing the HMAC.
+    size_t bindersLenFieldOffInExt = 0;
+    size_t pskExtLenFieldOffInExt = 0;
+    size_t pskBodySize = 0;
+    if (m_role == Client && hasSessionTicket()) {
+        string identitiesPart;
+        putUint16(&identitiesPart, static_cast<uint16_t>(m_sessionTicket.size()));
+        identitiesPart.append(m_sessionTicket);
+        putUint32(&identitiesPart, 0);  // obfuscated_ticket_age (simplified)
+        string pskBody;
+        putUint16(&pskBody, static_cast<uint16_t>(identitiesPart.size()));
+        pskBody.append(identitiesPart);
+        bindersLenFieldOffInExt = pskBody.size();
+        putUint16(&pskBody, 32);  // binders length: SHA-256 binder is 32 bytes
+        pskBody.append(32, '\0');  // binder placeholder
+        pskBodySize = pskBody.size();
+        putUint16(&extensions, kExtEarlyData);
+        putUint16(&extensions, 0);
+        putUint16(&extensions, kExtPreSharedKey);
+        pskExtLenFieldOffInExt = extensions.size();  // points at the ext length field
+        putUint16(&extensions, static_cast<uint16_t>(pskBodySize));
+        extensions.append(pskBody);
+        m_earlyDataOffered = m_sessionTicket;
+    }
+
     string body;
     putUint16(&body, 0x0303);  // legacy_version
     body.append(m_clientRandom);
@@ -387,7 +441,24 @@ string QuicTlsHandshake::buildClientHello()
     body.push_back(0);  // null compression
     putUint16(&body, static_cast<uint16_t>(extensions.size()));
     body.append(extensions);
-    return handshakeRecord(1, body);  // client_hello
+    string ch = handshakeRecord(kMsgClientHello, body);
+
+    if (hasSessionTicket()) {
+        // Overwrite the 32-byte binder placeholder. The length fields already
+        // include the binder, so the ClientHello as-built is exactly the
+        // "truncated" form the binder is computed over (RFC 8446 §4.2.11.2).
+        const size_t extensionsOff = 2 + 32 + 1 + 0 + 2 + cipherSuites.size() + 1 + 1 + 2;
+        const size_t pskDataOffInExt = pskExtLenFieldOffInExt + 2;
+        const size_t bindersLenFieldInCh = 4 + extensionsOff + pskDataOffInExt + bindersLenFieldOffInExt;
+        // The binder is computed over the truncated ClientHello: the binders
+        // field (2-byte length + 32 bytes) removed, length fields unchanged.
+        string truncatedCh = ch;
+        truncatedCh.erase(bindersLenFieldInCh, 2 + 32);
+        const string binder = buildBinderForClientHello(truncatedCh);
+        memcpy(&ch[bindersLenFieldInCh + 2], binder.data(), binder.size());
+        (void) pskBodySize;
+    }
+    return ch;
 }
 
 string QuicTlsHandshake::buildServerHello()
@@ -413,6 +484,11 @@ string QuicTlsHandshake::buildServerHello()
         putUint16(&extensions, kExtKeyShare);
         putUint16(&extensions, static_cast<uint16_t>(body.size()));
         extensions.append(body);
+    }
+    if (m_earlyDataAccepted) {
+        // Accept the client's 0-RTT data (RFC 8446 §4.2.10).
+        putUint16(&extensions, kExtEarlyData);
+        putUint16(&extensions, 0);
     }
 
     string body;
@@ -501,8 +577,12 @@ string QuicTlsHandshake::buildFinished(bool isClient)
 
 void QuicTlsHandshake::deriveHandshakeSecrets(const string &sharedSecret)
 {
-    const string zeros(32, '\0');
-    const string earlySecret = hkdfExtract(MessageDigest::Sha256, string(), zeros);
+    // With a PSK, the early secret is derived from the PSK instead of zeros.
+    string earlySecret = m_earlySecret;
+    if (earlySecret.empty()) {
+        const string zeros(32, '\0');
+        earlySecret = hkdfExtract(MessageDigest::Sha256, string(), zeros);
+    }
     const string derived = deriveSecret(earlySecret, "derived", string(), 32);
     m_handshakeSecret = hkdfExtract(MessageDigest::Sha256, derived, sharedSecret);
     m_clientHandshakeTrafficSecret = deriveSecret(m_handshakeSecret, "c hs traffic", m_transcript, 32);
@@ -520,6 +600,94 @@ void QuicTlsHandshake::deriveApplicationSecrets()
     m_secrets.clientAppSecret = deriveSecret(m_masterSecret, "c ap traffic", m_transcript, 32);
     m_secrets.serverAppSecret = deriveSecret(m_masterSecret, "s ap traffic", m_transcript, 32);
     m_secrets.appReady = true;
+    // resumption_master_secret over the transcript through the server Finished.
+    m_resumptionSecret = deriveSecret(m_masterSecret, "res master", m_transcript, 32);
+}
+
+void QuicTlsHandshake::setSessionTicket(const string &ticket, const string &ticketNonce,
+                                        const string &resumptionSecret)
+{
+    m_sessionTicket = ticket;
+    m_ticketNonce = ticketNonce;
+    m_resumptionSecret = resumptionSecret;
+}
+
+string QuicTlsHandshake::buildBinderForClientHello(const string &clientHelloWithoutBinders)
+{
+    const string psk = hkdfExpandLabel(MessageDigest::Sha256, m_resumptionSecret, "resumption", m_ticketNonce, 32);
+    const string earlySecret = hkdfExtract(MessageDigest::Sha256, string(), psk);
+    const string binderKey = hkdfExpandLabel(MessageDigest::Sha256, earlySecret, "res binder", string(), 32);
+    const string hash = MessageDigest::digest(clientHelloWithoutBinders, MessageDigest::Sha256);
+    return hmac(MessageDigest::Sha256, binderKey, hash);
+}
+
+string QuicTlsHandshake::recoverPskFromTicket(const string &ticket) const
+{
+    if (ticket.size() < 8 + 16) {
+        return string();
+    }
+    const string key = quicTicketKey();
+    const string nonce = ticket.substr(0, 8) + string(4, '\0');
+    Aead aead(Aead::Aes128Gcm);
+    if (!aead.setKey(key)) {
+        return string();
+    }
+    string out;
+    if (!aead.open(nonce, string(), ticket.substr(8), &out)) {
+        return string();
+    }
+    return out;
+}
+
+string QuicTlsHandshake::buildNewSessionTicket()
+{
+    if (m_resumptionSecret.size() != 32) {
+        return string();
+    }
+    const string nonce = randomBytes(8);
+    const string psk = hkdfExpandLabel(MessageDigest::Sha256, m_resumptionSecret, "resumption", nonce, 32);
+    const string aeadNonce = nonce + string(4, '\0');
+    Aead aead(Aead::Aes128Gcm);
+    if (!aead.setKey(quicTicketKey())) {
+        return string();
+    }
+    string sealed;
+    if (!aead.seal(aeadNonce, string(), psk, &sealed)) {
+        return string();
+    }
+    const string ticket = nonce + sealed;
+    string body;
+    putUint32(&body, 86400);  // ticket_lifetime
+    putUint32(&body, 0);      // ticket_age_add (simplified)
+    // ticket_nonce must match the nonce used to derive the PSK, so the client
+    // can recompute it for the resumption binder.
+    body.push_back(static_cast<char>(nonce.size()));
+    body.append(nonce);
+    putUint16(&body, static_cast<uint16_t>(ticket.size()));
+    body.append(ticket);
+    putUint16(&body, 0);      // extensions
+    return handshakeRecord(kMsgNewSessionTicket, body);
+}
+
+void QuicTlsHandshake::feedSessionTicket(const string &msg)
+{
+    if (msg.size() < 4 + 8 + 1) {
+        return;
+    }
+    size_t off = 4;  // handshake type + length
+    off += 8;        // ticket_lifetime + ticket_age_add
+    const size_t nonceLen = static_cast<unsigned char>(msg[off++]);
+    if (off + nonceLen + 2 > msg.size()) {
+        return;
+    }
+    m_ticketNonce = msg.substr(off, nonceLen);
+    off += nonceLen;
+    uint16_t tlen = 0;
+    if (!ngFromBigEndian(msg.data(), msg.size(), &off, &tlen) || off + tlen > msg.size()) {
+        return;
+    }
+    m_sessionTicket = msg.substr(off, tlen);
+    m_gotNewSessionTicket = true;
 }
 
 bool QuicTlsHandshake::startClientHello(string *error)
@@ -533,6 +701,11 @@ bool QuicTlsHandshake::startClientHello(string *error)
     const string ch = buildClientHello();
     appendTranscript(ch);
     m_cryptoOut.append(ch);
+    if (hasSessionTicket()) {
+        const string psk = hkdfExpandLabel(MessageDigest::Sha256, m_resumptionSecret, "resumption", m_ticketNonce, 32);
+        m_earlySecret = hkdfExtract(MessageDigest::Sha256, string(), psk);
+        m_clientEarlyTrafficSecret = deriveSecret(m_earlySecret, "c e traffic", ch, 32);
+    }
     return true;
 }
 
@@ -598,6 +771,10 @@ bool QuicTlsHandshake::processHandshakeMessage(const string &msg, string *error)
     if (type == 20) {
         return handleFinished(msg, error);
     }
+    if (type == kMsgNewSessionTicket && m_role == Client) {
+        feedSessionTicket(msg);
+        return true;
+    }
     if (error) {
         *error = "unexpected handshake message";
     }
@@ -633,9 +810,17 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
     off += compLen;
     uint16_t extLen = 0;
     if (!ngFromBigEndian(msg.data(), msg.size(), &off, &extLen) || off + extLen > msg.size()) {
+        fprintf(stderr, "[quic-tls] bad extLen=%u off=%zu size=%zu\n", static_cast<unsigned>(extLen), off,
+                msg.size());
         return false;
     }
     const size_t extEnd = off + extLen;
+    string pskIdentity;
+    string receivedBinder;
+    size_t pskEdOffInMsg = 0;
+    size_t bindersOffInEd = 0;
+    uint16_t bindersLen = 0;
+    bool earlyDataOffered = false;
     while (off + 4 <= extEnd) {
         uint16_t et = 0, el = 0;
         ngFromBigEndian(msg.data(), msg.size(), &off, &et);
@@ -644,9 +829,9 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
             return false;
         }
         string ed = msg.substr(off, el);
+        const size_t edOffInMsg = off;
         off += el;
-        if (et == kExtKeyShare && ed.size() >= 6) {
-            size_t i = 0;
+        if (et == kExtKeyShare && ed.size() >= 6) {            size_t i = 0;
             uint16_t listLen = 0;
             ngFromBigEndian(ed.data(), ed.size(), &i, &listLen);
             while (i + 4 <= ed.size()) {
@@ -676,6 +861,26 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
             }
         } else if (et == kExtQuicTp) {
             decodeTransportParams(ed, &m_peerParams);
+        } else if (et == kExtEarlyData) {
+            earlyDataOffered = true;
+        } else if (et == kExtPreSharedKey) {
+            size_t i = 0;
+            uint16_t idsLen = 0;
+            if (ngFromBigEndian(ed.data(), ed.size(), &i, &idsLen) && i + idsLen <= ed.size()) {
+                uint16_t idLen = 0;
+                if (ngFromBigEndian(ed.data(), ed.size(), &i, &idLen) && i + idLen <= ed.size()) {
+                    pskIdentity = ed.substr(i, idLen);
+                    i += idLen;
+                    i += 4;  // obfuscated_ticket_age
+                    bindersOffInEd = i;
+                    uint16_t bLen = 0;
+                    if (ngFromBigEndian(ed.data(), ed.size(), &i, &bLen) && i + bLen <= ed.size()) {
+                        bindersLen = bLen;
+                        receivedBinder = ed.substr(i, bLen);
+                        pskEdOffInMsg = edOffInMsg;
+                    }
+                }
+            }
         }
     }
     if (m_clientKeySharePub.size() != 32) {
@@ -683,6 +888,27 @@ bool QuicTlsHandshake::handleClientHello(const string &msg, string *error)
             *error = "missing x25519 key share";
         }
         return false;
+    }
+
+    // Validate the PSK binder and, when accepted, derive the 0-RTT traffic keys.
+    if (!pskIdentity.empty()) {
+        const string psk = recoverPskFromTicket(pskIdentity);
+        if (!psk.empty()) {
+            m_earlySecret = hkdfExtract(MessageDigest::Sha256, string(), psk);
+            const size_t delStart = pskEdOffInMsg + bindersOffInEd;
+            const size_t delLen = 2 + bindersLen;
+            string truncated = msg;
+            if (delStart + delLen <= truncated.size()) {
+                truncated.erase(delStart, delLen);
+            }
+            const string binderKey = hkdfExpandLabel(MessageDigest::Sha256, m_earlySecret, "res binder", string(), 32);
+            const string hash = MessageDigest::digest(truncated, MessageDigest::Sha256);
+            const string expectedBinder = hmac(MessageDigest::Sha256, binderKey, hash);
+            if (!receivedBinder.empty() && receivedBinder == expectedBinder && earlyDataOffered) {
+                m_earlyDataAccepted = true;
+                m_clientEarlyTrafficSecret = deriveSecret(m_earlySecret, "c e traffic", msg, 32);
+            }
+        }
     }
 
     const string sh = buildServerHello();
@@ -746,6 +972,9 @@ bool QuicTlsHandshake::handleServerHello(const string &msg, string *error)
             if (group == kGroupX25519 && klen == 32 && i + 32 <= ed.size()) {
                 m_serverKeySharePub = ed.substr(i, 32);
             }
+        } else if (et == kExtEarlyData) {
+            // Server accepted 0-RTT.
+            m_earlyDataAccepted = true;
         }
     }
     if (m_serverKeySharePub.size() != 32) {
@@ -895,6 +1124,10 @@ bool QuicTlsHandshake::handleFinished(const string &msg, string *error)
     } else {
         // Server already derived app secrets after sending its Finished.
         m_complete = true;
+        const string nst = buildNewSessionTicket();
+        if (!nst.empty()) {
+            m_cryptoOut.append(nst);
+        }
     }
     return true;
 }

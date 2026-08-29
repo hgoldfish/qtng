@@ -52,7 +52,25 @@ public:
 
     // Client initial destination CID used for retry/odcid
     void setClientOdCid(const std::string &cid) { m_odcid = cid; }
+
+    // --- Session resumption / 0-RTT (RFC 8446 PSK + RFC 9001 §8) ---
+    void setSessionTicket(const std::string &ticket, const std::string &ticketNonce,
+                          const std::string &resumptionSecret);
+    bool hasSessionTicket() const { return !m_sessionTicket.empty(); }
+    std::string sessionTicket() const { return m_sessionTicket; }
+    std::string sessionTicketNonce() const { return m_ticketNonce; }
+    std::string sessionResumptionSecret() const { return m_resumptionSecret; }
+    // true when the server accepted early data in this handshake.
+    bool earlyDataAccepted() const { return m_earlyDataAccepted; }
+    // Server-generated NewSessionTicket message bytes (appears in the 1-RTT crypto
+    // stream after the handshake flight).
+    std::string buildNewSessionTicket();
+    void feedSessionTicket(const std::string &ticket);  // client: store NST ticket
+    std::string clientEarlyTrafficSecret() const { return m_clientEarlyTrafficSecret; }
+    bool hasEarlyTrafficSecret() const { return !m_clientEarlyTrafficSecret.empty(); }
 private:
+    std::string buildBinderForClientHello(const std::string &clientHelloWithoutBinders);
+    std::string recoverPskFromTicket(const std::string &ticket) const;
     bool processHandshakeMessage(const std::string &msg, std::string *error);
     bool handleClientHello(const std::string &msg, std::string *error);
     bool handleServerHello(const std::string &msg, std::string *error);
@@ -102,6 +120,14 @@ private:
     std::string m_clientHandshakeTrafficSecret;
     std::string m_serverHandshakeTrafficSecret;
     std::string m_masterSecret;
+    std::string m_resumptionSecret;
+    std::string m_sessionTicket;
+    std::string m_earlySecret;
+    std::string m_clientEarlyTrafficSecret;
+    std::string m_earlyDataOffered;
+    std::string m_ticketNonce;
+    bool m_earlyDataAccepted = false;
+    bool m_gotNewSessionTicket = false;
 
     QuicTlsSecrets m_secrets;
     bool m_gotServerHello = false;

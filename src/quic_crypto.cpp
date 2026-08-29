@@ -44,6 +44,23 @@ string quicNonceFromIv(const string &iv, uint64_t packetNumber)
     return nonce;
 }
 
+string quicRetryIntegrityTag(const QuicConnectionId &odcid, const string &pseudoPacket)
+{
+    // RFC 9001 §5.8: pseudo-packet = ODCID length byte + ODCID + RETRY (minus tag).
+    const string secret = hkdfExtract(MessageDigest::Sha256, string(), odcid.bytes);
+    const string key = hkdfExpandLabel(MessageDigest::Sha256, secret, "quic key", string(), 16);
+    const string iv = hkdfExpandLabel(MessageDigest::Sha256, secret, "quic iv", string(), 12);
+    Aead aead(Aead::Aes128Gcm);
+    if (!aead.setKey(key)) {
+        return string();
+    }
+    string sealed;
+    if (!aead.seal(iv, string(), pseudoPacket, &sealed) || sealed.size() < 16) {
+        return string();
+    }
+    return sealed.substr(sealed.size() - 16);
+}
+
 namespace {
 
 string applyHeaderProtection(const string &hpKey, const string &sample, string header, size_t pnOffset, int pnLength)
@@ -88,6 +105,7 @@ bool removeHeaderProtection(const QuicTrafficKeys &keys, const char *data, size_
     }
     const uint8_t first = static_cast<uint8_t>(unprotected[0]);
     h->pnLength = (first & 0x03) + 1;
+    h->keyPhase = (first & 0x04) != 0;
     uint64_t truncated = 0;
     for (int i = 0; i < h->pnLength; ++i) {
         truncated = (truncated << 8) | static_cast<unsigned char>(unprotected[h->pnOffset + i]);

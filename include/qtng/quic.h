@@ -22,6 +22,55 @@ class QuicConnectionPrivate;
 class QuicStreamPrivate;
 class SocketLike;
 
+// A resumable TLS session ticket for QUIC 0-RTT (RFC 8446 PSK + RFC 9001 §8).
+// Obtained from QuicConnection::takeSessionTicket() after a successful handshake
+// and passed back to QuicConnection::setSessionTicket() before a later connect().
+struct QuicSessionTicket {
+    std::string ticket;
+    std::string ticketNonce;
+    std::string resumptionSecret;
+    bool isValid() const
+    {
+        return !ticket.empty() && !resumptionSecret.empty();
+    }
+};
+
+// Pluggable congestion control (RFC 9002 §7). Implementations drive the send
+// path: a packet may only be sent while canSend() holds for the current number
+// of bytes in flight.
+class QuicCongestionControl
+{
+public:
+    virtual ~QuicCongestionControl() = default;
+
+    virtual std::size_t congestionWindow() const = 0;
+    virtual bool canSend(std::size_t bytesInFlight) const = 0;
+    virtual void onPacketSent(std::size_t bytesInFlight, std::size_t packetSize) = 0;
+    virtual void onAckReceived(std::size_t bytesAcked, std::size_t bytesInFlight) = 0;
+    virtual void onLossDetected(std::size_t lostBytes, std::size_t bytesInFlight) = 0;
+    virtual void onPersistentCongestion() = 0;
+};
+
+class QuicRenoCongestionControlPrivate;
+// RFC 9002 §7.2 Reno / NewReno with slow start and congestion avoidance.
+class QuicRenoCongestionControl : public QuicCongestionControl
+{
+    NG_DISABLE_COPY(QuicRenoCongestionControl)
+public:
+    explicit QuicRenoCongestionControl(std::size_t maxDatagramSize = 1200);
+    ~QuicRenoCongestionControl() override;
+
+    std::size_t congestionWindow() const override;
+    bool canSend(std::size_t bytesInFlight) const override;
+    void onPacketSent(std::size_t bytesInFlight, std::size_t packetSize) override;
+    void onAckReceived(std::size_t bytesAcked, std::size_t bytesInFlight) override;
+    void onLossDetected(std::size_t lostBytes, std::size_t bytesInFlight) override;
+    void onPersistentCongestion() override;
+private:
+    QuicRenoCongestionControlPrivate * const d_ptr;
+    NG_DECLARE_PRIVATE(QuicRenoCongestionControl)
+};
+
 class QuicConfiguration
 {
 public:
@@ -47,6 +96,15 @@ public:
 
     void setMaxStreamData(std::uint64_t bytes);
     std::uint64_t maxStreamData() const;
+
+    // Pluggable congestion control. Defaults to QuicRenoCongestionControl.
+    void setCongestionController(std::shared_ptr<QuicCongestionControl> cc);
+    std::shared_ptr<QuicCongestionControl> congestionController() const;
+
+    // When enabled, the server sends a RETRY packet before the first Initial to
+    // validate the client's address (RFC 9000 §8.1). Off by default.
+    void setRequireAddressValidation(bool require);
+    bool requireAddressValidation() const;
 private:
     std::vector<std::string> m_alpn;
     float m_idleTimeout;
@@ -55,6 +113,8 @@ private:
     Certificate m_localCertificate;
     std::uint64_t m_maxData;
     std::uint64_t m_maxStreamData;
+    std::shared_ptr<QuicCongestionControl> m_congestionController;
+    bool m_requireAddressValidation;
 };
 
 class QuicConnection
@@ -93,6 +153,7 @@ public:
     std::string errorString() const;
     State state() const;
     bool isValid() const;
+    bool isClientSide() const;
 
     HostAddress localAddress() const;
     std::uint16_t localPort() const;
@@ -116,6 +177,7 @@ public:
     bool connect(const DatagramPath &peer, const std::string &serverName = std::string());
 
     std::shared_ptr<QuicStream> openStream();
+    std::shared_ptr<QuicStream> openUniStream();
     std::shared_ptr<QuicStream> acceptStream();
 
     void close();
@@ -123,6 +185,16 @@ public:
 
     // Returns the event fired when the TLS handshake completes.
     std::shared_ptr<Event> handshakeDone() const;
+
+    // Session resumption / 0-RTT. Call takeSessionTicket() after a handshake to
+    // persist the ticket, then setSessionTicket() before the next connect() to
+    // enable 0-RTT data on that connection.
+    QuicSessionTicket takeSessionTicket() const;
+    bool setSessionTicket(const QuicSessionTicket &ticket);
+    // True once 0-RTT data was accepted by the server (client side, after handshake).
+    bool earlyDataAccepted() const;
+    // Request a key update (RFC 9001 §6); the key phase flips on the next packets.
+    void updateKeys();
 private:
     explicit QuicConnection(QuicConnectionPrivate *d);
     friend class QuicConnectionPrivate;

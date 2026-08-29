@@ -224,6 +224,7 @@ set(QTNG_QUIC_SRC
     src/quic_crypto.cpp
     src/quic_tls.cpp
     src/quic_recovery.cpp
+    src/quic_cc.cpp
     src/quic.cpp
 )
 
