@@ -20,7 +20,8 @@
 #include "qtng/data_channel.h"
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/string_utils.h"
-#include "qtng/udp.h"
+#include "qtng/kcp.h"
+#include "qtng/utp.h"
 #include "qtng/utils/logging.h"
 
 using namespace std;

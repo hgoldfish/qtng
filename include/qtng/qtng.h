@@ -15,6 +15,8 @@
 #include "qtng/bencode.h"
 #include "qtng/httpd.h"
 #include "qtng/udp.h"
+#include "qtng/kcp.h"
+#include "qtng/utp.h"
 #include "qtng/socket_server.h"
 #include "qtng/network_interface.h"
 #include "qtng/websocket.h"

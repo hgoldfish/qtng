@@ -314,6 +314,14 @@ struct IKCPCB
 	int logmask;
 	int (*output)(const char *buf, int len, struct IKCPCB *kcp, void *user);
 	void (*writelog)(const char *log, struct IKCPCB *kcp, void *user);
+
+	// mKCP-style additions: compact ACK frames (IKCP_CMD_ACKN) + ACK
+	// retransmission. See the block appended at the end of src/kcp/ikcp.c.
+	IUINT32 ackn_mode;			// 1 = compact ack + ack resend, 0 = original
+	IUINT32 ack_resendts;		// next timestamp (ms) to resend the ack batch
+	IUINT32 ack_resent;			// times the current ack batch has been resent
+	IUINT32 ackn_maxresend;		// give up resending after this many attempts
+	IUINT32 ackn_interval;		// resend period override (0 = interval * 3)
 };
 
 
@@ -405,6 +413,11 @@ void ikcp_allocator(void* (*new_malloc)(size_t), void (*new_free)(void*));
 
 // read conv
 IUINT32 ikcp_getconv(const void *ptr);
+
+// mKCP-style switches (compact ACK frames + ACK retransmission).
+// Both default to disabled so behaviour is identical to the upstream ikcp.
+void ikcp_ackn_mode(ikcpcb *kcp, int enable);
+void ikcp_ackn_param(ikcpcb *kcp, int maxresend, int interval);
 
 
 #ifdef __cplusplus

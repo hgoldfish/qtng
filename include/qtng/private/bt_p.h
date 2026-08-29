@@ -18,7 +18,7 @@
 #include "qtng/locks.h"
 #include "qtng/socket.h"
 #include "qtng/socket_utils.h"
-#include "qtng/udp.h"
+#include "qtng/utp.h"
 
 namespace qtng {
 

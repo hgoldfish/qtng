@@ -16,7 +16,8 @@
 #endif
 
 #include "qtng/coroutine_utils.h"
-#include "qtng/udp.h"
+#include "qtng/kcp.h"
+#include "qtng/utp.h"
 #include "qtng/multi_stream.h"
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/logging.h"

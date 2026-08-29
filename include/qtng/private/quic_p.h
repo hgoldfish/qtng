@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "qtng/aead.h"
-#include "qtng/private/kcp.h"
 #include "qtng/quic.h"
 
 namespace qtng {

@@ -195,7 +195,7 @@ qtng旨在简化C++网络编程。 ``Socket`` 类是对BSD socket接口的面向
 
 ``UtpSocket`` 是 µTP（BEP-29）对应门面：UDP 能力对齐 ``KcpSocket``，但拥塞控制与可靠性遵循 LEDBAT，
 而非 KCP 的 ``Mode``。协议参数使用 ``setDelayTarget`` / ``setMaxWindow`` / ``setPacketSize`` 等，
-不用 ``setMode`` / ``setTearDownTime``。会话核心为 ``UtpStream``（``qtng/private/utp.h``），同样基于
+不用 ``setMode`` / ``setTearDownTime``。会话核心为 ``UtpStream``（``qtng/utp.h``），同样基于
 ``DatagramLink``。运行时不链接 libutp；libutp 仅用于可选的互通测试。
 
 创建Socket客户端

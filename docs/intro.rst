@@ -194,7 +194,7 @@ The ``Socket`` class is a straightforward transliteration of the bsd socket inte
 ``UtpSocket`` is the µTP (BEP-29) counterpart: same UDP façade shape as ``KcpSocket``, but congestion
 control and reliability follow LEDBAT rather than KCP ``Mode``. Protocol parameters use
 ``setDelayTarget`` / ``setMaxWindow`` / ``setPacketSize`` (and related setters) instead of
-``setMode`` / ``setTearDownTime``. The session core is ``UtpStream`` (``qtng/private/utp.h``), also
+``setMode`` / ``setTearDownTime``. The session core is ``UtpStream`` (``qtng/utp.h``), also
 built on ``DatagramLink``. Runtime does not link libutp; libutp is only an optional test peer.
 
 Create Socket client

@@ -10,7 +10,7 @@
 #include "qtng/qtng.h"
 #include "qtng/socket_server.h"
 #include "qtng/socket_utils.h"
-#include "qtng/udp.h"
+#include "qtng/kcp.h"
 
 using namespace std;
 using namespace qtng;

@@ -5,7 +5,7 @@
 #include <string>
 
 #include "qtng/hostaddress.h"
-#include "qtng/udp.h"
+#include "qtng/kcp.h"
 
 struct Endpoint {
     std::string host;

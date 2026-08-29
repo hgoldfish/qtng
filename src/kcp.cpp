@@ -1,5 +1,6 @@
-#include "qtng/private/kcp.h"
-#include "qtng/socket_utils.h"
+#include "qtng/kcp.h"
+#include "qtng/private/udp_p.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -19,15 +20,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "qtng/socket_utils.h"
 #include "qtng/coroutine_utils.h"
-#include "qtng/random.h"
+#include "qtng/network_interface.h"
 #include "qtng/private/socket_p.h"
-#include "./kcp/ikcp.h"
+#include "qtng/random.h"
+#include "qtng/socket_utils.h"
 #include "qtng/utils/datetime.h"
-#include "qtng/utils/string_utils.h"
-#include <cstring>
 #include "qtng/utils/logging.h"
+#include "qtng/utils/string_utils.h"
+#include "./kcp/ikcp.h"
 
 using namespace std;
 
@@ -54,10 +55,13 @@ const char PACKET_TYPE_KEEPALIVE = 0x04;
 // DatagramLink delivers [cmd][payload...] with no leading ikcp conv. The 4-byte
 // headroom lets handleDatagram synthesize a zero conv in place for ikcp_input
 // (protocol v2) instead of allocating and memcpy'ing a new segment.
+// cmd 0x51-0x54 are the upstream KCP segment commands; 0x55 is the mKCP
+// compact ACK frame added in src/kcp/ikcp.c.
 const uint8_t PACKET_TYPE_KCP_PUSH = 81;  // 0x51
 const uint8_t PACKET_TYPE_KCP_ACK = 82;   // 0x52
 const uint8_t PACKET_TYPE_KCP_WASK = 83;  // 0x53
 const uint8_t PACKET_TYPE_KCP_WINS = 84;  // 0x54
+const uint8_t PACKET_TYPE_KCP_ACKN = 85;  // 0x55, compact ack frame (mKCP)
 
 // Size of the writable prefix reserved before every DatagramLink wire payload in
 // MasterKcpStreamPrivate recv buffers. Must stay in sync with handleDatagram,
@@ -67,32 +71,8 @@ static constexpr size_t kIkcpConvHeadroom = 4;
 static bool isIkcpCommand(uint8_t cmd)
 {
     return cmd == PACKET_TYPE_KCP_PUSH || cmd == PACKET_TYPE_KCP_ACK || cmd == PACKET_TYPE_KCP_WASK
-            || cmd == PACKET_TYPE_KCP_WINS;
+            || cmd == PACKET_TYPE_KCP_WINS || cmd == PACKET_TYPE_KCP_ACKN;
 }
-
-
-DatagramPath::DatagramPath()
-{
-}
-
-DatagramPath::DatagramPath(const string &key)
-    : m_key(key)
-{
-}
-
-string DatagramPath::key() const { return m_key; }
-
-bool DatagramPath::isNull() const
-{
-    return m_key.empty();
-}
-
-bool DatagramPath::operator==(const DatagramPath &other) const { return m_key == other.m_key; }
-bool DatagramPath::operator<(const DatagramPath &other) const { return m_key < other.m_key; }
-
-DatagramLink::~DatagramLink() {}
-Socket::SocketError DatagramLink::error() const { return Socket::NoError; }
-string DatagramLink::errorString() const { return string(); }
 
 //#define DEBUG_PROTOCOL 1
 
@@ -653,6 +633,12 @@ void KcpStreamPrivate::negotiateVersion(uint8_t peerVersion)
         return;
     }
     protocolVersion = static_cast<uint8_t>(min(static_cast<uint8_t>(protocolVersion), peerVersion));
+    // mKCP: the compact ACK frame (cmd 0x55) only exists on the v2 wire
+    // (conv is stripped at the outer framing layer), so it must be enabled
+    // and disabled together with the negotiated version. Old / asymmetric
+    // peers (v1, or a v2 peer without ackn support) would silently drop or
+    // mis-parse 0x55 frames.
+    ikcp_ackn_mode(kcp, protocolVersion == KcpStream::Version2);
 }
 
 MasterKcpStreamPrivate::MasterKcpStreamPrivate(shared_ptr<DatagramLink> link, KcpStream *q, uint32_t sessionId)
@@ -1464,6 +1450,511 @@ KcpStream *KcpStream::accept(const DatagramPath &remote)
     return d->accept(remote);
 }
 
+class KcpSocketPrivate
+{
+public:
+    KcpSocketPrivate(shared_ptr<DatagramLink> link, shared_ptr<UdpDatagramLink> udp, shared_ptr<KcpStream> stream)
+        : link(std::move(link))
+        , udp(std::move(udp))
+        , stream(std::move(stream))
+    {
+    }
 
+    shared_ptr<DatagramLink> link;
+    shared_ptr<UdpDatagramLink> udp;  // may be null for non-UDP DatagramLink
+    shared_ptr<KcpStream> stream;
+    // Optional per-socket filter, invoked from KcpSocket::filter() (which the UDP link
+    // filter forwards to). Lets Qt-binding code install a filter without subclassing.
+    function<bool(char *, int32_t *, HostAddress *, uint16_t *)> filterCallback;
+    // True when this KcpSocket installed the UDP recv filter (owns the link lifetime).
+    bool ownsFilter = false;
+};
+
+static void installFilter(KcpSocket *socket, KcpSocketPrivate *d)
+{
+    UdpDatagramLink *udp = d->udp.get();
+    if (!udp) {
+        return;
+    }
+    udp->setFilter([socket](char *data, int32_t *len, HostAddress *addr, uint16_t *port) {
+        return socket->filter(data, len, addr, port);
+    });
+    d->ownsFilter = true;
+}
+
+static void uninstallFilter(KcpSocketPrivate *d)
+{
+    if (!d->ownsFilter || !d->udp) {
+        return;
+    }
+    d->udp->setFilter({});
+    d->ownsFilter = false;
+}
+
+static KcpSocketPrivate *makePrivateRaw(shared_ptr<UdpDatagramLink> udp)
+{
+    shared_ptr<KcpStream> stream = make_shared<KcpStream>(udp, 0);
+    stream->setProtocolVersion(KcpStream::Version1);
+    return new KcpSocketPrivate(udp, udp, stream);
+}
+
+static KcpStream::Mode toStreamMode(KcpSocket::Mode mode)
+{
+    return static_cast<KcpStream::Mode>(mode);
+}
+
+static KcpSocket::Mode toSocketMode(KcpStream::Mode mode)
+{
+    return static_cast<KcpSocket::Mode>(mode);
+}
+
+KcpSocket::KcpSocket(HostAddress::NetworkLayerProtocol protocol)
+    : d_ptr(makePrivateRaw(make_shared<UdpDatagramLink>(protocol)))
+{
+    installFilter(this, d_ptr);
+}
+
+KcpSocket::KcpSocket(intptr_t socketDescriptor)
+    : d_ptr(makePrivateRaw(make_shared<UdpDatagramLink>(socketDescriptor)))
+{
+    installFilter(this, d_ptr);
+}
+
+KcpSocket::KcpSocket(shared_ptr<Socket> rawSocket)
+    : d_ptr(makePrivateRaw(make_shared<UdpDatagramLink>(rawSocket)))
+{
+    installFilter(this, d_ptr);
+}
+
+KcpSocket::KcpSocket(shared_ptr<KcpStream> stream)
+    : d_ptr(new KcpSocketPrivate(stream->link(), dynamic_pointer_cast<UdpDatagramLink>(stream->link()), stream))
+{
+    // Do not install a recv filter here. Accepted slave streams share the master's
+    // UdpDatagramLink; installing would replace the listener's filter and leave a
+    // dangling KcpSocket* after the accepted socket is destroyed (Master doAccept crash).
+}
+
+KcpSocket *wrapKcpStreamAsSocket(shared_ptr<KcpStream> stream)
+{
+    if (!stream) {
+        return nullptr;
+    }
+    return new KcpSocket(std::move(stream));
+}
+
+KcpSocket::~KcpSocket()
+{
+    uninstallFilter(d_ptr);
+    delete d_ptr;
+}
+
+void KcpSocket::setMode(Mode mode)
+{
+    d_ptr->stream->setMode(toStreamMode(mode));
+}
+
+KcpSocket::Mode KcpSocket::mode() const
+{
+    return toSocketMode(d_ptr->stream->mode());
+}
+
+void KcpSocket::setUdpPacketSize(uint32_t udpPacketSize)
+{
+    d_ptr->stream->setPacketSize(udpPacketSize);
+}
+
+uint32_t KcpSocket::udpPacketSize() const
+{
+    return d_ptr->stream->packetSize();
+}
+
+void KcpSocket::setSendQueueSize(uint32_t sendQueueSize)
+{
+    d_ptr->stream->setSendQueueSize(sendQueueSize);
+}
+
+uint32_t KcpSocket::sendQueueSize() const
+{
+    return d_ptr->stream->sendQueueSize();
+}
+
+uint32_t KcpSocket::payloadSizeHint() const
+{
+    return d_ptr->stream->payloadSizeHint();
+}
+
+void KcpSocket::setTearDownTime(float secs)
+{
+    d_ptr->stream->setTearDownTime(secs);
+}
+
+float KcpSocket::tearDownTime() const
+{
+    return d_ptr->stream->tearDownTime();
+}
+
+Socket::SocketError KcpSocket::error() const
+{
+    return d_ptr->stream->error();
+}
+
+string KcpSocket::errorString() const
+{
+    return d_ptr->stream->errorString();
+}
+
+bool KcpSocket::isValid() const
+{
+    return d_ptr->stream->isValid();
+}
+
+HostAddress KcpSocket::localAddress() const
+{
+    return d_ptr->udp ? d_ptr->udp->localAddress() : HostAddress();
+}
+
+uint16_t KcpSocket::localPort() const
+{
+    return d_ptr->udp ? d_ptr->udp->localPort() : 0;
+}
+
+HostAddress KcpSocket::peerAddress() const
+{
+    return UdpDatagramPath(d_ptr->stream->peerPath()).address();
+}
+
+string KcpSocket::peerName() const
+{
+    return UdpDatagramPath(d_ptr->stream->peerPath()).address().toString();
+}
+
+uint16_t KcpSocket::peerPort() const
+{
+    return UdpDatagramPath(d_ptr->stream->peerPath()).port();
+}
+
+Socket::SocketType KcpSocket::type() const
+{
+    return Socket::KcpSocket;
+}
+
+Socket::SocketState KcpSocket::state() const
+{
+    return d_ptr->stream->state();
+}
+
+HostAddress::NetworkLayerProtocol KcpSocket::protocol() const
+{
+    return d_ptr->udp ? d_ptr->udp->protocol() : HostAddress::UnknownNetworkLayerProtocol;
+}
+
+string KcpSocket::localAddressURI() const
+{
+    const HostAddress &addr = localAddress();
+    string host = (addr.protocol() == HostAddress::IPv6Protocol)
+            ? utils::formatMessage("[%1]", {addr.toString()})
+            : addr.toString();
+    return utils::formatMessage("%1:%2", {host, utils::number(localPort())});
+}
+
+string KcpSocket::peerAddressURI() const
+{
+    const HostAddress &addr = peerAddress();
+    string host = (addr.protocol() == HostAddress::IPv6Protocol)
+            ? utils::formatMessage("[%1]", {addr.toString()})
+            : addr.toString();
+    return utils::formatMessage("%1:%2", {host, utils::number(peerPort())});
+}
+
+KcpSocket *KcpSocket::accept()
+{
+    return wrapKcpStreamAsSocket(shared_ptr<KcpStream>(d_ptr->stream->accept()));
+}
+
+KcpSocket *KcpSocket::accept(const HostAddress &addr, uint16_t port)
+{
+    return wrapKcpStreamAsSocket(
+            shared_ptr<KcpStream>(d_ptr->stream->accept(UdpDatagramPath(addr, port).toPath())));
+}
+
+KcpSocket *KcpSocket::accept(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
+{
+    vector<HostAddress> addresses;
+    HostAddress t;
+    if (t.setAddress(hostName)) {
+        addresses.push_back(t);
+    } else if (!dnsCache) {
+        addresses = Socket::resolve(hostName);
+    } else {
+        addresses = dnsCache->resolve(hostName);
+    }
+    const HostAddress::NetworkLayerProtocol prefer = protocol();
+    for (const HostAddress &addr : addresses) {
+        if (prefer == HostAddress::IPv4Protocol && addr.protocol() == HostAddress::IPv6Protocol) {
+            continue;
+        }
+        if (prefer == HostAddress::IPv6Protocol && addr.protocol() == HostAddress::IPv4Protocol) {
+            continue;
+        }
+        return accept(addr, port);
+    }
+    return nullptr;
+}
+
+bool KcpSocket::bind(const HostAddress &address, uint16_t port, Socket::BindMode mode)
+{
+    if (!d_ptr->udp || !d_ptr->udp->bind(address, port, mode)) {
+        return false;
+    }
+    return d_ptr->stream->markBound();
+}
+
+bool KcpSocket::bind(uint16_t port, Socket::BindMode mode)
+{
+    if (!d_ptr->udp || !d_ptr->udp->bind(port, mode)) {
+        return false;
+    }
+    return d_ptr->stream->markBound();
+}
+
+bool KcpSocket::connect(const HostAddress &addr, uint16_t port)
+{
+    return d_ptr->stream->connect(UdpDatagramPath(addr, port).toPath());
+}
+
+bool KcpSocket::connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
+{
+    vector<HostAddress> addresses;
+    HostAddress t;
+    if (t.setAddress(hostName)) {
+        addresses.push_back(t);
+    } else if (!dnsCache) {
+        addresses = Socket::resolve(hostName);
+    } else {
+        addresses = dnsCache->resolve(hostName);
+    }
+    const HostAddress::NetworkLayerProtocol prefer = protocol();
+    for (const HostAddress &addr : addresses) {
+        if (prefer == HostAddress::IPv4Protocol && addr.protocol() == HostAddress::IPv6Protocol) {
+            continue;
+        }
+        if (prefer == HostAddress::IPv6Protocol && addr.protocol() == HostAddress::IPv4Protocol) {
+            continue;
+        }
+        if (connect(addr, port)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void KcpSocket::close()
+{
+    d_ptr->stream->close();
+}
+
+void KcpSocket::abort()
+{
+    d_ptr->stream->abort();
+}
+
+bool KcpSocket::listen(int backlog)
+{
+    return d_ptr->stream->listen(backlog);
+}
+
+bool KcpSocket::setOption(Socket::SocketOption option, int value)
+{
+    return d_ptr->udp ? d_ptr->udp->setOption(option, value) : false;
+}
+
+int KcpSocket::option(Socket::SocketOption option) const
+{
+    return d_ptr->udp ? d_ptr->udp->option(option) : -1;
+}
+
+bool KcpSocket::joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
+{
+    return d_ptr->udp ? d_ptr->udp->joinMulticastGroup(groupAddress, iface) : false;
+}
+
+bool KcpSocket::leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
+{
+    return d_ptr->udp ? d_ptr->udp->leaveMulticastGroup(groupAddress, iface) : false;
+}
+
+NetworkInterface KcpSocket::multicastInterface() const
+{
+    return d_ptr->udp ? d_ptr->udp->multicastInterface() : NetworkInterface();
+}
+
+bool KcpSocket::setMulticastInterface(const NetworkInterface &iface)
+{
+    return d_ptr->udp ? d_ptr->udp->setMulticastInterface(iface) : false;
+}
+
+int32_t KcpSocket::peek(char *data, int32_t size)
+{
+    return d_ptr->stream->peek(data, size);
+}
+
+int32_t KcpSocket::peekRaw(char *data, int32_t size)
+{
+    return d_ptr->udp ? d_ptr->udp->peek(data, size) : -1;
+}
+
+int32_t KcpSocket::recv(char *data, int32_t size)
+{
+    return d_ptr->stream->recv(data, size);
+}
+
+int32_t KcpSocket::recvall(char *data, int32_t size)
+{
+    return d_ptr->stream->recvall(data, size);
+}
+
+int32_t KcpSocket::send(const char *data, int32_t size)
+{
+    return d_ptr->stream->send(data, size);
+}
+
+int32_t KcpSocket::sendall(const char *data, int32_t size)
+{
+    return d_ptr->stream->sendall(data, size);
+}
+
+string KcpSocket::recv(int32_t size)
+{
+    return d_ptr->stream->recv(size);
+}
+
+string KcpSocket::recvall(int32_t size)
+{
+    return d_ptr->stream->recvall(size);
+}
+
+int32_t KcpSocket::send(const string &data)
+{
+    return d_ptr->stream->send(data);
+}
+
+int32_t KcpSocket::sendall(const string &data)
+{
+    return d_ptr->stream->sendall(data);
+}
+
+bool KcpSocket::filter(char *data, int32_t *len, HostAddress *addr, uint16_t *port)
+{
+    if (d_ptr->filterCallback) {
+        return d_ptr->filterCallback(data, len, addr, port);
+    }
+    return false;
+}
+
+void KcpSocket::setFilter(function<bool(char *, int32_t *, HostAddress *, uint16_t *)> callback)
+{
+    d_ptr->filterCallback = std::move(callback);
+}
+
+int32_t KcpSocket::udpSend(const char *data, int32_t size, const HostAddress &addr, uint16_t port)
+{
+    return d_ptr->udp ? d_ptr->udp->sendto(data, size, UdpDatagramPath(addr, port).toPath()) : -1;
+}
+
+KcpSocket *KcpSocket::createConnection(const HostAddress &host, uint16_t port, Socket::SocketError *error,
+                                       int allowProtocol, Mode mode)
+{
+    KcpSocket *socket = qtng::createConnection<KcpSocket>(host, port, error, allowProtocol, MakeSocketType<KcpSocket>);
+    if (socket) {
+        socket->setMode(mode);
+    }
+    return socket;
+}
+
+KcpSocket *KcpSocket::createConnection(const string &hostName, uint16_t port, Socket::SocketError *error,
+                                       shared_ptr<SocketDnsCache> dnsCache, int allowProtocol, Mode mode)
+{
+    KcpSocket *socket =
+            qtng::createConnection<KcpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<KcpSocket>);
+    if (socket) {
+        socket->setMode(mode);
+    }
+    return socket;
+}
+
+KcpSocket *KcpSocket::createServer(const HostAddress &host, uint16_t port, int backlog)
+{
+    return qtng::createServer<KcpSocket>(host, port, backlog, MakeSocketType<KcpSocket>);
+}
+
+class KcpSocketLikeImpl : public SocketLike
+{
+public:
+    KcpSocketLikeImpl(shared_ptr<KcpSocket> s)
+        : s(s)
+    {
+    }
+
+    virtual Socket::SocketError error() const override { return s->error(); }
+    virtual string errorString() const override { return s->errorString(); }
+    virtual bool isValid() const override { return s->isValid(); }
+    virtual HostAddress localAddress() const override { return s->localAddress(); }
+    virtual uint16_t localPort() const override { return s->localPort(); }
+    virtual HostAddress peerAddress() const override { return s->peerAddress(); }
+    virtual string peerName() const override { return s->peerName(); }
+    virtual uint16_t peerPort() const override { return s->peerPort(); }
+    virtual intptr_t fileno() const override { return -1; }
+    virtual Socket::SocketType type() const override { return s->type(); }
+    virtual Socket::SocketState state() const override { return s->state(); }
+    virtual HostAddress::NetworkLayerProtocol protocol() const override { return s->protocol(); }
+    virtual string localAddressURI() const override { return s->localAddressURI(); }
+    virtual string peerAddressURI() const override { return s->peerAddressURI(); }
+    virtual Socket *acceptRaw() override { return nullptr; }
+    virtual shared_ptr<SocketLike> accept() override { return asSocketLike(s->accept()); }
+    virtual bool bind(const HostAddress &address, uint16_t port, Socket::BindMode mode) override
+    {
+        return s->bind(address, port, mode);
+    }
+    virtual bool bind(uint16_t port, Socket::BindMode mode) override { return s->bind(port, mode); }
+    virtual bool connect(const HostAddress &addr, uint16_t port) override { return s->connect(addr, port); }
+    virtual bool connect(const string &hostName, uint16_t port, shared_ptr<SocketDnsCache> dnsCache) override
+    {
+        return s->connect(hostName, port, dnsCache);
+    }
+    virtual void close() override { s->close(); }
+    virtual void abort() override { s->abort(); }
+    virtual bool listen(int backlog) override { return s->listen(backlog); }
+    virtual bool setOption(Socket::SocketOption option, int value) override { return s->setOption(option, value); }
+    virtual int option(Socket::SocketOption option) const override { return s->option(option); }
+    virtual int32_t peek(char *data, int32_t size) override { return s->peek(data, size); }
+    virtual int32_t peekRaw(char *data, int32_t size) override { return s->peekRaw(data, size); }
+    virtual int32_t recv(char *data, int32_t size) override { return s->recv(data, size); }
+    virtual int32_t recvall(char *data, int32_t size) override { return s->recvall(data, size); }
+    virtual int32_t send(const char *data, int32_t size) override { return s->send(data, size); }
+    virtual int32_t sendall(const char *data, int32_t size) override { return s->sendall(data, size); }
+    virtual string recv(int32_t size) override { return s->recv(size); }
+    virtual string recvall(int32_t size) override { return s->recvall(size); }
+    virtual int32_t send(const string &data) override { return s->send(data); }
+    virtual int32_t sendall(const string &data) override { return s->sendall(data); }
+
+    shared_ptr<KcpSocket> s;
+};
+
+shared_ptr<SocketLike> asSocketLike(shared_ptr<KcpSocket> s)
+{
+    if (!s) {
+        return shared_ptr<SocketLike>();
+    }
+    return make_shared<KcpSocketLikeImpl>(s);
+}
+
+shared_ptr<KcpSocket> convertSocketLikeToKcpSocket(shared_ptr<SocketLike> socket)
+{
+    shared_ptr<KcpSocketLikeImpl> impl = dynamic_pointer_cast<KcpSocketLikeImpl>(socket);
+    if (impl) {
+        return impl->s;
+    }
+    return shared_ptr<KcpSocket>();
+}
 
 }  // namespace qtng

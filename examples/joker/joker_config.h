@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "qtng/io_utils.h"
-#include "qtng/udp.h"
+#include "qtng/kcp.h"
 #include "qtng/utils/string_utils.h"
 
 class IniConfig

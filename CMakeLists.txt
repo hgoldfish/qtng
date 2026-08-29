@@ -180,6 +180,8 @@ set(QTNG_PUBLIC_INCLUDE
     include/qtng/data_channel.h
     include/qtng/multi_stream.h
     include/qtng/udp.h
+    include/qtng/kcp.h
+    include/qtng/utp.h
     include/qtng/hostaddress.h
     include/qtng/network_interface.h
     include/qtng/stun.h
@@ -195,8 +197,7 @@ set(QTNG_PRIVATE_INCLUDE
     include/qtng/private/coroutine_p.h
     include/qtng/private/coroutine_utils_p.h
     include/qtng/private/socket_p.h
-    include/qtng/private/kcp.h
-    include/qtng/private/utp.h
+    include/qtng/private/udp_p.h
     include/qtng/private/kademlia_p.h
     include/qtng/private/stun_p.h
     include/qtng/private/turn_p.h

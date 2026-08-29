@@ -30,6 +30,8 @@
 #include "qtng/data_channel.h"
 #include "qtng/multi_stream.h"
 #include "qtng/udp.h"
+#include "qtng/kcp.h"
+#include "qtng/utp.h"
 #include "qtng/httpd.h"
 #include "qtng/socket_server.h"
 #include "qtng/websocket.h"

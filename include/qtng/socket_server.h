@@ -5,7 +5,8 @@
 #include <memory>
 #include <string>
 
-#include "qtng/udp.h"
+#include "qtng/kcp.h"
+#include "qtng/utp.h"
 #include "qtng/socket_utils.h"
 #include "qtng/coroutine_utils.h"
 #ifndef QTNG_NO_CRYPTO
