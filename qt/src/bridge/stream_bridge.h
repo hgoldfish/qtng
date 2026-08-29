@@ -40,17 +40,6 @@ inline QDateTime toQDateTime(const qtng_core::utils::DateTime &dt)
 #endif
 }
 
-// Last-Modified/Modified-Since round-trips through an HTTP date string; the
-// original qtnetworkng yields a Qt::UTC spec here (fromHttpDate calls
-// setTimeSpec(Qt::UTC)), so mirror that instead of a timezone-specified value.
-inline QDateTime toQDateTimeUtc(const qtng_core::utils::DateTime &dt)
-{
-    if (!dt.isValid()) {
-        return QDateTime();
-    }
-    return QDateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch(), Qt::UTC);
-}
-
 inline qtng_core::utils::DateTime toCoreDateTime(const QDateTime &dt)
 {
     if (!dt.isValid()) {

@@ -468,9 +468,9 @@ QUrl HttpRequest::location() const
     return result.isValid() ? result : QUrl();
 }
 void HttpRequest::setLastModified(const QDateTime &lastModified) { d->core.setLastModified(toCoreDateTime(lastModified)); }
-QDateTime HttpRequest::lastModified() const { return toQDateTimeUtc(d->core.lastModified()); }
+QDateTime HttpRequest::lastModified() const { return toQDateTime(d->core.lastModified()); }
 void HttpRequest::setModifiedSince(const QDateTime &modifiedSince) { d->core.setModifiedSince(toCoreDateTime(modifiedSince)); }
-QDateTime HttpRequest::modifiedSince() const { return toQDateTimeUtc(d->core.modifiedSince()); }
+QDateTime HttpRequest::modifiedSince() const { return toQDateTime(d->core.modifiedSince()); }
 
 void HttpRequest::setHeader(const QString &name, const QByteArray &value)
 {
@@ -781,12 +781,12 @@ void HttpResponse::setLastModified(const QDateTime &lastModified)
 {
     d->core.setLastModified(toCoreDateTime(lastModified));
 }
-QDateTime HttpResponse::lastModified() const { return toQDateTimeUtc(d->core.lastModified()); }
+QDateTime HttpResponse::lastModified() const { return toQDateTime(d->core.lastModified()); }
 void HttpResponse::setModifiedSince(const QDateTime &modifiedSince)
 {
     d->core.setModifiedSince(toCoreDateTime(modifiedSince));
 }
-QDateTime HttpResponse::modifiedSince() const { return toQDateTimeUtc(d->core.modifiedSince()); }
+QDateTime HttpResponse::modifiedSince() const { return toQDateTime(d->core.modifiedSince()); }
 
 void HttpResponse::setHeader(const QString &name, const QByteArray &value)
 {
@@ -1069,7 +1069,11 @@ HttpResponse HttpSession::post(const QUrl &url, const QUrlQuery &body)
 
 HttpResponse HttpSession::post(const QUrl &url, const QJsonDocument &body)
 {
-    return post(url, body.toJson(QJsonDocument::Compact));
+    HttpRequest request;
+    request.setMethod(QStringLiteral("POST"));
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
 }
 
 HttpResponse HttpSession::post(const QUrl &url, const QJsonObject &body)
@@ -1113,7 +1117,12 @@ HttpResponse HttpSession::post(const QUrl &url, const QUrlQuery &body, const QMa
 
 HttpResponse HttpSession::post(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
 {
-    return post(url, body.toJson(QJsonDocument::Compact), headers);
+    HttpRequest request;
+    request.setMethod(QStringLiteral("POST"));
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
 }
 
 HttpResponse HttpSession::post(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
@@ -1233,7 +1242,11 @@ HttpResponse HttpSession::query(const QUrl &url, const QUrlQuery &body)
 
 HttpResponse HttpSession::query(const QUrl &url, const QJsonDocument &body)
 {
-    return query(url, body.toJson(QJsonDocument::Compact));
+    HttpRequest request;
+    request.setMethod(QStringLiteral("QUERY"));
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
 }
 
 HttpResponse HttpSession::query(const QUrl &url, const QJsonObject &body)
@@ -1277,7 +1290,12 @@ HttpResponse HttpSession::query(const QUrl &url, const QUrlQuery &body, const QM
 
 HttpResponse HttpSession::query(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
 {
-    return query(url, body.toJson(QJsonDocument::Compact), headers);
+    HttpRequest request;
+    request.setMethod(QStringLiteral("QUERY"));
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
 }
 
 HttpResponse HttpSession::query(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
@@ -1397,7 +1415,11 @@ HttpResponse HttpSession::put(const QUrl &url, const QUrlQuery &body)
 
 HttpResponse HttpSession::put(const QUrl &url, const QJsonDocument &body)
 {
-    return put(url, body.toJson(QJsonDocument::Compact));
+    HttpRequest request;
+    request.setMethod(QStringLiteral("PUT"));
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
 }
 
 HttpResponse HttpSession::put(const QUrl &url, const QJsonObject &body)
@@ -1441,7 +1463,12 @@ HttpResponse HttpSession::put(const QUrl &url, const QUrlQuery &body, const QMap
 
 HttpResponse HttpSession::put(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
 {
-    return put(url, body.toJson(QJsonDocument::Compact), headers);
+    HttpRequest request;
+    request.setMethod(QStringLiteral("PUT"));
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
 }
 
 HttpResponse HttpSession::put(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)
@@ -1556,7 +1583,11 @@ HttpResponse HttpSession::patch(const QUrl &url, const QUrlQuery &body)
 
 HttpResponse HttpSession::patch(const QUrl &url, const QJsonDocument &body)
 {
-    return patch(url, body.toJson(QJsonDocument::Compact));
+    HttpRequest request;
+    request.setMethod(QStringLiteral("PATCH"));
+    request.setUrl(url);
+    request.setBody(body);
+    return send(request);
 }
 
 HttpResponse HttpSession::patch(const QUrl &url, const QJsonObject &body)
@@ -1600,7 +1631,12 @@ HttpResponse HttpSession::patch(const QUrl &url, const QUrlQuery &body, const QM
 
 HttpResponse HttpSession::patch(const QUrl &url, const QJsonDocument &body, const QMap<QString, QByteArray> &headers)
 {
-    return patch(url, body.toJson(QJsonDocument::Compact), headers);
+    HttpRequest request;
+    request.setMethod(QStringLiteral("PATCH"));
+    request.setUrl(url);
+    request.setHeaders(headers);
+    request.setBody(body);
+    return send(request);
 }
 
 HttpResponse HttpSession::patch(const QUrl &url, const QJsonObject &body, const QMap<QString, QByteArray> &headers)

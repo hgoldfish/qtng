@@ -31,6 +31,10 @@ void initWinSock();
 void freeWinSock();
 #endif
 
+// qHash is a friend, but we can't use default arguments for friends (§8.3.6.4)
+class HostAddress;
+uint qHash(const HostAddress &key, uint seed = 0) noexcept;
+
 class HostAddressPrivate;
 class HostAddress
 {
