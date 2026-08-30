@@ -387,28 +387,43 @@ bool MsgPackStreamPrivate::readExtHeader(uint32_t &len, uint8_t &msgpackType)
     if (!dev || status != MsgPackStream::Ok) {
         return false;
     }
-    uint8_t p[6];
-    if (!readBytes(p, 1)) {
+    uint8_t typeByte = 0;
+    if (!readBytes(&typeByte, 1)) {
         return false;
     }
-    if (FirstByte::FIXEXT1 <= p[0] && p[0] <= FirstByte::FIXEX16) {
+    fprintf(stderr, "[dbg] readExtHeader marker=%02x\n", typeByte);
+    if (FirstByte::FIXEXT1 <= typeByte && typeByte <= FirstByte::FIXEX16) {
         len = 1;
-        len <<= p[0] - FirstByte::FIXEXT1;
-    } else if (p[0] == FirstByte::EXT8) {
-        if (!readBytes(p + 1, 1)) {
+        len <<= typeByte - FirstByte::FIXEXT1;
+        if (!readBytes(&typeByte, 1)) {
             return false;
         }
-        len = p[1];
-    } else if (p[0] == FirstByte::EXT16) {
-        if (!readBytes(p + 1, 2)) {
+    } else if (typeByte == FirstByte::EXT8) {
+        if (!readBytes(&typeByte, 1)) {
             return false;
         }
-        len = _msgpack_load16(p + 1);
-    } else if (p[0] == FirstByte::EXT32) {
-        if (!readBytes(p + 1, 4)) {
+        len = typeByte;
+        if (!readBytes(&typeByte, 1)) {
             return false;
         }
-        len = _msgpack_load32(p + 1);
+    } else if (typeByte == FirstByte::EXT16) {
+        uint8_t lenBytes[2];
+        if (!readBytes(lenBytes, 2)) {
+            return false;
+        }
+        len = _msgpack_load16(lenBytes);
+        if (!readBytes(&typeByte, 1)) {
+            return false;
+        }
+    } else if (typeByte == FirstByte::EXT32) {
+        uint8_t lenBytes[4];
+        if (!readBytes(lenBytes, 4)) {
+            return false;
+        }
+        len = _msgpack_load32(lenBytes);
+        if (!readBytes(&typeByte, 1)) {
+            return false;
+        }
     } else {
         status = MsgPackStream::ReadCorruptData;
         return false;
@@ -418,10 +433,8 @@ bool MsgPackStreamPrivate::readExtHeader(uint32_t &len, uint8_t &msgpackType)
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
-    if (!readBytes(p + 5, 1)) {
-        return false;
-    }
-    msgpackType = p[5];
+    msgpackType = typeByte;
+    fprintf(stderr, "[dbg] readExtHeader len=%u type=%02x\n", len, typeByte);
     return true;
 }
 
