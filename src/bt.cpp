@@ -2310,7 +2310,7 @@ void TorrentSessionPrivate::dhtLoop(shared_ptr<TorrentHandlePrivate> h)
             vector<DhtPeer> found = dht->getPeers(h->effectiveInfoHash());
             vector<BtPeerAddr> peers;
             for (const DhtPeer &p : found) {
-                peers.push_back(BtPeerAddr(p.address, p.port));
+                peers.push_back(BtPeerAddr(p.address(), p.port()));
             }
             addPeers(h, peers);
             if (!announced) {
