@@ -614,18 +614,11 @@ int32_t UtpStreamPrivate::recv(char *data, int32_t size, bool all)
                 return len;
             }
         }
-        if (parent) {
-            parent->pumpDatagram();
-            if (!receivingBuffer.empty()) {
-                continue;
-            }
-        }
+        // Passive slaves rely on the master's pumpDatagram loop; calling it here
+        // would block on DatagramLink::recvfrom and stall if the master already
+        // consumed the packet that filled receivingBuffer.
         receivingQueueNotEmpty.clear();
-        if (!receivingQueueNotEmpty.tryWait(10)) {
-            if (parent) {
-                parent->pumpDatagram();
-            }
-        }
+        receivingQueueNotEmpty.tryWait(10);
     }
 }
 
