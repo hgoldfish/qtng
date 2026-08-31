@@ -1043,6 +1043,9 @@ bool MasterKcpStreamPrivate::connect(const DatagramPath &remote)
     }
     remotePath = remote;
     state = Socket::ConnectedState;
+    // Start pumping the link immediately: a lazily-started receive loop (first
+    // rawSend) deadlocks the side that receives before it sends.
+    startReceivingCoroutine();
     return true;
 }
 
