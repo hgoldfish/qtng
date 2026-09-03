@@ -3,11 +3,17 @@
 #include <mutex>
 #include <vector>
 
-#include <sys/mman.h>
 #include <unistd.h>
 
 #include "qtng/utils/platform.h"
 #include "stack_pool.h"
+
+#ifdef NG_OS_WIN
+    #include <windows.h>
+    #include <memoryapi.h>
+#else
+    #include <sys/mman.h>
+#endif
 
 using namespace std;
 
