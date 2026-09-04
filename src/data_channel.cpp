@@ -86,25 +86,37 @@ static string packKeepaliveRequest()
     return string(reinterpret_cast<char *>(buf), sizeof(buf));
 }
 
+// Parses a command frame: only the wire layout is validated here. Whether a
+// command is *known* is decided by handleCommand(), so a future peer can extend
+// the protocol without taking down an older one:
+//   - command < 32:  critical commands must be understood; an unknown one is a
+//                    version mismatch and still aborts the connection.
+//   - command >= 32: optional extensions; unknown ones are silently ignored.
+// A known command must still arrive in its own fixed layout (commands 1..3
+// carry a 32-bit channel number, commands 4..6 do not); a mismatch means the
+// frame is malformed rather than merely unknown.
 static bool unpackCommand(string data, uint8_t *command, uint32_t *channelNumber)
 {
-    if (data.size() == (sizeof(uint8_t) + sizeof(uint32_t))) {
-        *command = ngFromBigEndian<uint8_t>(data.data());
-        if (*command != MAKE_CHANNEL_REQUEST && *command != CHANNEL_MADE_REQUEST
-            && *command != DESTROY_CHANNEL_REQUEST) {
+    const bool hasChannelNumber = data.size() == (sizeof(uint8_t) + sizeof(uint32_t));
+    if (!hasChannelNumber && data.size() != sizeof(uint8_t)) {
+        return false;
+    }
+    *command = ngFromBigEndian<uint8_t>(data.data());
+    const bool requiresChannelNumber = *command == MAKE_CHANNEL_REQUEST
+            || *command == CHANNEL_MADE_REQUEST || *command == DESTROY_CHANNEL_REQUEST;
+    const bool isShortCommand = *command == GO_THROUGH_REQUEST || *command == SLOW_DOWN_REQUEST
+            || *command == KEEPALIVE_REQUEST;
+    if (hasChannelNumber) {
+        if (isShortCommand) {
             return false;
         }
         *channelNumber = ngFromBigEndian<uint32_t>(data.data() + sizeof(uint8_t));
         return true;
-    } else if (data.size() == sizeof(uint8_t)) {
-        *command = ngFromBigEndian<uint8_t>(data.data());
-        if (*command != GO_THROUGH_REQUEST && *command != SLOW_DOWN_REQUEST && *command != KEEPALIVE_REQUEST) {
-            return false;
-        }
-        return true;
-    } else {
+    }
+    if (requiresChannelNumber) {
         return false;
     }
+    return true;
 }
 
 enum class BlockFlag
@@ -325,6 +337,20 @@ void DataChannelPrivate::abort(DataChannel::ChannelError reason)
         }
     }
     subChannels.clear();
+    // Drain real channels left in the pending queue (created by the peer but never
+    // claimed by takeChannel(), or orphaned when the connection died). Detach them
+    // from the parent first, then abort so their receiving/sending queues are
+    // released with them. The null sentinels pushed above stay put so blocked
+    // takeChannel() waiters can consume them and exit instead of hanging forever.
+    for (shared_ptr<VirtualChannel> &pending : pendingChannels) {
+        if (pending) {
+            pending->d_func()->parentChannel = nullptr;
+            pending->d_func()->abort(this->error);
+        }
+    }
+    pendingChannels.erase(remove_if(pendingChannels.begin(), pendingChannels.end(),
+                                    [](const shared_ptr<VirtualChannel> &p) { return static_cast<bool>(p); }),
+                          pendingChannels.end());
 }
 
 DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t channelNumber, string payload)
@@ -591,10 +617,15 @@ bool DataChannelPrivate::handleCommand(const string &packet)
         ngDebug() << "destroy channel request:" << channelNumber;
 #endif
         shared_ptr<VirtualChannel> strong = peekChannel(channelNumber); // not remove channel from pending channels.
-        if (!strong && subChannels.find(channelNumber) != subChannels.end()) {
-            weak_ptr<VirtualChannel> channel = subChannels.at(channelNumber);
+        map<uint32_t, weak_ptr<VirtualChannel>>::iterator subIt = subChannels.find(channelNumber);
+        if (subIt != subChannels.end()) {
+            weak_ptr<VirtualChannel> channel = subIt->second;
+            // Unregister from subChannels so trailing data packets are dropped instead
+            // of being fed into an already-aborted channel's receiving queue. A channel
+            // still in the pending queue is kept there so a blocked takeChannel() can
+            // observe the termination.
             cleanChannel(channelNumber, false);
-            if (!channel.expired()) {
+            if (!strong) {
                 strong = channel.lock();
             }
         }
@@ -1786,6 +1817,11 @@ void exchange(shared_ptr<DataChannel> incoming, shared_ptr<DataChannel> outgoing
         outgoing->abort();
         throw;
     }
+    // exchange() returns once either end is closed. Tear both sides down so the
+    // shared_ptr cycle formed by pluggedChannel is always broken; otherwise the
+    // two DataChannels would keep each other alive forever.
+    incoming->abort();
+    outgoing->abort();
 }
 
 shared_ptr<SocketLike> asSocketLike(shared_ptr<DataChannel> channel)
