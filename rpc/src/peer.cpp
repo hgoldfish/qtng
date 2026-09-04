@@ -364,13 +364,39 @@ void PeerPrivate::handlePacket()
                 waiter->second->send(response);
             }
         } else {
-            // unrecognized packet: ignore and keep the connection alive.
+            // Unrecognized packet: ignore and keep the connection alive. The parser
+            // fills fields one by one and may already have stored a non-zero channel
+            // number before failing (GOT_NOTHING), so check both unconditionally and
+            // claim-and-drop to avoid a pending channel leak.
+            if (request->channel != 0) {
+                channel->takeChannel(request->channel);
+            }
+            if (response->channel != 0) {
+                channel->takeChannel(response->channel);
+            }
         }
     }
 }
 
 void PeerPrivate::handleRequest(shared_ptr<Request> request)
 {
+    // RAII claim-and-drop.  If the request carries a channel number that this
+    // handler never claims (broken peer, rejected auth, ...), takeChannel() on
+    // scope exit releases it from the pending queue.  takeChannel() is a no-op
+    // once the channel has been claimed, so the normal path needs no dismiss().
+    struct UnclaimedChannelCleaner
+    {
+        shared_ptr<qtng::DataChannel> dataChannel;
+        std::uint32_t channelNumber;
+        ~UnclaimedChannelCleaner()
+        {
+            if (channelNumber != 0) {
+                dataChannel->takeChannel(channelNumber);
+            }
+        }
+    } cleaner{ channel, request->channel };
+    (void)cleaner;
+
     if (broken || !rpc) {
         return;
     }
