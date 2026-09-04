@@ -4051,6 +4051,73 @@ Flow control is credit-based: ``MAKE``/``SLAVE_MADE`` advertise the peer's initi
     std::shared_ptr<SocketLike> stream = asSocketLike(outgoing);
     stream->sendall("hello");
 
+8.1.1 Why MultiStream? Design rationale
+++++++++++++++++++++++++++++++++++++++++
+
+MultiStream and HTTP/2 multiplexing answer the same question — carrying many logical
+streams over one reliable connection — but for different needs. HTTP/2 streams are
+designed for the Web: a client initiates, each request gets one stream, ``END_STREAM``
+ends it, and header compression and the priority tree exist to speed up page loads.
+MultiStream targets **generic channel reuse** — tunneling, proxying, RPC — where there
+is no fixed client/server and no request lifecycle. That divergence drives the design
+trade-offs below:
+
+* **Transport-agnostic: it runs on non-TCP/TLS transports.** HTTP/2 is tied to
+  TLS/TCP, ALPN negotiation and the HPACK state machine. MultiStream only requires one
+  ``SocketLike`` connection, so it can sit on top of loss-tolerant transports such as
+  ``KcpSocket`` / ``UtpSocket`` (``examples/kcptun`` layers MultiStream over KCP as a
+  tunnel). HTTP/2 cannot exist on those transports at all; MultiStream aims to be a
+  multiplexing layer for *any* reliable ordered connection.
+
+* **Symmetric, bidirectional stream creation with no fixed initiator.** HTTP/2 assumes
+  one client initiates and the server responds; stream IDs come from a single space
+  allocated by the initiator. In MultiStream both endpoints hold a ``MultiStreamMaster``
+  and either side may call ``makeSlave()``. The dual numbering spaces
+  (``MultiStreamPositivePole`` increments from ``1``; ``MultiStreamNegativePole``
+  decrements from ``0xffffffff``) let both sides create slaves concurrently without
+  collisions — a hard requirement for P2P / proxy-tunnel scenarios.
+
+* **The control plane can never be starved by data.** Commands (``MAKE_SLAVE`` /
+  ``RESET`` / ``WINDOW_UPDATE`` / ``KEEPALIVE``) go through a dedicated command queue
+  that is strictly prioritized over all data streams. Control-plane latency costs far
+  more than making data wait: a delayed ``WINDOW_UPDATE`` stalls the peer's send window;
+  a delayed ``KEEPALIVE`` makes the peer misjudge the connection as dead and tear it
+  down. This is a key fix over the previous ``DataChannel`` (whose control frames shared
+  one FIFO with data and had no priority); HTTP/2 has no built-in send priority that
+  puts control frames ahead of ``DATA`` either.
+
+* **Explicit, simple per-stream priority.** Each slave has one ``priority()``; the
+  sender schedules with weighted round-robin (WRR, weight ``priority + 1``), which is
+  straightforward, predictable and tunable. The HTTP/2 priority dependency tree is so
+  complex that most implementations ignore it — qtng's own HTTP/2 client does too.
+
+* **Long-lived bidirectional channels that preserve message boundaries.** One slave can
+  ``sendPacket`` / ``recvPacket`` repeatedly for the whole life of a connection
+  (aceproxy, for instance, carries one TCP forward per slave); the packet interface
+  keeps message boundaries, matching "one message per frame" payloads in RPC / tunnels.
+  An HTTP/2 stream exists for exactly one request and dies at ``END_STREAM``; its body
+  is an unbounded byte stream whose boundaries must be re-derived by HTTP parsing.
+
+* **Explicit handshake and programmable failure semantics.** The ``MAKE_SLAVE`` /
+  ``SLAVE_MADE`` handshake gives the peer a chance to refuse an unknown or unexpected
+  stream (``RESET(Refused)``); ``resetCode`` distinguishes normal close / ``abort`` /
+  protocol error / refusal, so upper layers can decide retry policy (e.g. ``abort`` is
+  retryable, a normal close is not).
+
+* **Zero negotiation, zero extra state.** There is no SETTINGS handshake, HPACK dynamic
+  table or ALPN state machine; transfer parameters (window, capacity, priority) travel
+  in-band or are configured locally, keeping the implementation and debugging cost low.
+  Most of HTTP/2's complexity (header compression, Server Push, multi-frame state
+  machines, the priority tree) has no value for tunnel / proxy workloads, so MultiStream
+  drops it wholesale.
+
+**Non-goals.** Correspondingly, MultiStream does not pursue Web semantics: no header
+compression, no Server Push, no request-response model, and no browser interop.
+Priority is best-effort weighted round-robin — no preemption, no bandwidth guarantees.
+It also does not remove head-of-line blocking: all slaves share the underlying ordered
+byte stream, so resisting HOL means choosing a loss-tolerant transport (e.g. KCP), as
+recommended above.
+
 .. class:: MultiStreamMaster
 
     Constructed with a connected ``Socket``, ``SslSocket``, ``KcpSocket``, or ``SocketLike`` plus a ``MultiStreamPole``.
