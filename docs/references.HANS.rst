@@ -3723,6 +3723,50 @@ API 对齐 ``WebSocketConnection``：协程阻塞式 ``publish`` / ``subscribe``
     std::shared_ptr<SocketLike> stream = asSocketLike(outgoing);
     stream->sendall("hello");
 
+8.1.1 设计动机：为什么设计 MultiStream
+++++++++++++++++++++++++++++++++++++++
+
+MultiStream 与 HTTP/2 的多路复用回答同一个问题——在一条可靠连接上并发承载多条逻辑流——但面向的是不同需求。
+HTTP/2 的多流是为 Web 设计的：由客户端发起、一次请求一条流、``END_STREAM`` 即结束，头部压缩与优先级树都服务于
+浏览器页面加载。MultiStream 则服务于**通用通道复用**：隧道、代理、RPC 这类场景没有固定的客户端/服务端，也没有
+“请求”生命周期。需求分叉带来了以下设计取舍：
+
+* **传输无关，可架在非 TCP/TLS 的传输上。** HTTP/2 绑定 TLS/TCP、ALPN 协商与 HPACK 状态机；MultiStream 只要求
+  一条 ``SocketLike`` 连接，因此可以架在 ``KcpSocket`` / ``UtpSocket`` 等抗丢包传输之上
+  （``examples/kcptun`` 即把 MultiStream 叠在 KCP 上做隧道）。这些传输上 HTTP/2 无从落地，而 MultiStream 的
+  目标就是“任意可靠有序连接上的复用层”。
+
+* **对称双向建流，没有固定发起方。** HTTP/2 假定单一客户端发起、服务器响应，流 ID 单空间由发起方递增分配。
+  MultiStream 两端各自持有一个 ``MultiStreamMaster``，任意一端都可 ``makeSlave()``；配合正负双编号空间
+  （``MultiStreamPositivePole`` 从 ``1`` 递增、``MultiStreamNegativePole`` 从 ``0xffffffff`` 递减），双方可
+  同时建流而不冲突——这是 P2P / 代理隧道场景的硬需求。
+
+* **控制面永远不会被数据饿死。** ``MAKE_SLAVE`` / ``RESET`` / ``WINDOW_UPDATE`` / ``KEEPALIVE`` 等命令走独立
+  的命令队列，发送时绝对优先于所有业务流。控制面延迟的代价远高于让数据流等一等：``WINDOW_UPDATE`` 被延迟会卡死
+  对端的发送窗口，``KEEPALIVE`` 被延迟会被对端误判超时、断开整条连接。这是相对上一代 ``DataChannel``（控制帧
+  与业务数据共用 FIFO、无优先级）的关键改进；HTTP/2 同样没有内建“命令帧优先于数据帧”的发送优先级。
+
+* **显式、简单的每流优先级。** 每条 Slave 一个 ``priority()``，发送端按加权轮询（WRR，权重 ``priority + 1``）
+  调度，语义直白、可预测、可调。HTTP/2 规范定义的优先级依赖树过于复杂，多数实现选择忽略——qtng 自己的 HTTP/2
+  客户端同样忽略优先级帧。
+
+* **长命双向通道，保留消息边界。** 一条 Slave 可以反复 ``sendPacket`` / ``recvPacket``，跨越整个连接生命周期
+  （例如 aceproxy 用一条 Slave 承载一路 TCP 转发）；包接口保留消息边界，天然贴合 RPC / 隧道这类“一帧一消息”
+  的载荷。HTTP/2 的流是“一次请求一条流”，``END_STREAM`` 后即关闭；body 是无边界的字节流，消息边界要靠上层
+  HTTP 解析重新给出。
+
+* **显式握手与可编程的失败语义。** ``MAKE_SLAVE`` / ``SLAVE_MADE`` 两段握手让对端有机会拒绝未知或意外的流
+  （``RESET(Refused)``）；``resetCode`` 区分正常关闭 / ``abort`` / 协议错误 / 拒绝，上层可据此决定重试策略
+  （例如 ``abort`` 可重试、正常关闭不可重试）。
+
+* **零协商、零附加状态。** 没有 SETTINGS 握手、HPACK 动态表、ALPN 等状态机，收发参数（窗口、容量、优先级）就地
+  携带或本地配置，实现与排障成本低。HTTP/2 的大部分复杂度（头部压缩、Server Push、多帧状态机、优先级树）对
+  隧道 / 代理场景没有价值，因此被 MultiStream 整体舍去。
+
+**非目标。** 相应地，MultiStream 不追求 Web 语义：无头部压缩、无 Server Push、无请求-响应模型，也不与浏览器
+互操作。优先级是尽力而为的加权轮询，不做抢占也不保证带宽。它同样不消除队头阻塞——所有 Slave 共享底层有序字节流，
+抗 HOL 需要靠选择抗丢包传输（如 KCP），见上文的选型建议。
+
 .. class:: MultiStreamMaster
 
     使用已连接的 ``Socket``、``SslSocket``、``KcpSocket`` 或 ``SocketLike``，并指定 ``MultiStreamPole`` 构造。
