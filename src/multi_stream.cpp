@@ -352,7 +352,13 @@ void MultiStreamSlavePrivate::finish(MultiStreamMaster::StreamError reason, bool
     if (discardPendingSends) {
         cleanSendingQueue();
     }
-    receivingQueue.clear();
+    // Do NOT clear receivingQueue here: wakeReceivers() appends empty-string
+    // poison pills *after* any queued data, so a blocked receiver drains the
+    // remaining datagrams first and then observes EOF. Clearing the queue on a
+    // peer close (RESET / UserShutdown) silently dropped payloads that arrived
+    // in the same batch as the close -- the sender's close barrier already
+    // guarantees all data preceded the RESET, so the receiver must be allowed
+    // to read it.
     wakeReceivers();
     if (closeDone) {
         shared_ptr<ValueEvent<bool>> done = closeDone;

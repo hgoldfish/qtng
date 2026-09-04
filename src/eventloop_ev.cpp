@@ -331,6 +331,7 @@ int EvEventLoopCoroutinePrivate::callRepeat(uint32_t msecs, Functor *callback)
     watcher->callback = callback;
     watcher->parent = this;
     watcher->watcherId = 0;
+    watcher->w.data = watcher;
     ev_timer_start(loop, &watcher->w);
     watchers[nextWatcherId] = watcher;
     return nextWatcherId++;
