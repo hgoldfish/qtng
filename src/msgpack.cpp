@@ -391,7 +391,6 @@ bool MsgPackStreamPrivate::readExtHeader(uint32_t &len, uint8_t &msgpackType)
     if (!readBytes(&typeByte, 1)) {
         return false;
     }
-    fprintf(stderr, "[dbg] readExtHeader marker=%02x\n", typeByte);
     if (FirstByte::FIXEXT1 <= typeByte && typeByte <= FirstByte::FIXEX16) {
         len = 1;
         len <<= typeByte - FirstByte::FIXEXT1;
@@ -434,7 +433,6 @@ bool MsgPackStreamPrivate::readExtHeader(uint32_t &len, uint8_t &msgpackType)
         return false;
     }
     msgpackType = typeByte;
-    fprintf(stderr, "[dbg] readExtHeader len=%u type=%02x\n", len, typeByte);
     return true;
 }
 
