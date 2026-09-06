@@ -55,8 +55,11 @@ public:
     std::size_t capacity() const;
 
     // Single contiguous view of all live bytes. Valid until the next
-    // mutation. The pointer is stable across pop_front/pop_back (they only
-    // move head/tail), but NOT across a push that triggers growth.
+    // mutation. The pointer is stable across pop_front/pop_back while the
+    // buffer is non-empty (they only move head/tail); when a pop empties the
+    // buffer, the next mutation re-centers the empty window, so do not rely on
+    // the pointer across an empty boundary. It is NOT stable across a push
+    // that triggers growth.
     const char *data() const;
     char *data();
 
