@@ -47,6 +47,8 @@
 #endif
 #include "qtng/md.h"
 
+#include "qtng/utils/slice_ring_buffer.h"
+
 #ifdef QTNG_HAVE_ZLIB
 #  include "qtng/gzip.h"
 #endif

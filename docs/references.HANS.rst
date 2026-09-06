@@ -4383,3 +4383,63 @@ TURN 服务器为每个客户端 5 元组分配一个中继 UDP 套接字，并�
 记录（RFC 6762 additional records），因此一次 ``browse()`` 往返即可拿到实例、
 端口、TXT 属性与地址。``resolve()`` 在需要时对 SRV 目标重新查询 A/AAAA。
 
+
+10. 缓冲区工具
+---------------
+
+qtng 在网络代码中用到的两个字节缓冲区都位于命名空间 ``qtng::utils``,
+二者服务不同的需求。
+
+10.1 ByteBuffer(游标式,面向流解码器)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``ByteBuffer``(位于 ``qtng/utils/string_utils.h``)是一个游标式的字节缓冲区,
+面向那些需要"peek 一段区域而不消费它、之后再消费前缀"的流解码器。消费前缀
+只是推进读游标(O(1));只有当消费前缀累积超过阈值时,才进行一次把未消费窗口
+搬到前端的 compact,因此摊还成本为 O(1)/字节。它是 e.g. SSH 帧缓冲所采用的
+"最少移动"形态。
+
+.. code-block:: c++
+
+    qtng::utils::ByteBuffer buf(4096);
+    buf.append("hello", 5);
+    buf.consume(2);
+    char out[4];
+    buf.read(0, out, 3);   // peek 而不消费
+    std::size_t avail = buf.available();
+
+10.2 SliceRingBuffer(双映射字节双端队列)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``SliceRingBuffer``(位于 ``qtng/utils/slice_ring_buffer.h``)是一个字节级别
+的双端队列,底层由虚拟内存双映射支撑:两块相邻的虚拟内存区映射到同一块物理
+页,因此无论环形在物理上绕了多远,有效数据窗口在虚拟地址空间里始终是连续的。
+它是 ``ByteBuffer`` 的互补:它维护一个字节 deque,并通过 ``data()`` 交出一整段
+连续滑动窗口,非常适合零拷贝地把数据喂给 fd(``writev``/``readv``),也适合
+希望整帧作为单一内存块的解码器。``push_front``/``push_back`` 会自动扩容。
+
+.. code-block:: c++
+
+    qtng::utils::SliceRingBuffer rb(4096);
+    rb.push_back("hello", 5);
+    rb.push_front(">>", 2);
+    // 即使 push 让环形在物理上绕界,data() 仍然是一段连续的 size() 字节。
+    const char *p = rb.data();
+    std::size_t n = rb.size();
+    // 无需拷贝即可喂给 fd:
+    // write(fd, p, n);
+    rb.pop_front(3);
+    rb.push_back('!');
+
+关键成员:
+
+* ``size()`` -- 活跃字节数。
+* ``data()`` -- 指向活跃窗口头部;前 ``size()`` 字节是单一连续区域。
+* ``capacity()`` -- 已映射的物理容量(向下对齐到页)。
+* ``push_back(data, n)`` / ``push_front(data, n)`` -- 追加/前置,自动扩容。
+* ``pop_front(n)`` / ``pop_back(n)`` -- 从任一端丢弃(自动钳制)。
+* ``clear()`` -- 丢弃所有字节,保留映射。
+* 别名 ``append``/``prepend``/``consume`` 与 ``ByteBuffer`` 的流解码词汇对应。
+
+该类可移动但不可拷贝,且不是线程安全的(单线程使用,同 ``ByteBuffer``)。
+扩容时的 rehoming 与反别名 recenter 都是内部实现;公开接口稳定。

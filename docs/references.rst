@@ -4800,3 +4800,72 @@ A/AAAA records packed in the same response (RFC 6762 additional records), so one
 ``browse()`` round-trip yields instance, port, TXT attributes and addresses.
 ``resolve()`` re-queries A/AAAA for the SRV target when needed.
 
+
+10. Buffer Utilities
+--------------------
+
+qtng ships two byte buffers for network code, both in namespace ``qtng::utils``.
+They serve different needs.
+
+10.1 ByteBuffer (cursor-based, for stream decoders)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``ByteBuffer`` (in ``qtng/utils/string_utils.h``) is a cursor-based byte buffer
+for stream decoders that need to "peek" a region without consuming it, then
+consume a prefix later. Consuming a prefix only advances a read offset (O(1)); a
+compact (which moves the unconsumed window to the front) runs lazily, only when
+the consumed prefix has grown past a threshold, so the amortized cost is O(1)
+per byte. It is the "least-move" form used by e.g. an SSH frame buffer.
+
+.. code-block:: c++
+
+    qtng::utils::ByteBuffer buf(4096);
+    buf.append("hello", 5);
+    buf.consume(2);
+    char out[4];
+    buf.read(0, out, 3);   // peek without consuming
+    std::size_t avail = buf.available();
+
+10.2 SliceRingBuffer (double-mapped byte deque)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``SliceRingBuffer`` (in ``qtng/utils/slice_ring_buffer.h``) is a byte-level
+double-ended queue backed by a virtual-memory double mapping: two adjacent
+virtual regions each map the same physical page, so the live data window is
+always CONTIGUOUS in virtual address space no matter how far the ring has
+wrapped. It is the complement of ``ByteBuffer``: it keeps a deque of bytes and
+hands out a single contiguous slice via ``data()``, making it a natural fit for
+zero-copy feeding of an fd (``writev``/``readv``) and for decoders that want a
+whole frame as one memory block. ``push_front``/``push_back`` grow the mapping
+automatically.
+
+.. code-block:: c++
+
+    qtng::utils::SliceRingBuffer rb(4096);
+    rb.push_back("hello", 5);
+    rb.push_front(">>", 2);
+    // data() is one contiguous region of size() bytes, even after pushes that
+    // made the ring wrap physically.
+    const char *p = rb.data();
+    std::size_t n = rb.size();
+    // feed to an fd without any copy:
+    // write(fd, p, n);
+    rb.pop_front(3);
+    rb.push_back('!');
+
+Key members:
+
+* ``size()`` -- number of live bytes.
+* ``data()`` -- pointer to the head of the live window; the first ``size()``
+  bytes are one contiguous region.
+* ``capacity()`` -- mapped physical capacity (rounded down to a page).
+* ``push_back(data, n)`` / ``push_front(data, n)`` -- append/prepend, growing
+  the mapping automatically.
+* ``pop_front(n)`` / ``pop_back(n)`` -- drop from either end (clamped).
+* ``clear()`` -- discard all bytes, retaining the mapping.
+* Aliases ``append``/``prepend``/``consume`` mirror ``ByteBuffer``'s
+  stream-decoder vocabulary.
+
+The class is movable but not copyable, and is not thread-safe (single-threaded
+use, like ``ByteBuffer``). Growth rehoming and the aliasing-safe recenter are
+internal; the public interface is stable.

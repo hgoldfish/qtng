@@ -98,6 +98,7 @@ set(UTILS_SRC
     src/utils/datetime.cpp
     src/utils/url.cpp
     src/utils/mime.cpp
+    src/utils/slice_ring_buffer.cpp
 )
 
 set(QTNG_SRC
@@ -294,6 +295,7 @@ set(QTNG_UTILS_INCLUDE
     include/qtng/utils/mime.h
     include/qtng/utils/shared_mutex_compat.h
     include/qtng/utils/thread_local.h
+    include/qtng/utils/slice_ring_buffer.h
 )
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
