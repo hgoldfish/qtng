@@ -26,7 +26,10 @@ namespace utils {
 //   - size(): number of live bytes (== tail - head).
 //   - capacity(): the mapped physical capacity (rounded down to a page).
 //   - push_back(p, n) / push_front(p, n): append/prepend, growing the mapping
-//     automatically. Writing never splices a single call across two regions.
+//     automatically. Writing is contiguous per call only after an internal
+//     recenter; the source p must NOT point into this buffer's own storage
+//     (caller should copy to a temp first), because inside the double-mapping
+//     a virtual-address-aliased self-memcpy would corrupt the window.
 //   - pop_front(n) / pop_back(n): drop from either end.
 //
 // Growth strategy: when a push needs more room than the remaining capacity,
