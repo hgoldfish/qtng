@@ -139,7 +139,7 @@ BencodeStream &operator<<(BencodeStream &s, const std::map<K, V> &map)
     if (!s.writeMapHeader(static_cast<std::uint32_t>(map.size()))) {
         return s;
     }
-    for (const std::pair<const K, V> &entry : map) {
+    for (const auto &entry : map) {
         s << entry.first << entry.second;
         if (!s.isOk()) {
             break;
@@ -155,7 +155,7 @@ BencodeStream &operator<<(BencodeStream &s, const std::unordered_map<K, V> &map)
     if (!s.writeMapHeader(static_cast<std::uint32_t>(map.size()))) {
         return s;
     }
-    for (const std::pair<const K, V> &entry : map) {
+    for (const auto &entry : map) {
         s << entry.first << entry.second;
         if (!s.isOk()) {
             break;

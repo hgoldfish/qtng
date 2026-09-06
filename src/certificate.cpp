@@ -35,8 +35,8 @@ template<typename K, typename V>
 static vector<V> multimapValues(const multimap<K, V> &map, const K &key)
 {
     vector<V> values;
-    const pair<typename multimap<K, V>::const_iterator, typename multimap<K, V>::const_iterator> range = map.equal_range(key);
-    for (typename multimap<K, V>::const_iterator it = range.first; it != range.second; ++it) {
+    const auto range = map.equal_range(key);  // pair of multimap<K,V>::const_iterator (types depend on the template args)
+    for (auto it = range.first; it != range.second; ++it) {
         values.push_back(it->second);
     }
     return values;
@@ -46,7 +46,7 @@ template<typename K, typename V>
 static vector<K> multimapUniqueKeys(const multimap<K, V> &map)
 {
     vector<K> keys;
-    for (const pair<const K, V> &entry : map) {
+    for (const auto &entry : map) {  // entry is pair<const K, V>; K/V are template args
         if (keys.empty() || keys.back() != entry.first) {
             keys.push_back(entry.first);
         }

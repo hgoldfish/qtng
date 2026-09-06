@@ -100,7 +100,7 @@ template<typename T, typename U>
 QMap<QString, T> toQMap(const std::map<std::string, U> &m, T (*convert)(const U &))
 {
     QMap<QString, T> result;
-    for (const std::pair<const std::string, U> &item : m) {
+    for (const auto &item : m) {  // item is pair<const std::string, U>; U is a template arg
         result.insert(toQString(item.first), convert(item.second));
     }
     return result;
@@ -110,7 +110,7 @@ template<typename T, typename U>
 std::map<std::string, U> toStdMap(const QMap<QString, T> &m, U (*convert)(const T &))
 {
     std::map<std::string, U> result;
-    for (QMap<QString, T>::const_iterator it = m.constBegin(); it != m.constEnd(); ++it) {
+    for (auto it = m.constBegin(); it != m.constEnd(); ++it) {  // QMap<QString,T>::const_iterator; T is a template arg
         result.emplace(toStdString(it.key()), convert(it.value()));
     }
     return result;
