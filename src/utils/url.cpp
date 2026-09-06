@@ -90,7 +90,7 @@ string UrlQuery::query() const
 {
     ostringstream oss;
     bool first = true;
-    for (const auto &item : queryItems) {
+    for (const pair<const string, string> &item : queryItems) {
         if (!first) {
             oss << '&';
         }
@@ -107,7 +107,7 @@ void UrlQuery::addQueryItem(const string &key, const string &value)
 
 string UrlQuery::queryItemValue(const string &key) const
 {
-    auto it = queryItems.find(key);
+    map<string, string>::const_iterator it = queryItems.find(key);
     if (it == queryItems.end()) {
         return string();
     }

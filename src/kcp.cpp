@@ -707,7 +707,7 @@ bool MasterKcpStreamPrivate::close(bool force)
         state = Socket::UnconnectedState;
         vector<SlaveKcpStreamPrivate *> receivers;
         receivers.reserve(receiversByHostAndPort.size());
-        for (const auto &item : receiversByHostAndPort) {
+        for (const pair<const string, SlaveKcpStreamPrivate *> &item : receiversByHostAndPort) {
             if (item.second) {
                 receivers.push_back(item.second);
             }
@@ -897,7 +897,7 @@ void MasterKcpStreamPrivate::doAccept()
         }
         const string &key = who.key();
         SlaveKcpStreamPrivate *receiver = nullptr;
-        auto hostIt = receiversByHostAndPort.find(key);
+        map<string, SlaveKcpStreamPrivate *>::iterator hostIt = receiversByHostAndPort.find(key);
         if (hostIt != receiversByHostAndPort.end()) {
             receiver = hostIt->second;
         }
@@ -928,7 +928,7 @@ void MasterKcpStreamPrivate::doAccept()
             }
         } else {
             if (sessionId != 0) {  // a multipath packet.
-                const auto it = receiversBySessionId.find(sessionId);
+                const map<uint32_t, SlaveKcpStreamPrivate *>::iterator it = receiversBySessionId.find(sessionId);
                 receiver = (it != receiversBySessionId.end()) ? it->second : nullptr;
                 if (!receiver) {
                     // it must be bad packet.

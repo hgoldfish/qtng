@@ -443,7 +443,7 @@ bool Http2ClientSessionPrivate::readFrame(uint8_t *type, uint8_t *flags, uint32_
 
 void Http2ClientSessionPrivate::notifyWindows()
 {
-    for (auto &pair : streams) {
+    for (pair<const uint32_t, shared_ptr<Http2StreamState>> &pair : streams) {
         pair.second->windowUpdated.set();
     }
 }
@@ -509,7 +509,7 @@ void Http2ClientSessionPrivate::applyInitialWindowSize(uint32_t newSize)
     }
     int32_t delta = static_cast<int32_t>(newSize) - remoteInitialWindow;
     remoteInitialWindow = static_cast<int32_t>(newSize);
-    for (auto &pair : streams) {
+    for (pair<const uint32_t, shared_ptr<Http2StreamState>> &pair : streams) {
         int64_t next = static_cast<int64_t>(pair.second->sendWindow) + delta;
         if (next > 0x7fffffff || next < 0) {
             failConnection(ErrorFlowControlError);
@@ -634,7 +634,7 @@ shared_ptr<Http2StreamState> Http2ClientSessionPrivate::createStream()
 
 void Http2ClientSessionPrivate::releaseStream(uint32_t streamId, bool sendRst, uint32_t code)
 {
-    auto it = streams.find(streamId);
+    map<uint32_t, shared_ptr<Http2StreamState>>::iterator it = streams.find(streamId);
     if (it == streams.end()) {
         return;
     }
@@ -668,12 +668,12 @@ void Http2ClientSessionPrivate::finishStreamsWhere(uint32_t code, bool onlyAbove
     // Snapshot first: finishStreamError erases from `streams`.
     vector<shared_ptr<Http2StreamState>> doomed;
     doomed.reserve(streams.size());
-    for (auto &pair : streams) {
+    for (pair<const uint32_t, shared_ptr<Http2StreamState>> &pair : streams) {
         if (!onlyAboveLastStreamId || pair.first > lastStreamId) {
             doomed.push_back(pair.second);
         }
     }
-    for (auto &stream : doomed) {
+    for (shared_ptr<Http2StreamState> &stream : doomed) {
         finishStreamError(stream, code);
     }
 }
@@ -851,7 +851,7 @@ void Http2ClientSessionPrivate::handleFrame(uint8_t type, uint8_t flags, uint32_
                 if (streamId == 0) {
                     failConnection(ErrorProtocolError);
                 } else {
-                    auto it = streams.find(streamId);
+                    map<uint32_t, shared_ptr<Http2StreamState>>::iterator it = streams.find(streamId);
                     if (it != streams.end()) {
                         string rst(4, '\0');
                         writeUint32(&rst[0], ErrorProtocolError);
@@ -870,7 +870,7 @@ void Http2ClientSessionPrivate::handleFrame(uint8_t type, uint8_t flags, uint32_
                 connectionSendWindow = static_cast<int32_t>(next);
                 notifyWindows();
             } else {
-                auto it = streams.find(streamId);
+                map<uint32_t, shared_ptr<Http2StreamState>>::iterator it = streams.find(streamId);
                 if (it != streams.end()) {
                     int64_t next = static_cast<int64_t>(it->second->sendWindow) + increment;
                     if (next > 0x7fffffff) {
@@ -910,7 +910,7 @@ void Http2ClientSessionPrivate::handleFrame(uint8_t type, uint8_t flags, uint32_
             return;
         }
         {
-            auto it = streams.find(streamId);
+            map<uint32_t, shared_ptr<Http2StreamState>>::iterator it = streams.find(streamId);
             if (it != streams.end()) {
                 finishStreamError(it->second, readUint32(payload.data()));
             }
@@ -989,7 +989,7 @@ void Http2ClientSessionPrivate::handleFrame(uint8_t type, uint8_t flags, uint32_
         if (!(frameFlags & FlagEndHeaders)) {
             return;
         }
-        auto it = streams.find(headerBlockStream);
+        map<uint32_t, shared_ptr<Http2StreamState>>::iterator it = streams.find(headerBlockStream);
         headerBlockStream = 0;
         string block = std::move(headerBlockBuffer);
         headerBlockBuffer.clear();
@@ -1031,7 +1031,7 @@ void Http2ClientSessionPrivate::handleFrame(uint8_t type, uint8_t flags, uint32_
             failConnection(ErrorProtocolError);
             return;
         }
-        auto it = streams.find(streamId);
+        map<uint32_t, shared_ptr<Http2StreamState>>::iterator it = streams.find(streamId);
         if (it == streams.end()) {
             // Ignore DATA for unknown/closed streams but still enforce connection window.
             connectionRecvWindow -= static_cast<int32_t>(payload.size());

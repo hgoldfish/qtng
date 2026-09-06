@@ -677,7 +677,7 @@ void WebSocketConnectionPrivate::doSend()
 
         shared_ptr<ValueEvent<bool>> done = writingPacket.done;
         bool sendSucceeded = false;
-        auto cleanup = shared_ptr<void>(nullptr, [done, &sendSucceeded](void *) {
+        shared_ptr<void> cleanup = shared_ptr<void>(nullptr, [done, &sendSucceeded](void *) {
             if (!sendSucceeded && done) {
                 done->send(false);
             }

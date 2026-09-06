@@ -229,7 +229,7 @@ void BaseCoroutine::setPrevious(BaseCoroutine *previous)
 
 void BaseCoroutine::setState(BaseCoroutine::State state)
 {
-    if (auto *adapter = dynamic_cast<CoreCoroutineAdapter *>(dd_ptr->core)) {
+    if (CoreCoroutineAdapter *adapter = dynamic_cast<CoreCoroutineAdapter *>(dd_ptr->core)) {
         adapter->applyState(static_cast<qtng_core::BaseCoroutine::State>(state));
     }
 }

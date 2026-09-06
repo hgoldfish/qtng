@@ -273,7 +273,7 @@ shared_ptr<SocketLike> asSocketLike(shared_ptr<Socket> s)
 
 shared_ptr<Socket> convertSocketLikeToSocket(shared_ptr<SocketLike> socket)
 {
-    auto impl = dynamic_pointer_cast<SocketLikeImpl>(socket);
+    shared_ptr<SocketLikeImpl> impl = dynamic_pointer_cast<SocketLikeImpl>(socket);
     if (!impl) {
         return shared_ptr<Socket>();
     } else {

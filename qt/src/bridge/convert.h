@@ -68,7 +68,7 @@ inline qtng_core::utils::UrlQuery toCoreUrlQuery(const QUrlQuery &query)
 inline QUrlQuery toQUrlQuery(const qtng_core::utils::UrlQuery &query)
 {
     QUrlQuery result;
-    for (const auto &item : query.items()) {
+    for (const std::pair<const std::string, std::string> &item : query.items()) {
         result.addQueryItem(toQString(item.first), toQString(item.second));
     }
     return result;
@@ -100,7 +100,7 @@ template<typename T, typename U>
 QMap<QString, T> toQMap(const std::map<std::string, U> &m, T (*convert)(const U &))
 {
     QMap<QString, T> result;
-    for (const auto &item : m) {
+    for (const std::pair<const std::string, U> &item : m) {
         result.insert(toQString(item.first), convert(item.second));
     }
     return result;
@@ -110,7 +110,7 @@ template<typename T, typename U>
 std::map<std::string, U> toStdMap(const QMap<QString, T> &m, U (*convert)(const T &))
 {
     std::map<std::string, U> result;
-    for (auto it = m.constBegin(); it != m.constEnd(); ++it) {
+    for (QMap<QString, T>::const_iterator it = m.constBegin(); it != m.constEnd(); ++it) {
         result.emplace(toStdString(it.key()), convert(it.value()));
     }
     return result;

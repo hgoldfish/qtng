@@ -768,7 +768,7 @@ bool quicIsStatelessReset(const char *data, size_t size, const vector<string> &t
 void QuicConnectionPrivate::sendStatelessReset(const string &cid)
 {
     // RFC 9000 §10.3: short header, unpredictable bits, then the token.
-    auto it = localCidTokens.find(cid);
+    map<string, string>::iterator it = localCidTokens.find(cid);
     if (it == localCidTokens.end()) {
         return;
     }
@@ -779,7 +779,7 @@ void QuicConnectionPrivate::sendStatelessReset(const string &cid)
 bool QuicConnectionPrivate::isStatelessReset(const char *data, size_t size) const
 {
     vector<string> tokens;
-    for (const auto &kv : peerCidTokens) {
+    for (const pair<const uint64_t, string> &kv : peerCidTokens) {
         tokens.push_back(kv.second);
     }
     return quicIsStatelessReset(data, size, tokens);
@@ -1042,7 +1042,7 @@ bool QuicConnectionPrivate::flushCrypto()
 
 shared_ptr<QuicStream> QuicConnectionPrivate::getOrCreateStream(uint64_t id)
 {
-    auto it = streams.find(id);
+    map<uint64_t, shared_ptr<QuicStream>>::iterator it = streams.find(id);
     if (it != streams.end()) {
         return it->second;
     }
@@ -1089,7 +1089,7 @@ void QuicConnectionPrivate::onCryptoFrame(QuicPacketNumberSpace space, const Qui
     }
     cryptoRecvFragments[idx][frame.offset] = frame.data;
     while (cryptoRecvFragments[idx].count(off)) {
-        auto it = cryptoRecvFragments[idx].find(off);
+        map<uint64_t, string>::iterator it = cryptoRecvFragments[idx].find(off);
         buf->append(it->second);
         off += it->second.size();
         cryptoRecvFragments[idx].erase(it);
@@ -1178,7 +1178,7 @@ void QuicConnectionPrivate::driveTls()
         maxStreamsUniRemote = pp.initialMaxStreamsUni;
         // If the server rejected our 0-RTT data, replay it with 1-RTT keys.
         if (isClient && hasEarlyKeys && !tls->earlyDataAccepted()) {
-            for (auto &kv : streams) {
+            for (pair<const uint64_t, shared_ptr<QuicStream>> &kv : streams) {
                 QuicStreamPrivate *sd = kv.second->d_func();
                 if (sd->sentZeroRtt && sd->sendOffset > sd->zeroRttStartOffset) {
                     replayZeroRtt(sd);
@@ -1235,7 +1235,7 @@ void QuicConnectionPrivate::onStreamFrame(QuicPacketNumberSpace space, const Qui
         }
         bool madeProgress = false;
         while (sd->recvFragments.count(sd->recvOffset)) {
-            auto it = sd->recvFragments.find(sd->recvOffset);
+            map<uint64_t, string>::iterator it = sd->recvFragments.find(sd->recvOffset);
             sd->recvBuf.append(it->second);
             sd->recvOffset += it->second.size();
             sd->recvFragments.erase(it);
@@ -1323,7 +1323,7 @@ void QuicConnectionPrivate::handleFrame(QuicPacketNumberSpace space, const QuicF
     }
     case QuicFrame::PathResponse: {
         // Only accept a PATH_RESPONSE matching an outstanding challenge.
-        auto it = pendingPathChallenges.find(frame.pathData);
+        map<string, string>::iterator it = pendingPathChallenges.find(frame.pathData);
         if (it != pendingPathChallenges.end()) {
             peerPath = DatagramPath(it->second);
             pathToAddr(peerPath, &peerAddr, &peerPort);
@@ -1368,7 +1368,7 @@ void QuicConnectionPrivate::handleFrame(QuicPacketNumberSpace space, const QuicF
         peerCids[frame.sequenceNumber] = frame.connectionId;
         peerCidTokens[frame.sequenceNumber] = frame.statelessResetToken;
         // Retire CIDs the peer asked us to retire.
-        for (auto it = peerCids.begin(); it != peerCids.end();) {
+        for (map<uint64_t, QuicConnectionId>::iterator it = peerCids.begin(); it != peerCids.end();) {
             if (it->first < frame.retirePriorTo) {
                 QuicFrame r;
                 r.type = QuicFrame::RetireConnectionId;
@@ -2020,7 +2020,7 @@ shared_ptr<QuicStream> QuicConnection::acceptStream()
     NG_D(QuicConnection);
     float waited = 0;
     while (waited < 5.0f && d->error == NoError) {
-        for (auto &kv : d->streams) {
+        for (pair<const uint64_t, shared_ptr<QuicStream>> &kv : d->streams) {
             // Only peer-initiated bidirectional streams are "accepted" streams.
             // Unidirectional streams (control/QPACK in HTTP/3, id & 2) are
             // application-level and must not be handed out here.
@@ -2073,7 +2073,7 @@ void QuicConnection::abort()
 
 uint64_t QuicConnectionPrivate::streamSendLimit(uint64_t streamId) const
 {
-    auto it = maxStreamDataRemote.find(streamId);
+    map<uint64_t, uint64_t>::const_iterator it = maxStreamDataRemote.find(streamId);
     if (it != maxStreamDataRemote.end()) {
         return it->second;
     }
@@ -2150,7 +2150,7 @@ void QuicConnectionPrivate::maybeIncreaseMaxData()
     // Connection-level consumption is the sum of what the application has read
     // across all streams (RFC 9000 §4.1). Window slides: limit = consumed + window.
     uint64_t consumedTotal = 0;
-    for (const auto &kv : streams) {
+    for (const pair<const uint64_t, shared_ptr<QuicStream>> &kv : streams) {
         QuicStreamPrivate *sd = kv.second->d_func();
         consumedTotal += sd->recvOffset - sd->recvBuf.size();
     }
@@ -2169,7 +2169,7 @@ void QuicConnectionPrivate::maybeIncreaseMaxData()
 
 void QuicConnectionPrivate::maybeIncreaseMaxStreamData(uint64_t streamId)
 {
-    auto it = streams.find(streamId);
+    map<uint64_t, shared_ptr<QuicStream>>::iterator it = streams.find(streamId);
     if (it == streams.end()) {
         return;
     }

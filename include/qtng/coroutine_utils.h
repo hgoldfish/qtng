@@ -155,7 +155,7 @@ std::shared_ptr<Deferred<std::shared_ptr<Coroutine>>> waitForAny(std::shared_ptr
     });
 
     df->addCallback([c1w, callbackId](std::shared_ptr<Coroutine>) {
-        if (auto c = c1w.lock()) {
+        if (std::shared_ptr<Coroutine> c = c1w.lock()) {
             c->finished.remove(callbackId);
         }
     });

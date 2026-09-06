@@ -415,7 +415,7 @@ Bencode::Bencode(const QMap<QString, Bencode> &dict)
     : d(new BencodePrivate)
 {
     map<string, qtng_core::Bencode> coreMap;
-    for (auto it = dict.constBegin(); it != dict.constEnd(); ++it) {
+    for (QMap<QString, Bencode>::const_iterator it = dict.constBegin(); it != dict.constEnd(); ++it) {
         coreMap.emplace(toStdString(it.key()), toCoreBencode(it.value()));
     }
     d->core = qtng_core::Bencode(coreMap);
@@ -425,7 +425,7 @@ Bencode::Bencode(QMap<QString, Bencode> &&dict)
     : d(new BencodePrivate)
 {
     map<string, qtng_core::Bencode> coreMap;
-    for (auto it = dict.begin(); it != dict.end(); ++it) {
+    for (QMap<QString, Bencode>::iterator it = dict.begin(); it != dict.end(); ++it) {
         coreMap.emplace(toStdString(it.key()), toCoreBencode(it.value()));
     }
     d->core = qtng_core::Bencode(std::move(coreMap));
@@ -514,7 +514,7 @@ QMap<QString, Bencode> Bencode::toMap() const
 {
     QMap<QString, Bencode> result;
     const map<string, qtng_core::Bencode> &dict = d->core.toMap();
-    for (const auto &entry : dict) {
+    for (const pair<const string, qtng_core::Bencode> &entry : dict) {
         result.insert(toQString(entry.first), fromCoreBencode(entry.second));
     }
     return result;

@@ -1098,7 +1098,7 @@ bool SshConnectionPrivate::sendDisconnect(uint32_t reason, const string &descrip
 
 void SshConnectionPrivate::notifyChannelsClosed()
 {
-    for (const auto &pair : channels) {
+    for (const pair<const uint32_t, shared_ptr<SshChannelPrivate>> &pair : channels) {
         const shared_ptr<SshChannelPrivate> &ch = pair.second;
         ch->notifyRemoteClose();
     }
@@ -1319,7 +1319,7 @@ void SshConnectionPrivate::handleChannelOpenConfirmation(const string &payload)
         channelOpenEvent.set();
         return;
     }
-    auto it = channels.find(recipient);
+    map<uint32_t, shared_ptr<SshChannelPrivate>>::iterator it = channels.find(recipient);
     if (it == channels.end()) {
         channelOpenOk = false;
         channelOpenFinished = true;
@@ -1352,7 +1352,7 @@ void SshConnectionPrivate::handleChannelData(const string &payload)
     if (!buf.getByte(&type) || !buf.getUint32(&id) || !buf.getString(&data)) {
         return;
     }
-    auto it = channels.find(id);
+    map<uint32_t, shared_ptr<SshChannelPrivate>>::iterator it = channels.find(id);
     if (it == channels.end()) {
         return;
     }
@@ -1378,7 +1378,7 @@ void SshConnectionPrivate::handleChannelWindowAdjust(const string &payload)
     if (!buf.getByte(&type) || !buf.getUint32(&id) || !buf.getUint32(&n)) {
         return;
     }
-    auto it = channels.find(id);
+    map<uint32_t, shared_ptr<SshChannelPrivate>>::iterator it = channels.find(id);
     if (it == channels.end()) {
         return;
     }
@@ -1395,7 +1395,7 @@ void SshConnectionPrivate::handleChannelEof(const string &payload)
     if (!buf.getByte(&type) || !buf.getUint32(&id)) {
         return;
     }
-    auto it = channels.find(id);
+    map<uint32_t, shared_ptr<SshChannelPrivate>>::iterator it = channels.find(id);
     if (it == channels.end()) {
         return;
     }
@@ -1410,7 +1410,7 @@ void SshConnectionPrivate::handleChannelClose(const string &payload)
     if (!buf.getByte(&type) || !buf.getUint32(&id)) {
         return;
     }
-    auto it = channels.find(id);
+    map<uint32_t, shared_ptr<SshChannelPrivate>>::iterator it = channels.find(id);
     if (it == channels.end()) {
         return;
     }
@@ -1431,7 +1431,7 @@ void SshConnectionPrivate::handleChannelRequest(const string &payload)
     if (!buf.getByte(&type) || !buf.getUint32(&id) || !buf.getString(&requestType) || !buf.getBoolean(&wantReply)) {
         return;
     }
-    auto it = channels.find(id);
+    map<uint32_t, shared_ptr<SshChannelPrivate>>::iterator it = channels.find(id);
     if (it == channels.end()) {
         if (wantReply) {
             sendChannelFailure(id);

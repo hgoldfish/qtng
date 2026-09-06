@@ -329,7 +329,7 @@ void DataChannelPrivate::abort(DataChannel::ChannelError reason)
     pendingChannelsNotEmpty.notifyAll();
 
     goThrough.open();
-    for (const auto &item : subChannels) {
+    for (const pair<const uint32_t, weak_ptr<VirtualChannel>> &item : subChannels) {
         shared_ptr<VirtualChannel> strong = item.second.lock();
         if (strong) {
             strong->d_func()->parentChannel = nullptr;
@@ -736,7 +736,7 @@ void SocketChannelPrivate::doSend()
     while (true) {
         vector<WritingPacket> writingPackets;
         bool sendSucceeded = false;
-        auto clean = shared_ptr<void>(nullptr, [&writingPackets, &sendSucceeded](void *) {
+        shared_ptr<void> clean = shared_ptr<void>(nullptr, [&writingPackets, &sendSucceeded](void *) {
             if (!sendSucceeded) {
                 for (WritingPacket &writingPacket : writingPackets) {
                     if (writingPacket.done) {

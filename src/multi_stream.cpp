@@ -516,7 +516,7 @@ bool MultiStreamMasterPrivate::hasSendableData()
     if (!commandQueue.isEmpty()) {
         return true;
     }
-    for (const auto &item : slaves) {
+    for (const pair<const uint32_t, weak_ptr<MultiStreamSlave>> &item : slaves) {
         shared_ptr<MultiStreamSlave> slave = item.second.lock();
         if (slave && !slave->d_func()->sendingQueue.isEmpty()) {
             return true;
@@ -539,7 +539,7 @@ shared_ptr<MultiStreamSlave> MultiStreamMasterPrivate::findNextSlaveWithData(uin
     bool anyBusy = false;
     bool anyWithQuantum = false;
     int maxPriority = INT_MIN;
-    for (const auto &item : slaves) {
+    for (const pair<const uint32_t, weak_ptr<MultiStreamSlave>> &item : slaves) {
         shared_ptr<MultiStreamSlave> slave = item.second.lock();
         if (!slave) {
             continue;
@@ -559,7 +559,7 @@ shared_ptr<MultiStreamSlave> MultiStreamMasterPrivate::findNextSlaveWithData(uin
     }
     if (!anyWithQuantum) {
         maxPriority = INT_MIN;
-        for (const auto &item : slaves) {
+        for (const pair<const uint32_t, weak_ptr<MultiStreamSlave>> &item : slaves) {
             shared_ptr<MultiStreamSlave> slave = item.second.lock();
             if (!slave) {
                 continue;
@@ -576,7 +576,7 @@ shared_ptr<MultiStreamSlave> MultiStreamMasterPrivate::findNextSlaveWithData(uin
     auto tryFrom = [this, maxPriority, &hasWork](
                            map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator begin,
                            map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator end) -> shared_ptr<MultiStreamSlave> {
-        for (auto it = begin; it != end; ++it) {
+        for (map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = begin; it != end; ++it) {
             shared_ptr<MultiStreamSlave> slave = it->second.lock();
             if (!slave) {
                 continue;
@@ -654,7 +654,7 @@ bool MultiStreamMasterPrivate::sendPacketRaw(uint32_t streamNumber, string packe
         return false;
     }
 
-    auto it = slaves.find(streamNumber);
+    map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = slaves.find(streamNumber);
     if (it == slaves.end()) {
         return false;
     }
@@ -685,7 +685,7 @@ bool MultiStreamMasterPrivate::enqueueCloseBarrier(uint32_t streamNumber, shared
     if (error != MultiStreamMaster::NoError || !done) {
         return false;
     }
-    auto it = slaves.find(streamNumber);
+    map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = slaves.find(streamNumber);
     if (it == slaves.end()) {
         return false;
     }
@@ -701,7 +701,7 @@ bool MultiStreamMasterPrivate::enqueueCloseBarrier(uint32_t streamNumber, shared
 void MultiStreamMasterPrivate::processCloseBarrier(uint32_t streamNumber)
 {
     shared_ptr<MultiStreamSlave> strong;
-    auto it = slaves.find(streamNumber);
+    map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = slaves.find(streamNumber);
     if (it != slaves.end()) {
         strong = it->second.lock();
         slaves.erase(it);
@@ -748,7 +748,7 @@ void MultiStreamMasterPrivate::doSend()
         vector<shared_ptr<ValueEvent<bool>>> dones;
         bool sendSucceeded = false;
         int count = 0;
-        auto clean = shared_ptr<void>(nullptr, [&dones, &sendSucceeded](void *) {
+        shared_ptr<void> clean = shared_ptr<void>(nullptr, [&dones, &sendSucceeded](void *) {
             if (!sendSucceeded) {
                 for (shared_ptr<ValueEvent<bool>> &done : dones) {
                     if (done) {
@@ -949,7 +949,7 @@ void MultiStreamMasterPrivate::abort(MultiStreamMaster::StreamError reason)
     }
     pendingSlavesNotEmpty.notifyAll();
 
-    for (const auto &item : slaves) {
+    for (const pair<const uint32_t, weak_ptr<MultiStreamSlave>> &item : slaves) {
         shared_ptr<MultiStreamSlave> strong = item.second.lock();
         if (strong) {
             strong->d_func()->master = nullptr;
@@ -962,7 +962,7 @@ void MultiStreamMasterPrivate::abort(MultiStreamMaster::StreamError reason)
 void MultiStreamMasterPrivate::cleanSlave(uint32_t streamNumber, bool sendResetPacket,
                                           MultiStreamResetCode resetCode)
 {
-    auto it = slaves.find(streamNumber);
+    map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = slaves.find(streamNumber);
     if (it == slaves.end()) {
         return;
     }
@@ -981,7 +981,7 @@ MultiStreamMaster::StreamError MultiStreamMasterPrivate::handleIncomingPacket(ui
         return MultiStreamMaster::NoError;
     }
 
-    auto it = slaves.find(streamNumber);
+    map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = slaves.find(streamNumber);
     if (it == slaves.end()) {
         return MultiStreamMaster::NoError;
     }
@@ -1016,7 +1016,7 @@ bool MultiStreamMasterPrivate::handleCommand(const string &packet)
         return true;
     }
     if (command == SLAVE_MADE_REQUEST) {
-        auto it = slaves.find(streamNumber);
+        map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = slaves.find(streamNumber);
         if (it != slaves.end()) {
             shared_ptr<MultiStreamSlave> slave = it->second.lock();
             if (slave) {
@@ -1031,7 +1031,7 @@ bool MultiStreamMasterPrivate::handleCommand(const string &packet)
     }
     if (command == RESET_SLAVE_REQUEST) {
         shared_ptr<MultiStreamSlave> strong = peekSlave(streamNumber);
-        auto it = slaves.find(streamNumber);
+        map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = slaves.find(streamNumber);
         if (it != slaves.end()) {
             if (!strong) {
                 strong = it->second.lock();
@@ -1046,7 +1046,7 @@ bool MultiStreamMasterPrivate::handleCommand(const string &packet)
         return true;
     }
     if (command == WINDOW_UPDATE_REQUEST) {
-        auto it = slaves.find(streamNumber);
+        map<uint32_t, weak_ptr<MultiStreamSlave>>::iterator it = slaves.find(streamNumber);
         if (it != slaves.end()) {
             shared_ptr<MultiStreamSlave> slave = it->second.lock();
             if (slave) {
@@ -1304,7 +1304,7 @@ uint32_t MultiStreamMaster::sendingQueueSize() const
 {
     NG_D(const MultiStreamMaster);
     uint32_t total = d->commandQueue.size();
-    for (const auto &item : d->slaves) {
+    for (const pair<const uint32_t, weak_ptr<MultiStreamSlave>> &item : d->slaves) {
         shared_ptr<MultiStreamSlave> slave = item.second.lock();
         if (slave) {
             total += MultiStreamSlavePrivate::getPrivateHelper(slave)->sendingQueue.size();
@@ -1473,7 +1473,7 @@ string MultiStreamSlave::recvPacket()
         return string();
     }
     ++d->activeReceivers;
-    auto receiverGuard = shared_ptr<void>(nullptr, [d](void *) {
+    shared_ptr<void> receiverGuard = shared_ptr<void>(nullptr, [d](void *) {
         --d->activeReceivers;
     });
     string packet = d->receivingQueue.get();

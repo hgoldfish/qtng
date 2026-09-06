@@ -696,7 +696,7 @@ PollFunctor::PollFunctor(shared_ptr<unordered_set<shared_ptr<Socket>>> events, s
 
 bool PollFunctor::operator()()
 {
-    if (auto s = socket.lock()) {
+    if (shared_ptr<Socket> s = socket.lock()) {
         events->insert(s);
         done->set();
     }
@@ -711,7 +711,7 @@ PollPrivate::PollPrivate()
 
 PollPrivate::~PollPrivate()
 {
-    for (const auto &entry : watchers) {
+    for (const pair<const shared_ptr<Socket>, int> &entry : watchers) {
         EventLoopCoroutine::get()->removeWatcher(entry.second);
     }
 }
@@ -729,7 +729,7 @@ void PollPrivate::add(shared_ptr<Socket> socket, EventLoopCoroutine::EventType e
 
 void PollPrivate::remove(shared_ptr<Socket> socket)
 {
-    auto it = watchers.find(socket);
+    map<shared_ptr<Socket>, int>::iterator it = watchers.find(socket);
     if (it == watchers.end()) {
         return;
     }
@@ -740,7 +740,7 @@ void PollPrivate::remove(shared_ptr<Socket> socket)
 shared_ptr<Socket> PollPrivate::wait(float secs)
 {
     if (!events->empty()) {
-        auto it = events->begin();
+        unordered_set<shared_ptr<Socket>>::iterator it = events->begin();
         shared_ptr<Socket> socket = *it;
         events->erase(it);
         return socket;
@@ -759,7 +759,7 @@ shared_ptr<Socket> PollPrivate::wait(float secs)
     }
 
     if (!events->empty()) {
-        auto it = events->begin();
+        unordered_set<shared_ptr<Socket>>::iterator it = events->begin();
         shared_ptr<Socket> socket = *it;
         events->erase(it);
         return socket;
@@ -829,7 +829,7 @@ vector<HostAddress> SocketDnsCache::resolve(const string &hostName)
 {
     NG_D(SocketDnsCache);
     uint64_t now = static_cast<uint64_t>(utils::DateTime::currentDateTimeUtc().toMSecsSinceEpoch());
-    auto it = d->cache.find(hostName);
+    map<string, SocketDnsCacheItem>::iterator it = d->cache.find(hostName);
     if (it != d->cache.end()) {
         if (now > it->second.firstSeen && (now - it->second.firstSeen < d->timeToLive)) {
             return it->second.addresses;

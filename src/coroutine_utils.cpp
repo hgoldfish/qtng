@@ -140,7 +140,7 @@ void DeferCallThread::run()
         DeferCallThread *self;
         ~Cleanup()
         {
-            auto loop = self->eventloop.lock();
+            shared_ptr<EventLoopCoroutine> loop = self->eventloop.lock();
             if (!loop) {
                 return;
             }
@@ -532,7 +532,7 @@ void ThreadPool::WorkThread::run()
                 *item.error = current_exception();
             }
         }
-        if (auto loop = item.eventloop.lock()) {
+        if (shared_ptr<EventLoopCoroutine> loop = item.eventloop.lock()) {
             loop->callLaterThreadSafe(0, new MarkDoneFunctor(item.done));
         }
     }

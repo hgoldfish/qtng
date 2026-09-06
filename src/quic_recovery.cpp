@@ -66,12 +66,12 @@ void QuicLossRecovery::onAckReceived(QuicPacketNumberSpace space, const QuicFram
     // packet we ever sent in this space is invalid; clamp so the ranges below
     // cannot wrap or drive a gigantic loop.
     uint64_t largest = min(ack.largestAcknowledged, m_largestSent[space]);
-    auto &mapRef = m_sent[space];
+    map<uint64_t, QuicSentPacket> &mapRef = m_sent[space];
 
     // RFC 9002 §5.1: sample RTT only when the ACK newly acknowledges a larger PN.
     const bool newLargest = largest > m_largestAcked[space];
     if (newLargest) {
-        auto it = mapRef.find(largest);
+        map<uint64_t, QuicSentPacket>::iterator it = mapRef.find(largest);
         if (it != mapRef.end()) {
             m_rtt.onAckSample(it->second.timeSentUs, ack.ackDelay, nowUs);
             m_ptoCount[space] = 0;  // RFC 9002 §6.2.1: reset on new RTT sample
@@ -106,7 +106,7 @@ void QuicLossRecovery::onAckReceived(QuicPacketNumberSpace space, const QuicFram
 
     vector<QuicSentPacket> newlyAcked;
     for (uint64_t pn : acked) {
-        auto it = mapRef.find(pn);
+        map<uint64_t, QuicSentPacket>::iterator it = mapRef.find(pn);
         if (it == mapRef.end()) {
             continue;
         }
@@ -140,13 +140,13 @@ void QuicLossRecovery::onAckReceived(QuicPacketNumberSpace space, const QuicFram
 void QuicLossRecovery::detectLostPackets(QuicPacketNumberSpace space, uint64_t nowUs,
                                          vector<QuicSentPacket> *lost)
 {
-    auto &mapRef = m_sent[space];
+    map<uint64_t, QuicSentPacket> &mapRef = m_sent[space];
     const uint64_t largestAcked = m_largestAcked[space];
 
     // Find the newest in-flight packet and its send time for the time threshold.
     uint64_t newestInFlightPn = 0;
     uint64_t newestTimeSentUs = 0;
-    for (const auto &kv : mapRef) {
+    for (const pair<const uint64_t, QuicSentPacket> &kv : mapRef) {
         if (kv.second.inFlight && kv.first > newestInFlightPn) {
             newestInFlightPn = kv.first;
             newestTimeSentUs = kv.second.timeSentUs;
@@ -164,7 +164,7 @@ void QuicLossRecovery::detectLostPackets(QuicPacketNumberSpace space, uint64_t n
     }
 
     uint64_t earliestLostUs = 0;
-    for (auto &kv : mapRef) {
+    for (pair<const uint64_t, QuicSentPacket> &kv : mapRef) {
         if (!kv.second.inFlight) {
             continue;
         }
@@ -198,11 +198,11 @@ void QuicLossRecovery::detectLostPackets(QuicPacketNumberSpace space, uint64_t n
 vector<string> QuicLossRecovery::packetsToRetransmitOnPto(QuicPacketNumberSpace space) const
 {
     vector<string> out;
-    auto it = m_sent.find(space);
+    map<QuicPacketNumberSpace, map<uint64_t, QuicSentPacket>>::const_iterator it = m_sent.find(space);
     if (it == m_sent.end()) {
         return out;
     }
-    for (const auto &kv : it->second) {
+    for (const pair<const uint64_t, QuicSentPacket> &kv : it->second) {
         if (kv.second.inFlight && kv.second.ackEliciting) {
             out.push_back(kv.second.raw);
         }
@@ -218,11 +218,11 @@ size_t QuicLossRecovery::bytesInFlight() const
 size_t QuicLossRecovery::bytesInFlight(QuicPacketNumberSpace space) const
 {
     size_t total = 0;
-    auto it = m_sent.find(space);
+    map<QuicPacketNumberSpace, map<uint64_t, QuicSentPacket>>::const_iterator it = m_sent.find(space);
     if (it == m_sent.end()) {
         return 0;
     }
-    for (const auto &kv : it->second) {
+    for (const pair<const uint64_t, QuicSentPacket> &kv : it->second) {
         if (kv.second.inFlight) {
             total += kv.second.raw.size();
         }
@@ -232,11 +232,11 @@ size_t QuicLossRecovery::bytesInFlight(QuicPacketNumberSpace space) const
 
 bool QuicLossRecovery::hasInFlight(QuicPacketNumberSpace space) const
 {
-    auto it = m_sent.find(space);
+    map<QuicPacketNumberSpace, map<uint64_t, QuicSentPacket>>::const_iterator it = m_sent.find(space);
     if (it == m_sent.end()) {
         return false;
     }
-    for (const auto &kv : it->second) {
+    for (const pair<const uint64_t, QuicSentPacket> &kv : it->second) {
         if (kv.second.inFlight) {
             return true;
         }

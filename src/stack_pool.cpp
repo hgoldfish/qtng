@@ -105,7 +105,7 @@ struct GlobalPool
 {
     ~GlobalPool()
     {
-        for (auto &entry : entries.freeList) {
+        for (pair<const size_t, vector<Stack>> &entry : entries.freeList) {
             for (Stack &stack : entry.second) {
                 freeStack(&stack);
             }
@@ -151,7 +151,7 @@ struct ThreadLocalPool
     ~ThreadLocalPool() { flushToGlobal(); }
     void flushToGlobal()
     {
-        for (auto &entry : entries.freeList) {
+        for (pair<const size_t, vector<Stack>> &entry : entries.freeList) {
             for (Stack &stack : entry.second) {
                 pushToGlobal(stack);
             }

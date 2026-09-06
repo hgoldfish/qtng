@@ -82,7 +82,7 @@ QByteArray Cipher::finalData() { Q_D(Cipher); return toQByteArray(d->core->final
 
 QPair<QByteArray, QByteArray> Cipher::parseSalt(const QByteArray &header)
 {
-    const auto p = qtng_core::Cipher::parseSalt(toStdString(header));
+    const std::pair<std::string, std::string> p = qtng_core::Cipher::parseSalt(toStdString(header));
     return qMakePair(toQByteArray(p.first), toQByteArray(p.second));
 }
 

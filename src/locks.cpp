@@ -78,7 +78,7 @@ bool SemaphorePrivate::acquire(shared_ptr<SemaphorePrivate> self, int value, uin
         } catch (...) {
             // if we caught an exception, the release() must not touch me.
             // the waiter should be remove.
-            auto it = remove(waiters.begin(), waiters.end(), BaseCoroutine::current());
+            vector<BaseCoroutine *>::iterator it = remove(waiters.begin(), waiters.end(), BaseCoroutine::current());
             bool found = it != waiters.end();
             waiters.erase(it, waiters.end());
             assert(found);
@@ -91,7 +91,7 @@ bool SemaphorePrivate::acquire(shared_ptr<SemaphorePrivate> self, int value, uin
 
         // Still in waiters => timeout wake. Do not use erase()'s return value:
         // erase(it, end()) always returns end(), so membership would always look false.
-        auto it = remove(waiters.begin(), waiters.end(), BaseCoroutine::current());
+        vector<BaseCoroutine *>::iterator it = remove(waiters.begin(), waiters.end(), BaseCoroutine::current());
         bool found = it != waiters.end();
         waiters.erase(it, waiters.end());
         if (found) {  // timeout
@@ -624,7 +624,7 @@ void ThreadEventPrivate::notify()
     incref();
     mutex.lock();
     shared_ptr<EventLoopCoroutine> current = currentLoop()->get();
-    for (auto it = holds.begin(); it != holds.end() && ref.load() > 1; ) {
+    for (vector<Behold>::iterator it = holds.begin(); it != holds.end() && ref.load() > 1; ) {
         const Behold &hold = *it;
         shared_ptr<Condition> holdCondition = hold.condition;
         EventLoopCoroutine *holdEventloop = hold.eventloop.get();

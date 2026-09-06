@@ -94,7 +94,7 @@ shared_ptr<UseStream> convertUseStream(const Value &v)
 {
     if (v.type() == Value::Type::Object) {
         shared_ptr<Serializable> s = v.asObject();
-        for (auto &f : detail::useStreamConvertors()) {
+        for (UseStreamConvertor &f : detail::useStreamConvertors()) {
             shared_ptr<UseStream> p = f(s);
             if (p) {
                 return p;
@@ -109,7 +109,7 @@ void raiseRpcRemoteException(const shared_ptr<RpcRemoteException> &e)
     if (!e) {
         return;
     }
-    for (auto &f : detail::exceptionRaisers()) {
+    for (ExceptionRaiser &f : detail::exceptionRaisers()) {
         f(e);
     }
     e->raise();
@@ -162,7 +162,7 @@ PeerPrivate::~PeerPrivate()
     // lightweight teardown: q is being destroyed, no event emission.
     broken = true;
     shared_ptr<Response> emptyResponse(new Response());
-    for (auto &w : waiters) {
+    for (pair<const string, shared_ptr<Waiter>> &w : waiters) {
         w.second->send(emptyResponse);
     }
     waiters.clear();
@@ -183,7 +183,7 @@ void PeerPrivate::shutdown()
     }
     broken = true;
     shared_ptr<Response> emptyResponse(new Response());
-    for (auto &w : waiters) {
+    for (pair<const string, shared_ptr<Waiter>> &w : waiters) {
         w.second->send(emptyResponse);
     }
     waiters.clear();

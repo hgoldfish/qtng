@@ -373,7 +373,7 @@ template<typename Base>
 void WithHttpHeaders<Base>::setHeaders(const std::map<std::string, std::string> hdrs)
 {
     this->headers.clear();
-    for (const auto &entry : hdrs) {
+    for (const std::pair<const std::string, std::string> &entry : hdrs) {
         this->headers.push_back(HttpHeader(normalizeHeaderName(entry.first), entry.second));
     }
 }

@@ -160,7 +160,7 @@ int qpackStaticTableIndex(const string &name)
 string qpackEncodeHeaders(const vector<pair<string, string>> &headers)
 {
     string out;
-    for (const auto &kv : headers) {
+    for (const pair<string, string> &kv : headers) {
         // Exact static-table match: indexed field line.
         bool indexed = false;
         for (size_t i = 0; i < kQpackStaticTable.size(); ++i) {

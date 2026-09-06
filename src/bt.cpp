@@ -392,7 +392,7 @@ static void collectTrackers(const Bencode &root, vector<string> *out)
     }
     if (root.isDict()) {
         const map<string, Bencode> &m = root.toMap();
-        auto it = m.find("announce");
+        map<string, Bencode>::const_iterator it = m.find("announce");
         if (it != m.end() && it->second.isString()) {
             out->push_back(it->second.toString());
         }
@@ -429,15 +429,15 @@ static bool parseInfoDictFields(const Bencode &info, shared_ptr<TorrentMetaPriva
         return false;
     }
     const map<string, Bencode> &im = info.toMap();
-    auto nameIt = im.find("name");
+    map<string, Bencode>::const_iterator nameIt = im.find("name");
     d->name = (nameIt != im.end() && nameIt->second.isString()) ? nameIt->second.toString() : "torrent";
-    auto plIt = im.find("piece length");
+    map<string, Bencode>::const_iterator plIt = im.find("piece length");
     if (plIt == im.end() || !plIt->second.isInteger() || plIt->second.toInteger() <= 0) {
         d->errorString = "missing piece length";
         return false;
     }
     d->pieceLength = static_cast<std::int32_t>(plIt->second.toInteger());
-    auto piecesIt = im.find("pieces");
+    map<string, Bencode>::const_iterator piecesIt = im.find("pieces");
     if (piecesIt == im.end() || !piecesIt->second.isString()) {
         d->errorString = "missing pieces";
         return false;
@@ -454,15 +454,15 @@ static bool parseInfoDictFields(const Bencode &info, shared_ptr<TorrentMetaPriva
 
     d->files.clear();
     d->totalSize = 0;
-    auto filesIt = im.find("files");
+    map<string, Bencode>::const_iterator filesIt = im.find("files");
     if (filesIt != im.end() && filesIt->second.isList()) {
         for (const Bencode &f : filesIt->second.toList()) {
             if (!f.isDict()) {
                 continue;
             }
             const map<string, Bencode> &fm = f.toMap();
-            auto lenIt = fm.find("length");
-            auto pathIt = fm.find("path");
+            map<string, Bencode>::const_iterator lenIt = fm.find("length");
+            map<string, Bencode>::const_iterator pathIt = fm.find("path");
             if (lenIt == fm.end() || !lenIt->second.isInteger() || pathIt == fm.end() || !pathIt->second.isList()) {
                 d->errorString = "invalid file entry";
                 return false;
@@ -482,7 +482,7 @@ static bool parseInfoDictFields(const Bencode &info, shared_ptr<TorrentMetaPriva
             d->files.push_back(fi);
         }
     } else {
-        auto lenIt = im.find("length");
+        map<string, Bencode>::const_iterator lenIt = im.find("length");
         if (lenIt == im.end() || !lenIt->second.isInteger()) {
             d->errorString = "missing length";
             return false;
@@ -542,7 +542,7 @@ static bool parseTorrentMeta(const string &data, shared_ptr<TorrentMetaPrivate> 
     string infoRaw = btExtractInfoDict(data);
     if (infoRaw.empty()) {
         // fallback: re-encode info dict
-        auto it = root.toMap().find("info");
+        map<string, Bencode>::const_iterator it = root.toMap().find("info");
         if (it == root.toMap().end() || !it->second.isDict()) {
             d->errorString = "missing info dict";
             return false;
@@ -768,7 +768,7 @@ MagnetLink MagnetLink::parse(const string &uri)
     }
 
     InfoHash hash;
-    for (const auto &it : items) {
+    for (const pair<string, string> &it : items) {
         const string keyLower = btToLowerAscii(it.first);
         if (keyLower == "xt") {
             string xt = btToLowerAscii(it.second);
@@ -1053,7 +1053,7 @@ bool PieceStorage::writeBlock(std::int32_t piece, std::int32_t offset, const str
         return false;
     }
     std::int32_t pos = 0;
-    for (const auto &sp : spans) {
+    for (const pair<int, pair<std::int64_t, std::int32_t>> &sp : spans) {
         if (!ioWrite(m_files[static_cast<size_t>(sp.first)].fd, sp.second.first, data.data() + pos, sp.second.second)) {
             m_error = "write failed";
             return false;
@@ -1074,7 +1074,7 @@ bool PieceStorage::readBlock(std::int32_t piece, std::int32_t offset, std::int32
     }
     out->assign(static_cast<size_t>(length), '\0');
     std::int32_t pos = 0;
-    for (const auto &sp : spans) {
+    for (const pair<int, pair<std::int64_t, std::int32_t>> &sp : spans) {
         if (!ioRead(m_files[static_cast<size_t>(sp.first)].fd, sp.second.first, &(*out)[static_cast<size_t>(pos)],
                     sp.second.second)) {
             m_error = "read failed";
@@ -1168,7 +1168,7 @@ void PiecePicker::removePeerBitfield(const string &bitfield)
 
 string *PiecePicker::pieceBuffer(std::int32_t piece)
 {
-    auto it = m_buffers.find(piece);
+    map<std::int32_t, std::string>::iterator it = m_buffers.find(piece);
     if (it == m_buffers.end()) {
         string buf(static_cast<size_t>(m_storage->pieceLength(piece)), '\0');
         it = m_buffers.insert(make_pair(piece, buf)).first;
@@ -1178,7 +1178,7 @@ string *PiecePicker::pieceBuffer(std::int32_t piece)
 
 bool PiecePicker::hasBlock(std::int32_t piece, std::int32_t offset) const
 {
-    auto it = m_gotOffsets.find(piece);
+    map<std::int32_t, std::set<std::int32_t>>::const_iterator it = m_gotOffsets.find(piece);
     return it != m_gotOffsets.end() && it->second.count(offset) > 0;
 }
 
@@ -1200,7 +1200,7 @@ void PiecePicker::abandonPiece(std::int32_t piece)
 {
     m_buffers.erase(piece);
     m_gotOffsets.erase(piece);
-    for (auto it = m_inflight.begin(); it != m_inflight.end();) {
+    for (set<BlockRequest>::iterator it = m_inflight.begin(); it != m_inflight.end();) {
         if (it->piece == piece) {
             it = m_inflight.erase(it);
         } else {
@@ -1515,7 +1515,7 @@ vector<BtPeerAddr> TorrentSessionPrivate::announceHttp(shared_ptr<TorrentHandleP
         return peers;
     }
     const map<string, Bencode> &m = body.toMap();
-    auto it = m.find("peers");
+    map<string, Bencode>::const_iterator it = m.find("peers");
     if (it != m.end()) {
         if (it->second.isString()) {
             peers = btDecodeCompactPeerList(it->second.toString(), false);
@@ -1525,8 +1525,8 @@ vector<BtPeerAddr> TorrentSessionPrivate::announceHttp(shared_ptr<TorrentHandleP
                     continue;
                 }
                 const map<string, Bencode> &pm = p.toMap();
-                auto ipIt = pm.find("ip");
-                auto portIt = pm.find("port");
+                map<string, Bencode>::const_iterator ipIt = pm.find("ip");
+                map<string, Bencode>::const_iterator portIt = pm.find("port");
                 if (ipIt == pm.end() || portIt == pm.end()) {
                     continue;
                 }
@@ -1689,10 +1689,10 @@ static bool btParseExtendedHandshake(const string &payload, std::uint8_t *utMeta
         return false;
     }
     const map<string, Bencode> &rm = root.toMap();
-    auto mIt = rm.find("m");
+    map<string, Bencode>::const_iterator mIt = rm.find("m");
     if (mIt != rm.end() && mIt->second.isDict()) {
         const map<string, Bencode> &mm = mIt->second.toMap();
-        auto uIt = mm.find("ut_metadata");
+        map<string, Bencode>::const_iterator uIt = mm.find("ut_metadata");
         if (uIt != mm.end() && uIt->second.isInteger() && utMetadataId) {
             std::int64_t id = uIt->second.toInteger();
             if (id > 0 && id <= 255) {
@@ -1700,7 +1700,7 @@ static bool btParseExtendedHandshake(const string &payload, std::uint8_t *utMeta
             }
         }
     }
-    auto sIt = rm.find("metadata_size");
+    map<string, Bencode>::const_iterator sIt = rm.find("metadata_size");
     if (sIt != rm.end() && sIt->second.isInteger() && metadataSize) {
         *metadataSize = sIt->second.toInteger();
     }
@@ -1878,8 +1878,8 @@ bool TorrentSessionPrivate::fetchMetadataFromPeer(shared_ptr<TorrentHandlePrivat
                 return false;
             }
             const map<string, Bencode> &dm = dict.toMap();
-            auto typeIt = dm.find("msg_type");
-            auto pieceIt = dm.find("piece");
+            map<string, Bencode>::const_iterator typeIt = dm.find("msg_type");
+            map<string, Bencode>::const_iterator pieceIt = dm.find("piece");
             if (typeIt == dm.end() || pieceIt == dm.end() || !typeIt->second.isInteger()
                 || !pieceIt->second.isInteger()) {
                 continue;
@@ -2015,8 +2015,8 @@ void TorrentSessionPrivate::runMetadataPeer(shared_ptr<TorrentHandlePrivate> h, 
                     continue;
                 }
                 const map<string, Bencode> &dm = dict.toMap();
-                auto typeIt = dm.find("msg_type");
-                auto pieceIt = dm.find("piece");
+                map<string, Bencode>::const_iterator typeIt = dm.find("msg_type");
+                map<string, Bencode>::const_iterator pieceIt = dm.find("piece");
                 if (typeIt != dm.end() && pieceIt != dm.end() && typeIt->second.isInteger()
                     && pieceIt->second.isInteger() && typeIt->second.toInteger() == 0) {
                     serveMetadataRequest(h, sock, peerUt,
@@ -2208,8 +2208,8 @@ void TorrentSessionPrivate::runPeer(shared_ptr<TorrentHandlePrivate> h, shared_p
                         Bencode dict = Bencode::decode(body.substr(0, dictEnd), &err);
                         if (dict.isDict()) {
                             const map<string, Bencode> &dm = dict.toMap();
-                            auto typeIt = dm.find("msg_type");
-                            auto pieceIt = dm.find("piece");
+                            map<string, Bencode>::const_iterator typeIt = dm.find("msg_type");
+                            map<string, Bencode>::const_iterator pieceIt = dm.find("piece");
                             if (typeIt != dm.end() && pieceIt != dm.end() && typeIt->second.isInteger()
                                 && pieceIt->second.isInteger() && typeIt->second.toInteger() == 0) {
                                 serveMetadataRequest(h, sock, peerUt,
@@ -2427,7 +2427,7 @@ void TorrentSessionPrivate::acceptTcpLoop()
                 shared_ptr<TorrentHandlePrivate> target;
                 {
                     lock_guard<std::mutex> lock(torrentsMutex);
-                    for (auto &th : torrents) {
+                    for (shared_ptr<TorrentHandlePrivate> &th : torrents) {
                         if (th->effectiveInfoHash() == hash) {
                             target = th;
                             break;
@@ -2472,7 +2472,7 @@ void TorrentSessionPrivate::acceptUtpLoop()
                 shared_ptr<TorrentHandlePrivate> target;
                 {
                     lock_guard<std::mutex> lock(torrentsMutex);
-                    for (auto &th : torrents) {
+                    for (shared_ptr<TorrentHandlePrivate> &th : torrents) {
                         if (th->effectiveInfoHash() == hash) {
                             target = th;
                             break;
@@ -2584,7 +2584,7 @@ void TorrentSessionPrivate::start()
     }
 
     lock_guard<std::mutex> lock(torrentsMutex);
-    for (auto &h : torrents) {
+    for (shared_ptr<TorrentHandlePrivate> &h : torrents) {
         if (!h->started) {
             operations.spawn([this, h] { maintainTorrent(h); });
         }
@@ -2599,7 +2599,7 @@ void TorrentSessionPrivate::stop()
     started = false;
     {
         lock_guard<std::mutex> lock(torrentsMutex);
-        for (auto &h : torrents) {
+        for (shared_ptr<TorrentHandlePrivate> &h : torrents) {
             h->removed = true;
             h->finishedEvent.set();
         }
@@ -2625,7 +2625,7 @@ TorrentHandle TorrentSessionPrivate::addTorrent(const TorrentMeta &meta)
         errorString = meta.errorString();
         return invalid;
     }
-    auto h = make_shared<TorrentHandlePrivate>();
+    shared_ptr<TorrentHandlePrivate> h = make_shared<TorrentHandlePrivate>();
     h->meta = meta;
     h->infoDictRaw = meta.infoDict();
     h->magnetInfoHash = meta.infoHash();
@@ -2648,7 +2648,7 @@ TorrentHandle TorrentSessionPrivate::addMagnet(const MagnetLink &magnet)
         errorString = magnet.errorString();
         return invalid;
     }
-    auto h = make_shared<TorrentHandlePrivate>();
+    shared_ptr<TorrentHandlePrivate> h = make_shared<TorrentHandlePrivate>();
     h->needsMetadata = true;
     h->magnetInfoHash = magnet.infoHash();
     h->magnetTrackers = magnet.trackers();

@@ -81,7 +81,7 @@ bool decodeHeader(const char *data, std::int32_t len, UtpWireHeader *hdr)
     if (len < static_cast<std::int32_t>(kUtpHeaderSize) || !hdr) {
         return false;
     }
-    const auto *p = reinterpret_cast<const std::uint8_t *>(data);
+    const std::uint8_t *p = reinterpret_cast<const std::uint8_t *>(data);
     hdr->ver_type = p[0];
     hdr->ext = p[1];
     hdr->connId = ngFromBigEndian<std::uint16_t>(p + 2);
@@ -95,7 +95,7 @@ bool decodeHeader(const char *data, std::int32_t len, UtpWireHeader *hdr)
 
 void encodeHeader(const UtpWireHeader &hdr, char *out)
 {
-    auto *p = reinterpret_cast<std::uint8_t *>(out);
+    std::uint8_t *p = reinterpret_cast<std::uint8_t *>(out);
     p[0] = hdr.ver_type;
     p[1] = hdr.ext;
     ngToBigEndian(hdr.connId, p + 2);
@@ -401,7 +401,7 @@ void UtpStreamPrivate::ackPackets(std::uint16_t ackNrNew)
 void UtpStreamPrivate::flushOutgoing()
 {
     const std::uint64_t now = currentMicros();
-    for (auto &pkt : sendQueue) {
+    for (SentPacket &pkt : sendQueue) {
         if (!pkt.needAck) {
             continue;
         }
@@ -523,7 +523,7 @@ bool UtpStreamPrivate::handleDatagram(const char *buf, int32_t len, const Datagr
             }
             ackNr = hdr.seqNr;
             while (!outOfOrder.empty()) {
-                auto it = outOfOrder.find(seqInc(ackNr));
+                std::map<std::uint16_t, std::string>::iterator it = outOfOrder.find(seqInc(ackNr));
                 if (it == outOfOrder.end()) {
                     break;
                 }
@@ -780,7 +780,7 @@ void MasterUtpStreamPrivate::doAccept()
 
 UtpStream *MasterUtpStreamPrivate::findSlave(const DatagramPath &remote, std::uint16_t connId)
 {
-    auto it = slavesByPath.find(remote.key());
+    std::map<std::string, UtpStream *>::iterator it = slavesByPath.find(remote.key());
     if (it != slavesByPath.end()) {
         return it->second;
     }
@@ -798,7 +798,7 @@ void MasterUtpStreamPrivate::unregisterSlave(UtpStream *slave)
     if (!slave) {
         return;
     }
-    for (auto it = slavesByPath.begin(); it != slavesByPath.end();) {
+    for (std::map<std::string, UtpStream *>::iterator it = slavesByPath.begin(); it != slavesByPath.end();) {
         if (it->second == slave) {
             it = slavesByPath.erase(it);
         } else {
@@ -888,7 +888,7 @@ bool MasterUtpStreamPrivate::close(bool force)
     } else if (state == Socket::ListeningState) {
         state = Socket::UnconnectedState;
         vector<UtpStream *> slaves;
-        for (const auto &item : slavesByPath) {
+        for (const pair<const std::string, UtpStream *> &item : slavesByPath) {
             if (item.second) {
                 slaves.push_back(item.second);
             }

@@ -574,7 +574,7 @@ vector<HttpCookie> HttpCookie::parseCookies(const string &cookieString)
     vector<HttpCookie> cookies;
     vector<string> list = utils::split(cookieString, '\n');
     for (int a = 0; a < list.size(); a++) {
-        auto lineCookies = HttpCookiePrivate::parseSetCookieHeaderLine(list[a]);
+        vector<HttpCookie> lineCookies = HttpCookiePrivate::parseSetCookieHeaderLine(list[a]);
         cookies.insert(cookies.end(), lineCookies.begin(), lineCookies.end());
     }
     return cookies;

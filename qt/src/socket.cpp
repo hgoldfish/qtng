@@ -369,7 +369,7 @@ public:
 
     void remove(QSharedPointer<Socket> socket)
     {
-        auto it = qtToCore.find(socket);
+        QHash<QSharedPointer<Socket>, shared_ptr<qtng_core::Socket>>::iterator it = qtToCore.find(socket);
         if (it == qtToCore.end()) {
             return;
         }

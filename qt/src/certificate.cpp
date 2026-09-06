@@ -58,7 +58,7 @@ QMultiMap<Certificate::AlternativeNameEntryType, QString> Certificate::subjectAl
     QMultiMap<AlternativeNameEntryType, QString> result;
     const std::multimap<qtng_core::Certificate::AlternativeNameEntryType, std::string> &names =
             d->core.subjectAlternativeNames();
-    for (const auto &entry : names) {
+    for (const pair<const qtng_core::Certificate::AlternativeNameEntryType, std::string> &entry : names) {
         result.insert(static_cast<AlternativeNameEntryType>(entry.first), toQString(entry.second));
     }
     return result;
@@ -100,7 +100,7 @@ Certificate Certificate::generate(const PublicKey &publickey, const PrivateKey &
                                   const QMultiMap<SubjectInfo, QString> &subjectInfoes)
 {
     std::multimap<qtng_core::Certificate::SubjectInfo, std::string> coreSubjectInfoes;
-    for (auto it = subjectInfoes.constBegin(); it != subjectInfoes.constEnd(); ++it) {
+    for (QMultiMap<SubjectInfo, QString>::const_iterator it = subjectInfoes.constBegin(); it != subjectInfoes.constEnd(); ++it) {
         coreSubjectInfoes.emplace(static_cast<qtng_core::Certificate::SubjectInfo>(it.key()), toStdString(it.value()));
     }
     return CertificatePrivate::fromCore(qtng_core::Certificate::generate(

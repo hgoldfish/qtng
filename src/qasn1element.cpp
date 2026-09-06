@@ -339,7 +339,7 @@ string QAsn1Element::toObjectName() const
 {
     string key = toObjectId();
     const OidNameMap &map = oidNameMap();
-    auto it = map.find(key);
+    OidNameMap::const_iterator it = map.find(key);
     return it != map.end() ? it->second : key;
 }
 

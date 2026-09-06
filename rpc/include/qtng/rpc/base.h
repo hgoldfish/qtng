@@ -185,7 +185,7 @@ public:
 
     Connection connect(Callback cb)
     {
-        auto slot = std::make_shared<Callback>(std::move(cb));
+        std::shared_ptr<Callback> slot = std::make_shared<Callback>(std::move(cb));
         std::lock_guard<std::mutex> lock(mutex);
         slots.push_back(slot);
         return slot;
@@ -210,7 +210,7 @@ public:
             return;
         }
         std::lock_guard<std::mutex> lock(mutex);
-        for (auto it = slots.begin(); it != slots.end(); ++it) {
+        for (std::vector<std::shared_ptr<Callback>>::iterator it = slots.begin(); it != slots.end(); ++it) {
             if (*it == conn) {
                 slots.erase(it);
                 return;

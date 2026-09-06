@@ -173,7 +173,7 @@ bool exists(const string &path)
 int64_t fileSize(const string &path)
 {
     error_code ec;
-    auto sz = filesystem::file_size(filesystem::path(path), ec);
+    const uintmax_t sz = filesystem::file_size(filesystem::path(path), ec);
     return ec ? -1 : static_cast<int64_t>(sz);
 }
 
@@ -200,18 +200,18 @@ string extension(const string &path)
 string absolute(const string &path)
 {
     error_code ec;
-    auto abs = filesystem::absolute(filesystem::path(path), ec);
+    const filesystem::path abs = filesystem::absolute(filesystem::path(path), ec);
     return ec ? path : abs.string();
 }
 
 string relative(const string &path, const string &base)
 {
     error_code ec;
-    auto ap = filesystem::weakly_canonical(filesystem::path(path), ec);
+    const filesystem::path ap = filesystem::weakly_canonical(filesystem::path(path), ec);
     if (ec) {
         return string();
     }
-    auto ab = filesystem::weakly_canonical(filesystem::path(base), ec);
+    const filesystem::path ab = filesystem::weakly_canonical(filesystem::path(base), ec);
     if (ec) {
         return string();
     }
@@ -221,19 +221,19 @@ string relative(const string &path, const string &base)
 bool isChildOf(const string &path, const string &base)
 {
     error_code ec;
-    auto rel = filesystem::relative(filesystem::path(path), filesystem::path(base), ec);
+    const filesystem::path rel = filesystem::relative(filesystem::path(path), filesystem::path(base), ec);
     return !ec && !rel.empty() && rel.string()[0] != '.';
 }
 
 int64_t lastWriteTimeMsecs(const string &path)
 {
     error_code ec;
-    auto ft = filesystem::last_write_time(filesystem::path(path), ec);
+    const filesystem::file_time_type ft = filesystem::last_write_time(filesystem::path(path), ec);
     if (ec) {
         return -1;
     }
     using chrono::time_point_cast;
-    auto sctp = time_point_cast<chrono::system_clock::duration>(
+    const chrono::system_clock::time_point sctp = time_point_cast<chrono::system_clock::duration>(
             ft - filesystem::file_time_type::clock::now() + chrono::system_clock::now());
     return chrono::duration_cast<chrono::milliseconds>(sctp.time_since_epoch()).count();
 }
@@ -242,7 +242,7 @@ vector<string> listDirectory(const string &path)
 {
     vector<string> result;
     error_code ec;
-    for (const auto &entry : filesystem::directory_iterator(filesystem::path(path), ec)) {
+    for (const filesystem::directory_entry &entry : filesystem::directory_iterator(filesystem::path(path), ec)) {
         result.push_back(entry.path().filename().string());
     }
     return result;
@@ -265,7 +265,7 @@ bool createDirectories(const string &path)
 string currentPath()
 {
     error_code ec;
-    auto p = filesystem::current_path(ec);
+    const filesystem::path p = filesystem::current_path(ec);
     return ec ? string() : p.string();
 }
 
@@ -826,7 +826,7 @@ int64_t RawFile::size()
     if (!stream) {
         return -1;
     }
-    auto cur = stream->tellg();
+    const fstream::pos_type cur = stream->tellg();
     stream->seekg(0, ios::end);
     int64_t s = static_cast<int64_t>(stream->tellg());
     stream->seekg(cur);
@@ -873,7 +873,7 @@ shared_ptr<FileLike> RawFile::open(const string &filepath, const string &mode)
         ngWarning() << "unknown file mode:" << mode;
         return shared_ptr<FileLike>();
     }
-    auto stream = make_unique<fstream>(filepath, fmode);
+    unique_ptr<fstream> stream = make_unique<fstream>(filepath, fmode);
     if (!stream->is_open()) {
         return shared_ptr<FileLike>();
     }
@@ -1660,7 +1660,7 @@ shared_ptr<FileLike> PosixPath::open(const string &mode) const
 
 string PosixPath::readall(bool *ok) const
 {
-    auto f = open("r");
+    shared_ptr<FileLike> f = open("r");
     if (!f) {
         if (ok) {
             *ok = false;

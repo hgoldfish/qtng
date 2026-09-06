@@ -732,7 +732,7 @@ bool MqttClientPrivate::readPacket(uint8_t &type, uint8_t &flags, string &payloa
 
 void MqttClientPrivate::completeWaiter(map<uint16_t, shared_ptr<ValueEvent<bool>>> &waiters, uint16_t packetId, bool ok)
 {
-    auto it = waiters.find(packetId);
+    map<uint16_t, shared_ptr<ValueEvent<bool>>>::iterator it = waiters.find(packetId);
     if (it == waiters.end()) {
         return;
     }
@@ -746,7 +746,7 @@ void MqttClientPrivate::completeWaiter(map<uint16_t, shared_ptr<ValueEvent<bool>
 void MqttClientPrivate::failAllWaiters()
 {
     auto failMap = [](map<uint16_t, shared_ptr<ValueEvent<bool>>> &waiters) {
-        for (auto &pair : waiters) {
+        for (pair<const uint16_t, shared_ptr<ValueEvent<bool>>> &pair : waiters) {
             if (pair.second) {
                 pair.second->send(false);
             }
@@ -939,7 +939,7 @@ void MqttClientPrivate::handleIncoming(uint8_t type, uint8_t flags, const string
             return abort(MqttClient::ProtocolError, "invalid PUBREC");
         }
         uint16_t packetId = ngFromBigEndian<uint16_t>(reinterpret_cast<const uint8_t *>(payload.data()));
-        auto it = waitPubRec.find(packetId);
+        map<uint16_t, shared_ptr<ValueEvent<bool>>>::iterator it = waitPubRec.find(packetId);
         if (it == waitPubRec.end()) {
             break;
         }
@@ -960,7 +960,7 @@ void MqttClientPrivate::handleIncoming(uint8_t type, uint8_t flags, const string
             return abort(MqttClient::ProtocolError, "invalid PUBREL");
         }
         uint16_t packetId = ngFromBigEndian<uint16_t>(reinterpret_cast<const uint8_t *>(payload.data()));
-        auto it = incomingQos2.find(packetId);
+        map<uint16_t, MqttMessage>::iterator it = incomingQos2.find(packetId);
         if (it != incomingQos2.end()) {
             receivingQueue.put(it->second);
             incomingQos2.erase(it);

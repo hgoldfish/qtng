@@ -94,7 +94,7 @@ qtng_core::HttpResponse toCoreResponse(HttpResponse &resp)
 map<string, string> toCoreStringMap(const QMap<QString, QString> &m)
 {
     map<string, string> result;
-    for (auto it = m.constBegin(); it != m.constEnd(); ++it) {
+    for (QMap<QString, QString>::const_iterator it = m.constBegin(); it != m.constEnd(); ++it) {
         result.emplace(toStdString(it.key()), toStdString(it.value()));
     }
     return result;
@@ -103,7 +103,7 @@ map<string, string> toCoreStringMap(const QMap<QString, QString> &m)
 map<string, string> toCoreHeaderMap(const QMap<QString, QByteArray> &m)
 {
     map<string, string> result;
-    for (auto it = m.constBegin(); it != m.constEnd(); ++it) {
+    for (QMap<QString, QByteArray>::const_iterator it = m.constBegin(); it != m.constEnd(); ++it) {
         result.emplace(toStdString(it.key()), toStdString(it.value()));
     }
     return result;

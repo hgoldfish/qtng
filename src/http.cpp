@@ -906,7 +906,7 @@ shared_ptr<Http2ClientSession> ConnectionPool::http2SessionForUrl(const string &
     shared_ptr<ConnectionPoolItem> item = getItem(urlStr);
     item->lastUsed = utils::DateTime::currentDateTimeUtc();
 
-    for (auto it = item->http2Sessions.begin(); it != item->http2Sessions.end();) {
+    for (vector<shared_ptr<Http2ClientSession>>::iterator it = item->http2Sessions.begin(); it != item->http2Sessions.end();) {
         if (*it && (*it)->isValid()) {
             shared_ptr<Http2ClientSession> session = *it;
             item->http2Sessions.erase(it);
@@ -1057,7 +1057,7 @@ HttpResponse HttpSessionPrivate::send(HttpRequest &request)
     }
     if (!request.d->query.query().empty()) {
         utils::UrlQuery merged(url.query());
-        for (const auto &item : request.d->query.items()) {
+        for (const pair<const string, string> &item : request.d->query.items()) {
             merged.addQueryItem(item.first, item.second);
         }
         url.setQuery(merged.query());
@@ -2343,7 +2343,7 @@ bool HttpDiskCacheManager::store(const string &url, const string &data)
 {
     const string &filename = utils::bytesToHex(MessageDigest::hash(url, MessageDigest::Sha256));
     const string &fullpath = (cacheDir / filename).path();
-    auto f = PosixPath(fullpath).open("w");
+    shared_ptr<FileLike> f = PosixPath(fullpath).open("w");
     if (!f) {
         return false;
     }
@@ -2358,7 +2358,7 @@ string HttpDiskCacheManager::load(const string &url)
 {
     const string &filename = utils::bytesToHex(MessageDigest::hash(url, MessageDigest::Sha256));
     const string &fullpath = (cacheDir / filename).path();
-    auto f = PosixPath(fullpath).open("r");
+    shared_ptr<FileLike> f = PosixPath(fullpath).open("r");
     if (!f) {
         return string();
     }

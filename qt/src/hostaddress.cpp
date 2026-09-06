@@ -177,7 +177,7 @@ bool HostAddress::isInSubnet(const QPair<HostAddress, int> &subnet) const
 
 QPair<HostAddress, int> HostAddress::parseSubnet(const QString &subnet)
 {
-    const auto parsed = qtng_core::HostAddress::parseSubnet(toStdString(subnet));
+    const std::pair<qtng_core::HostAddress, int> parsed = qtng_core::HostAddress::parseSubnet(toStdString(subnet));
     HostAddress ha;
     ha.d->core = parsed.first;
     return qMakePair(ha, parsed.second);

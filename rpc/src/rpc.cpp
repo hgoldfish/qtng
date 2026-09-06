@@ -39,7 +39,7 @@ RpcPrivate::~RpcPrivate()
 
 void RpcPrivate::shutdown()
 {
-    for (auto &p : peers) {
+    for (pair<const std::string, std::shared_ptr<Peer>> &p : peers) {
         if (p.second) {
             p.second->close();
         }
