@@ -898,7 +898,9 @@ int32_t SocketPrivate::send(const char *data, int32_t size, bool all)
     int32_t bytesToSend = min<int32_t>(49152, size);
     while (bytesToSend > 0) {
         if (!checkState()) {
-            return ret == 0 ? -1: ret;
+            // in sendall mode a partial result is a contract violation: report
+            // the error. in single-send mode the partial bytes are the answer.
+            return all ? -1 : (ret == 0 ? -1 : ret);
         }
 
         WSABUF buf;
@@ -944,7 +946,7 @@ int32_t SocketPrivate::send(const char *data, int32_t size, bool all)
                 return -1;
             case WSAEMSGSIZE: // must be udp socket, need not close()
                 setError(Socket::DatagramTooLargeError, DatagramTooLargeErrorString);
-                return ret == 0 ? -1 : ret;
+                return all ? -1 : (ret == 0 ? -1 : ret);
             case WSAENOBUFS:
                 // this function used to not send more than 49152 per call to WSASendTo
                 // to avoid getting a WSAENOBUFS. However this is a performance regression
@@ -957,7 +959,7 @@ int32_t SocketPrivate::send(const char *data, int32_t size, bool all)
             case WSAENOTCONN:
                 setError(Socket::NetworkError, WriteErrorString);
                 //close();
-                return ret == 0 ? -1 : ret;
+                return all ? -1 : (ret == 0 ? -1 : ret);
             case WSAEHOSTUNREACH:
                 setError(Socket::NetworkError, HostUnreachableErrorString);
                 close();
