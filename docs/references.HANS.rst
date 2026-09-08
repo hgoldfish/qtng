@@ -3125,7 +3125,12 @@ OpenSSL 和 LibreSSL 会在首次使用时自行初始化，并在整个进程�
 
 7.1.1 FileLike
 +++++++++++++++
-抽象基类，定义文件操作的通用接口，支持读写、关闭、获取大小等操作。
+抽象基类，定义文件操作的通用接口，支持读写、关闭、获取大小等操作。所有流均为二进制，且所有函数不抛异常。
+
+所有实现共享以下契约：
+
+* ``read()`` 返回实际读取的字节数，范围 ``[0, size]``；``0`` 表示干净的 EOF（不再有数据到来），负值表示错误；允许短读——调用方必须循环读取。read 的返回值不得超过 ``size``。
+* ``write()`` 必须写满整个缓冲区：成功返回 ``size``，错误返回负值。不支持"正数短写"，调用方（如 ``sendfile()``）会将其视为错误。
 
 .. method:: virtual std::int32_t read(char *data, std::int32_t size)
 
@@ -3195,7 +3200,30 @@ OpenSSL 和 LibreSSL 会在首次使用时自行初始化，并在整个进程�
 
     获取底层的std::string
 
-7.1.3 PosixPath
+7.1.3 GzipFile
+++++++++++++++
+
+把 ``FileLike`` 后端包装成透明 gzip/deflate 流的适配器。
+
+.. method:: GzipFile(std::shared_ptr<FileLike> backend, IOMode mode, int level = -1)
+
+    用 gzip 流包装 backend。``mode`` 取 ``Decompress``、``Compress``、``Inflate``（raw deflate 读）或 ``Deflate``（raw deflate 写）之一。
+
+.. method:: void abort()
+
+    中止当前流。此后的 ``close()``（含析构时自动调用）将不再写入 gzip 尾块：压缩被中断时，后端上留下的文件会明显残缺，而不是"结构完整但内容被悄悄截断"的伪成品。``qGzipCompress()`` 在输入中途失败时会自动调用它。
+
+.. method:: std::int64_t processedBytes() const
+
+    至今与后端交换的原始（压缩后）字节数。
+
+.. method:: bool qGzipCompress(std::shared_ptr<FileLike> input, std::shared_ptr<FileLike> output, int level = -1, int blockSize = 1024 * 8)
+
+    将 ``input`` 压缩为 gzip 流写入 ``output``。输入失败或提前结束时返回 ``false``；失败时已写出的字节仍留在 ``output`` 上，但缺少 gzip 尾块，可被识别为截断——清理残留文件的责任在调用方。
+
+    注意：复制长度由复制开始前的 ``size()`` 快照决定。若压缩期间输入仍在增长（例如正在写入的日志文件），新增数据会被静默忽略；调用期间应保持输入稳定。
+
+7.1.4 PosixPath
 ++++++++++++++++
 POSIX 路径处理类，用于跨平台规范化与操作文件路径。
 

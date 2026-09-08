@@ -3433,7 +3433,12 @@ Core Functions:
 7.1.1 FileLike
 +++++++++++++++
 
-Abstract base class defining common file operation interfaces with read/write/close/size capabilities.
+Abstract base class defining common file operation interfaces with read/write/close/size capabilities. All streams are binary and none of the functions throw.
+
+Every implementation honours the same contracts:
+
+* ``read()`` returns the number of bytes read in ``[0, size]``; ``0`` means a clean EOF (no more data will ever arrive), a negative value means an error, and a short read is allowed -- callers must loop. A read must never return more than ``size``.
+* ``write()`` writes the whole buffer: it returns ``size`` on success and a negative value on error. Positive short writes are not supported and are treated as errors by callers such as ``sendfile()``.
 
 .. method:: virtual std::int32_t read(char *data, std::int32_t size)
 
@@ -3504,6 +3509,29 @@ In-memory byte stream simulating file operations.
 .. method:: std::string data()
 
     Access underlying std::string.
+
+7.1.3 GzipFile
+++++++++++++++
+
+Gzip/deflate adapter that wraps a ``FileLike`` backend with transparent zlib compression/decompression.
+
+.. method:: GzipFile(std::shared_ptr<FileLike> backend, IOMode mode, int level = -1)
+
+    Wrap backend in a gzip stream. ``mode`` is one of ``Decompress``, ``Compress``, ``Inflate`` (raw deflate reading) or ``Deflate`` (raw deflate writing).
+
+.. method:: void abort()
+
+    Abort the current stream. Subsequent ``close()`` -- including the one issued by the destructor -- skips writing the gzip trailer, so an interrupted compression leaves an obviously truncated file on the backend instead of one that looks structurally complete but silently ends early. ``qGzipCompress()`` calls this automatically when its input fails midway.
+
+.. method:: std::int64_t processedBytes() const
+
+    Number of raw (compressed) bytes exchanged with the backend so far.
+
+.. method:: bool qGzipCompress(std::shared_ptr<FileLike> input, std::shared_ptr<FileLike> output, int level = -1, int blockSize = 1024 * 8)
+
+    Compress ``input`` into a gzip stream written to ``output``. Returns ``false`` if the input fails or ends early; on failure the bytes already written stay on ``output`` but without a gzip trailer, so they are detectable as truncated -- the caller is responsible for discarding or truncating the leftover.
+
+    Note: the copied length is fixed by a ``size()`` snapshot taken before the copy starts. If the input keeps growing while the compression runs (for example an active log file), the appended data is silently not included; keep the input stable for the duration of the call.
 
 7.1.4 PosixPath
 +++++++++++++++++
