@@ -15,6 +15,22 @@ class FileLike
 {
 public:
     virtual ~FileLike();
+    // Contracts shared by every FileLike implementation:
+    //
+    // read(data, size):
+    //   * returns the number of bytes actually read, in [0, size];
+    //   * returns 0 only on a clean EOF (no more data will ever arrive);
+    //   * returns a negative value on error (e.g. a decompression failure);
+    //   * a short read (0 < n < size) is allowed and simply means "no more
+    //     data is available right now" -- callers must loop.
+    //   Implementations must never return more than `size`.
+    //
+    // write(data, size):
+    //   * must write the whole buffer: it returns `size` on success and a
+    //     negative value on error. A positive short write is not supported:
+    //     callers (e.g. sendfile()) treat it as an error.
+    //
+    // All streams are binary; none of the functions throw.
     virtual std::int32_t read(char *data, std::int32_t size) = 0;
     virtual std::int32_t write(const char *data, std::int32_t size) = 0;
     virtual void close() = 0;

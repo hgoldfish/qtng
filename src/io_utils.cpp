@@ -770,22 +770,29 @@ int32_t RawFile::write(const char *data, int32_t size)
             return -1;
         }
         ScopedIoWatcher watcher(EventLoopCoroutine::Write, fd);
-        while (true) {
+        int32_t written = 0;
+        while (written < size) {
             ssize_t r = 0;
             do {
-                r = ::write(fd, data, static_cast<size_t>(size));
+                r = ::write(fd, data + written, static_cast<size_t>(size - written));
             } while (r < 0 && errno == EINTR);
-            if (r <= 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    if (!watcher.start()) {
-                        return -1;
-                    }
-                    continue;
-                }
-                return -1;
+            if (r > 0) {
+                written += static_cast<int32_t>(r);
+                continue;
             }
-            return static_cast<int32_t>(r);
+            // r <= 0 is an error, except EAGAIN/EWOULDBLOCK which just means
+            // "wait until the fd is writable again" (the fd is non-blocking).
+            // this loop honours the FileLike write contract: return the full
+            // size or a negative error, never a positive short write.
+            if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                if (!watcher.start()) {
+                    return -1;
+                }
+                continue;
+            }
+            return -1;
         }
+        return written;
     }
 #endif
     if (!stream || !stream->good()) {
@@ -1035,6 +1042,13 @@ bool sendfile(shared_ptr<FileLike> inputFile, shared_ptr<FileLike> outputFile, i
         if (readBytes == 0) {
             // clean EOF.
             break;
+        }
+        if (readBytes > toRead) {
+            // defensive: FileLike::read is contracted to return at most `size`
+            // bytes. a larger return means the implementation wrote past the
+            // buffer we handed it; treat it as a hard error instead of feeding
+            // the bogus length to the writer.
+            return false;
         }
         int32_t written = outputFile->write(buf.data(), readBytes);
         if (written != readBytes) {
