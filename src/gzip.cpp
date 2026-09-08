@@ -29,6 +29,8 @@ public:
         , inited(false)
         , triedRawDeflate(false)
         , eof(false)
+        , aborted(false)
+        , readOffset(0)
     {
     }
 public:
@@ -44,6 +46,10 @@ public:
     bool inited;
     bool triedRawDeflate;
     bool eof;
+    // set by abort(): close()/dtor must not write the gzip trailer anymore.
+    bool aborted;
+    // read cursor into buf; the unread data is buf[readOffset, buf.size()).
+    size_t readOffset;
 };
 
 bool GzipFilePrivate::initZStream(bool asRawDeflate)
@@ -104,7 +110,15 @@ int32_t GzipFile::read(char *data, int32_t size)
     string inBuf(InputBufferSize, '\0');
     string outBuf(OutputBufferSize, '\0');
 
-    while (d->buf.size() < size && !d->eof) {
+    const size_t target = static_cast<size_t>(size);
+    while (d->buf.size() - d->readOffset < target && !d->eof) {
+        // compact the already-consumed prefix before appending more decoded
+        // output. without this, erase(0, n) on every read would memmove the
+        // whole remaining buffer each time (O(n^2) on large streams).
+        if (d->readOffset > 0) {
+            d->buf.erase(0, d->readOffset);
+            d->readOffset = 0;
+        }
         int32_t readBytes = d->backend->read(&inBuf[0], static_cast<int32_t>(inBuf.size()));
         if (readBytes <= 0) {
             // the gzip stream have an eof mark. we expect it!
@@ -154,16 +168,16 @@ int32_t GzipFile::read(char *data, int32_t size)
             }
         } while (d->zstream.avail_out == 0);
     }
-    if (d->buf.empty()) {
+    if (d->buf.size() - d->readOffset == 0) {
         if (d->eof) {
             return 0;
         }
         // the server closed the connection prematurely, and the data was not sent completely
         return -1;
     }
-    int32_t bytesToRead = static_cast<int32_t>(min(static_cast<size_t>(size), d->buf.size()));
-    memcpy(data, d->buf.data(), bytesToRead);
-    d->buf.erase(0, static_cast<size_t>(bytesToRead));
+    const int32_t bytesToRead = static_cast<int32_t>(min(target, d->buf.size() - d->readOffset));
+    memcpy(data, d->buf.data() + d->readOffset, static_cast<size_t>(bytesToRead));
+    d->readOffset += static_cast<size_t>(bytesToRead);
     return bytesToRead;
 }
 
@@ -215,7 +229,21 @@ int32_t GzipFile::write(const char *data, int32_t size)
 
 void GzipFile::close()
 {
+    NG_D(GzipFile);
+    if (d->aborted) {
+        // The stream was aborted from outside (e.g. qGzipCompress lost its
+        // input midway). Drop whatever is still buffered in zlib and do NOT
+        // write the gzip trailer: leaving one would produce a file that looks
+        // structurally complete but silently ends early.
+        return;
+    }
     write(nullptr, 0);
+}
+
+void GzipFile::abort()
+{
+    NG_D(GzipFile);
+    d->aborted = true;
 }
 
 int64_t GzipFile::processedBytes() const
@@ -230,7 +258,15 @@ bool qGzipCompress(shared_ptr<FileLike> input, shared_ptr<FileLike> output, int 
         return false;
     }
     shared_ptr<GzipFile> gzip = make_shared<GzipFile>(output, GzipFile::Compress, level);
-    return sendfile(input, gzip, input->size(), blockSize);
+    bool success = sendfile(input, gzip, input->size(), blockSize);
+    if (!success) {
+        // the input failed or ended early: do not let the destructor append the
+        // trailer, otherwise the backend would keep a .gz that looks complete
+        // but is truncated. note: on failure the already-written output is left
+        // on the backend (now obviously truncated), the caller owns cleanup.
+        gzip->abort();
+    }
+    return success;
 }
 
 bool qGzipDecompress(shared_ptr<FileLike> input, shared_ptr<FileLike> output, int blockSize)

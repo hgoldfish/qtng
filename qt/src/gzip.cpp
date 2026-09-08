@@ -45,6 +45,12 @@ void GzipFile::close()
     d->core->close();
 }
 
+void GzipFile::abort()
+{
+    Q_D(GzipFile);
+    d->core->abort();
+}
+
 qint64 GzipFile::processedBytes() const
 {
     Q_D(const GzipFile);

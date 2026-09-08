@@ -24,6 +24,8 @@ public:
     virtual void close() override;
     virtual qint64 size() override { return -1; }
 public:
+    void abort();
+public:
     qint64 processedBytes() const;
 private:
     GzipFilePrivate * const d_ptr;
