@@ -648,6 +648,9 @@ bool SocketPrivate::connect(const HostAddress &address, uint16_t port)
         } else {
             state = Socket::ConnectedState;
             fetchConnectionParameters();
+            if (type == Socket::TcpSocket) {
+                setTcpKeepalive(true, 10, 2);
+            }
             return true;
         }
     }

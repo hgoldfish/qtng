@@ -37,9 +37,10 @@ SocketPrivate::SocketPrivate(HostAddress::NetworkLayerProtocol protocol, Socket:
         setOption(Socket::BroadcastSocketOption, 1);
         setOption(Socket::ReceivePacketInformation, 1);
         setOption(Socket::ReceiveHopLimit, 1);
-    } else if (type == Socket::TcpSocket) {
-        setTcpKeepalive(true, 10, 2);
     }
+    // Do not enable TCP keepalive here: a socket created by this constructor may
+    // later be used for either connect() or bind()+listen(). Keepalive belongs to
+    // established connections only, so connect() enables it.
 }
 
 SocketPrivate::SocketPrivate(intptr_t socketDescriptor, Socket *parent)
@@ -61,6 +62,9 @@ SocketPrivate::SocketPrivate(intptr_t socketDescriptor, Socket *parent)
     if (type == Socket::UdpSocket) {
         state = Socket::UnconnectedState;
     } else if (type == Socket::TcpSocket) {
+        // This constructor only wraps an already connected fd (the connection
+        // returned by accept()), so enabling keepalive here is safe and is the
+        // only place accepted connections get it.
         setTcpKeepalive(true, 10, 2);
     }
 }

@@ -338,17 +338,20 @@ bool SocketPrivate::connect(const HostAddress &address, uint16_t port)
         do {
             result = ::connect(fd, &aa.a, sockAddrSize);
         } while (result < 0 && errno == EINTR);
-        if (result >= 0) {
+        if (result >= 0 || errno == EISCONN) {
+            // EISCONN: a previous non-blocking connect was still in progress and
+            // has now completed.
             state = Socket::ConnectedState;
             fetchConnectionParameters();
+            if (type == Socket::TcpSocket) {
+                // Keepalive belongs to established connections only; a listening
+                // socket created by this same class must not get it.
+                setTcpKeepalive(true, 10, 2);
+            }
             return true;
         }
         int t = errno;
         switch (t) {
-        case EISCONN:
-            state = Socket::ConnectedState;
-            fetchConnectionParameters();
-            return true;
         case EINPROGRESS:
         case EALREADY:
         case EAGAIN:
