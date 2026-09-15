@@ -694,7 +694,7 @@ Get (take) a element from this queue. If this queue is empty, blocks current cor
 
 .. method:: void close()
 
-Close this queue. All coroutines blocked in ``get()`` or ``put()`` are woken: ``get()`` first drains the elements already queued and then returns a default-constructed ``T``; ``put()``/``putForcedly()``/``returns()``/``returnsForcely()`` are rejected and return ``false``. Closing is idempotent and irreversible. The wakeup stays latched, so ``waitNotEmpty()`` returns immediately from then on -- ``isEmpty()`` (or the value ``get()`` returns) is what tells you the queue has been drained.
+Close this queue. All coroutines blocked in ``get()`` or ``put()`` are woken: ``get()`` first drains the elements already queued and then returns a default-constructed ``T``; ``put()``/``putForcedly()``/``returns()``/``returnsForcely()`` are rejected and return ``false``. Closing is idempotent and irreversible. The wakeup stays latched, so ``waitNotEmpty()`` returns immediately from then on -- ``isEmpty()`` (or the value ``get()`` returns) is what tells you the queue has been drained. Nothing unlatches it again, so even ``setCapacity()`` cannot make a later ``put()`` block on a closed queue.
 
 .. method:: bool isClosed() const
 

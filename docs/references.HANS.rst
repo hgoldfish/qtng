@@ -688,7 +688,7 @@ qtng 参考文档
 
 .. method:: void close()
 
-关闭队列。所有阻塞在 ``get()`` 或 ``put()`` 的协程都会被唤醒：``get()`` 先排空已入队的元素，随后返回默认构造的 ``T``；``put()``/``putForcedly()``/``returns()``/``returnsForcely()`` 一律被拒绝并返回 ``false``。关闭是幂等且不可逆的。唤醒信号会一直保持置位，因此此后 ``waitNotEmpty()`` 立即返回 true —— 想知道队列是否已排空，要看 ``isEmpty()`` 或 ``get()`` 的返回值。
+关闭队列。所有阻塞在 ``get()`` 或 ``put()`` 的协程都会被唤醒：``get()`` 先排空已入队的元素，随后返回默认构造的 ``T``；``put()``/``putForcedly()``/``returns()``/``returnsForcely()`` 一律被拒绝并返回 ``false``。关闭是幂等且不可逆的。唤醒信号会一直保持置位，因此此后 ``waitNotEmpty()`` 立即返回 true —— 想知道队列是否已排空，要看 ``isEmpty()`` 或 ``get()`` 的返回值。此后没有任何路径会再清除它，连 ``setCapacity()`` 也不能让后续的 ``put()`` 在已关闭的队列上阻塞。
 
 .. method:: bool isClosed() const
 

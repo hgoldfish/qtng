@@ -472,7 +472,7 @@ void SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::setCapacity(qu
 {
     lock.lockForWrite();
     this->mCapacity = capacity;
-    if (currentSize >= mCapacity) {
+    if (currentSize >= mCapacity && !m_closed) {
         notFull.clear();
     } else {
         notFull.set();
@@ -490,6 +490,10 @@ void SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::close()
     // producer so that they observe m_closed once they take the lock and give up. event.set()
     // is edge-triggered (an event that is already set is not re-notified), but blocking
     // implies the event was clear, so a broadcast is guaranteed here.
+    //
+    // Once closed, both latches stay set: every path that could clear one (get(), clear(),
+    // remove(), setCapacity()) respects m_closed, so no later wait can park on a queue that
+    // will never notify it again.
     notEmpty.set();
     notFull.set();
 }
@@ -541,7 +545,7 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::remove(const T
         } else {
             notEmpty.set();
         }
-        if (currentSize >= mCapacity) {
+        if (currentSize >= mCapacity && !m_closed) {
             notFull.clear();
         } else {
             notFull.set();
