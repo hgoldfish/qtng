@@ -690,7 +690,7 @@ Like ``put(const T &e)``, but waits at most ``msecs`` milliseconds for capacity.
 
 .. method:: T get()
 
-Get (take) a element from this queue. If this queue is empty, blocks current coroutine until any other coroutine put elements to this queue.
+Get (take) a element from this queue. If this queue is empty, blocks current coroutine until any other coroutine put elements to this queue. A wakeup that finds the queue still empty -- ``notifyNotEmpty()`` called without enqueuing anything, or another consumer winning the race for the last element -- puts the caller back to waiting instead of making ``get()`` return a default-constructed ``T``; only ``close()`` ends the wait that way.
 
 .. method:: void close()
 

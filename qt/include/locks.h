@@ -304,6 +304,8 @@ public:
                 lock.unlock();
                 return T();
             }
+            // Nothing to take: re-arm the latch so the retry below blocks instead of spinning.
+            notEmpty.clear();
             lock.unlock();
         } while (true);
 
@@ -325,16 +327,25 @@ public:
     template<typename U = EventType>
     typename std::enable_if<!std::is_same<U, ThreadEvent>::value, T>::type get()
     {
-        if (!notEmpty.tryWait()) {
-            return T();
-        }
-        lock.lockForWrite();
-        if (this->queue.isEmpty()) {
-            // Closed and drained (or a spurious wakeup): return the default value instead of
-            // calling dequeue().
+        do {
+            if (!notEmpty.tryWait()) {
+                return T();
+            }
+            lock.lockForWrite();
+            if (!this->queue.isEmpty()) {
+                break;
+            }
+            if (m_closed) {
+                lock.unlock();
+                return T();
+            }
+            // The wakeup found nothing to take (notifyNotEmpty() with no data, or another
+            // consumer winning the race for the last element). Clear the latch and wait again:
+            // returning a default T() here would report end-of-stream for a queue that is open
+            // and merely empty.
+            notEmpty.clear();
             lock.unlock();
-            return T();
-        }
+        } while (true);
 
         const T &e = queue.dequeue();
         currentSize -= SizeGetter::sizeOf(e);
@@ -365,10 +376,14 @@ public:
     inline bool contains(const T &e);
     // Wait until the queue becomes non-empty (or the timeout elapses).
     bool waitNotEmpty(quint32 msecs = UINT_MAX) { return notEmpty.tryWait(msecs); }
-    // Wake waiters blocked on an empty queue.
+    // Wake waiters blocked on an empty queue so that they re-examine it. A blocked get() that
+    // finds nothing will go back to waiting -- it never returns a default T() for a queue that
+    // is open -- so this is only useful to make waitNotEmpty() callers re-check their own state.
     void notifyNotEmpty() { notEmpty.set(); }
 private:
     QQueue<T> queue;
+    // Latched by put()/close(). Only ever cleared while the write lock is held and the queue is
+    // really empty (or is already closed), so a waiter that clears it cannot swallow a wakeup.
     EventType notEmpty;
     EventType notFull;
     ReadWriteLockType lock;
