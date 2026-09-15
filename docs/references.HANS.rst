@@ -686,6 +686,14 @@ qtng 参考文档
 
 取出元素。若队列为空，阻塞当前协程直至其他协程插入元素。
 
+.. method:: void close()
+
+关闭队列。所有阻塞在 ``get()`` 或 ``put()`` 的协程都会被唤醒：``get()`` 先排空已入队的元素，随后返回默认构造的 ``T``；``put()``/``putForcedly()``/``returns()``/``returnsForcely()`` 一律被拒绝并返回 ``false``。关闭是幂等且不可逆的。唤醒信号会一直保持置位，因此此后 ``waitNotEmpty()`` 立即返回 true —— 想知道队列是否已排空，要看 ``isEmpty()`` 或 ``get()`` 的返回值。
+
+.. method:: bool isClosed() const
+
+检测队列是否已关闭。
+
 .. method:: bool isEmpty() const
 
 检测队列是否为空。
@@ -3682,6 +3690,18 @@ API 对齐 ``WebSocketConnection``：协程阻塞式 ``publish`` / ``subscribe``
 ``DataChannel`` / ``SocketChannel`` / ``VirtualChannel`` 在一条连接上多路复用逻辑通道。
 对端创建、尚未被 ``takeChannel()`` 取走的通道会进入 pending 队列。
 
+``VirtualChannel`` 只持有创建它的 ``DataChannel`` 的裸指针，因此父通道（以及持有它的连接
+处理协程）必须比从它取出的每一个通道活得更久，包括那些仍阻塞在 ``sendPacket()`` /
+``recvPacket()`` 里的协程。若无法保证，请用「每条连接一个 ``CoroutineGroup``，``abort()``
+后 ``joinall()``」的写法。
+
+.. method:: void DataChannel::abort()
+
+    以 ``UserShutdown`` 中止本通道，并关闭它的两个队列：阻塞中的 ``sendPacket()`` 立即失败，
+    而不是一直等到发送超时；阻塞中的 ``recvPacket()`` 被唤醒；已进入接收队列的包仍可读出；
+    此后所有 ``sendPacket()`` 都返回 ``false``。通道进入「接收终态」：中止之后对端发来的
+    数据会被丢弃，不会追加到已可读数据之后。
+
 .. method:: void DataChannel::setMaxPendingChannels(std::uint32_t count)
 .. method:: std::uint32_t DataChannel::maxPendingChannels() const
 
@@ -3864,13 +3884,16 @@ HTTP/2 的多流是为 Web 设计的：由客户端发起、一次请求一条�
 
     优雅关闭。进入 ``closing`` 状态（拒绝新的发送），先排空本 Slave 已入队的发送数据，再发送 ``RESET(NormalClose)``，
     保证对端先收完数据再看到关闭。``close()`` 会阻塞直到 RESET 写入底层连接。
-    本地接收队列会被清空，阻塞中的 ``recvPacket()`` 会以空结果唤醒；待发送数据不会被丢弃，
-    在线路顺序中仍位于 RESET 之前。
+    待发送数据不会被丢弃，在线路顺序中仍位于 RESET 之前；接收数据同样不会被丢弃 ——
+    已经入队的 payload 仍可读，``recvPacket()`` 要等队列排空后才返回空结果（「先排空、再 EOF」，
+    与 TCP 半关后继续可读、``DataChannel::abort()`` 的行为一致）。阻塞中的 ``recvPacket()``
+    在队列排空时被唤醒。流注销之后再到达的包一律丢弃。
 
 .. method:: void MultiStreamSlave::abort()
 
-    快速拆除。丢弃本 Slave 待发送数据并清空接收队列，然后立即发送 ``RESET(Abort)``。
-    适用于不需要等待在途数据、直接丢弃该流的场景。
+    快速拆除。丢弃本 Slave 待发送数据并立即发送 ``RESET(Abort)``。
+    适用于不需要等待在途数据、直接丢弃该流的场景。已收到的 payload 仍保留可读（与 ``close()``
+    及 ``DataChannel::abort()`` 一致）：先把接收队列排空，之后 ``recvPacket()`` 才返回空结果。
 
 .. method:: bool MultiStreamSlave::isClosing() const
 

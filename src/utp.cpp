@@ -533,10 +533,11 @@ bool UtpStreamPrivate::handleDatagram(const char *buf, int32_t len, const Datagr
             }
             receivingQueueNotEmpty.set();
             sendAck();
-        } else if (seqDiff(hdr.seqNr, expected) > 0 && seqDiff(hdr.seqNr, expected) < 0x8000) {
-            if (payloadLen >= 0) {
-                outOfOrder[hdr.seqNr] = std::string(buf + kUtpHeaderSize, static_cast<size_t>(payloadLen));
-            }
+        } else if (seqDiff(hdr.seqNr, expected) > 0) {
+            // seqDiff returns int16_t, so "> 0" already means "ahead of
+            // expected by less than half the sequence space". payloadLen is
+            // non-negative here because decodeHeader() rejected short packets.
+            outOfOrder[hdr.seqNr] = std::string(buf + kUtpHeaderSize, static_cast<size_t>(payloadLen));
             sendAck();
         } else if (payloadLen > 0) {
             // Duplicate (already received) DATA: the original ACK may have been

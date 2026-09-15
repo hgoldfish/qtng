@@ -292,6 +292,14 @@ public:
     }
     ~SizedQueueType();
     void setCapacity(std::uint32_t capacity);
+    // Close the queue (terminal and idempotent): wakes every coroutine blocked in
+    // get()/put()/returns(). Afterwards get() drains the elements already enqueued and then
+    // returns a default-constructed T(), while put()/putForcedly()/returns()/returnsForcely()
+    // all refuse and return false without enqueuing. This gives blocked consumers a
+    // deterministic way out during shutdown and replaces the fragile "push a sentinel value"
+    // trick.
+    void close();
+    bool isClosed() const;
     bool put(const T &e);  // insert e to the tail of queue. blocked until not full.
     bool put(const T &e, std::uint32_t msecs);  // like put(), but wait at most msecs for capacity.
     bool put(T &&e);
@@ -314,13 +322,20 @@ public:
             if (!queue.empty()) {
                 break;
             }
+            if (m_closed) {
+                lock.unlock();
+                return T();
+            }
             lock.unlock();
         } while (true);
 
         T e = std::move(queue.front());
         queue.pop_front();
         currentSize -= SizeGetter::sizeOf(e);
-        if (queue.empty()) {
+        // Never clear notEmpty while closed: leaving it set lets a later get() reach the
+        // "empty and closed" branch and return T() at once instead of blocking again
+        // (nobody is left to set the event).
+        if (queue.empty() && !m_closed) {
             notEmpty.clear();
         }
         if (currentSize < mCapacity) {
@@ -337,11 +352,17 @@ public:
             return T();
         }
         lock.lockForWrite();
+        if (queue.empty()) {
+            // Closed and drained (or a spurious wakeup): return the default value instead of
+            // calling front().
+            lock.unlock();
+            return T();
+        }
 
         T e = std::move(queue.front());
         queue.pop_front();
         currentSize -= SizeGetter::sizeOf(e);
-        if (queue.empty()) {
+        if (queue.empty() && !m_closed) {
             notEmpty.clear();
         }
         if (currentSize < mCapacity) {
@@ -377,6 +398,7 @@ private:
     ReadWriteLockType lock;
     std::uint32_t mCapacity;
     std::uint32_t currentSize;
+    bool m_closed;
     template<typename T2, typename E2, typename R2>
     friend class MultiQueueType;
     NG_DISABLE_COPY(SizedQueueType)
@@ -451,6 +473,7 @@ template<typename T, typename EventType, typename ReadWriteLockType, typename Si
 SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::SizedQueueType(std::uint32_t capacity)
     : mCapacity(capacity)
     , currentSize(0)
+    , m_closed(false)
 {
     notEmpty.clear();
     notFull.set();
@@ -475,13 +498,40 @@ void SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::setCapacity(st
 }
 
 template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
+void SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::close()
+{
+    lock.lockForWrite();
+    m_closed = true;
+    lock.unlock();
+    // Both events are signalled outside the lock: this wakes every blocked consumer and
+    // producer so that they observe m_closed once they take the lock and give up. event.set()
+    // is edge-triggered (an event that is already set is not re-notified), but blocking
+    // implies the event was clear, so a broadcast is guaranteed here.
+    notEmpty.set();
+    notFull.set();
+}
+
+template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
+inline bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::isClosed() const
+{
+    const_cast<SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter> *>(this)->lock.lockForRead();
+    bool c = m_closed;
+    const_cast<SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter> *>(this)->lock.unlock();
+    return c;
+}
+
+template<typename T, typename EventType, typename ReadWriteLockType, typename SizeGetter>
 void SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::clear()
 {
     lock.lockForWrite();
     queue.clear();
     currentSize = 0;
     notFull.set();
-    notEmpty.clear();
+    // Keep notEmpty set while closed: clearing it would wipe out close()'s wakeup signal and
+    // a later get() would block forever again.
+    if (!m_closed) {
+        notEmpty.clear();
+    }
     lock.unlock();
 }
 
@@ -501,7 +551,10 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::remove(const T
     if (n > 0) {
         currentSize -= removedSize;
         if (queue.empty()) {
-            notEmpty.clear();
+            // As above: the wakeup signal must not be cleared while closed.
+            if (!m_closed) {
+                notEmpty.clear();
+            }
         } else {
             notEmpty.set();
         }
@@ -530,6 +583,10 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(const T &e
         return false;
     }
     lock.lockForWrite();
+    if (m_closed) {
+        lock.unlock();
+        return false;
+    }
     queue.push_back(e);
     currentSize += SizeGetter::sizeOf(e);
     notEmpty.set();
@@ -553,6 +610,10 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::put(T &&e, std
         return false;
     }
     lock.lockForWrite();
+    if (m_closed) {
+        lock.unlock();
+        return false;
+    }
     const std::uint32_t elementSize = SizeGetter::sizeOf(e);
     queue.push_back(std::move(e));
     currentSize += elementSize;
@@ -568,6 +629,10 @@ template<typename T, typename EventType, typename ReadWriteLockType, typename Si
 bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::putForcedly(const T &e)
 {
     lock.lockForWrite();
+    if (m_closed) {
+        lock.unlock();
+        return false;
+    }
     queue.push_back(e);
     currentSize += SizeGetter::sizeOf(e);
     notEmpty.set();
@@ -582,6 +647,10 @@ template<typename T, typename EventType, typename ReadWriteLockType, typename Si
 bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::putForcedly(T &&e)
 {
     lock.lockForWrite();
+    if (m_closed) {
+        lock.unlock();
+        return false;
+    }
     const std::uint32_t elementSize = SizeGetter::sizeOf(e);
     queue.push_back(std::move(e));
     currentSize += elementSize;
@@ -600,6 +669,10 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::returns(const 
         return false;
     }
     lock.lockForWrite();
+    if (m_closed) {
+        lock.unlock();
+        return false;
+    }
     queue.push_front(e);
     currentSize += SizeGetter::sizeOf(e);
     notEmpty.set();
@@ -617,6 +690,10 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::returns(T &&e)
         return false;
     }
     lock.lockForWrite();
+    if (m_closed) {
+        lock.unlock();
+        return false;
+    }
     const std::uint32_t elementSize = SizeGetter::sizeOf(e);
     queue.push_front(std::move(e));
     currentSize += elementSize;
@@ -632,6 +709,10 @@ template<typename T, typename EventType, typename ReadWriteLockType, typename Si
 bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::returnsForcely(const T &e)
 {
     lock.lockForWrite();
+    if (m_closed) {
+        lock.unlock();
+        return false;
+    }
     queue.push_front(e);
     currentSize += SizeGetter::sizeOf(e);
     notEmpty.set();
@@ -646,6 +727,10 @@ template<typename T, typename EventType, typename ReadWriteLockType, typename Si
 bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::returnsForcely(T &&e)
 {
     lock.lockForWrite();
+    if (m_closed) {
+        lock.unlock();
+        return false;
+    }
     const std::uint32_t elementSize = SizeGetter::sizeOf(e);
     queue.push_front(std::move(e));
     currentSize += elementSize;

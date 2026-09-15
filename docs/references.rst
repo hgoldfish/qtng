@@ -692,6 +692,14 @@ Like ``put(const T &e)``, but waits at most ``msecs`` milliseconds for capacity.
 
 Get (take) a element from this queue. If this queue is empty, blocks current coroutine until any other coroutine put elements to this queue.
 
+.. method:: void close()
+
+Close this queue. All coroutines blocked in ``get()`` or ``put()`` are woken: ``get()`` first drains the elements already queued and then returns a default-constructed ``T``; ``put()``/``putForcedly()``/``returns()``/``returnsForcely()`` are rejected and return ``false``. Closing is idempotent and irreversible. The wakeup stays latched, so ``waitNotEmpty()`` returns immediately from then on -- ``isEmpty()`` (or the value ``get()`` returns) is what tells you the queue has been drained.
+
+.. method:: bool isClosed() const
+
+Check whether this queue has been closed.
+
 .. method:: bool isEmpty() const
 
 Check whether this queue is empty.
@@ -4003,6 +4011,19 @@ This chapter covers advanced features that are only needed in specialized scenar
 ``DataChannel`` / ``SocketChannel`` / ``VirtualChannel`` multiplex logical channels over one
 connection. Untaken channels created by the peer sit in a pending queue until ``takeChannel()``.
 
+A ``VirtualChannel`` holds only a raw pointer to the ``DataChannel`` it came from: the parent (and
+any connection handler coroutine that owns it) must outlive every channel taken from it, including
+coroutines still parked in their ``sendPacket()`` / ``recvPacket()``. Use a per-connection
+``CoroutineGroup`` and ``joinall()`` after ``abort()`` if the handlers cannot be sure of that.
+
+.. method:: void DataChannel::abort()
+
+    Abort this channel with ``UserShutdown``. Both of its queues are closed: blocked
+    ``sendPacket()`` waits fail at once instead of running into their sending timeout, blocked
+    ``recvPacket()`` waits are woken, packets already in the receiving queue stay readable, and any
+    later ``sendPacket()`` returns ``false``. The channel is receive-terminal: data the peer sends
+    after the abort is dropped rather than appended behind what is already readable.
+
 .. method:: void DataChannel::setMaxPendingChannels(std::uint32_t count)
 .. method:: std::uint32_t DataChannel::maxPendingChannels() const
 
@@ -4219,13 +4240,18 @@ recommended above.
     Graceful close. Enter the ``closing`` state (new sends are rejected), flush packets already
     queued for this slave, then send ``RESET(NormalClose)`` so the peer receives all prior data first.
     ``close()`` blocks until the RESET has been written to the connection.
-    Locally queued receive packets are discarded and blocked ``recvPacket()`` calls wake with an
-    empty result. Pending sends are not discarded: they remain ahead of RESET in wire order.
+    Pending sends are not discarded: they remain ahead of RESET in wire order. Receive data is not
+    discarded either -- payloads that already arrived stay readable, and ``recvPacket()`` returns an
+    empty result only once the queue has been drained ("drain, then EOF", the same contract as reading
+    a half-closed TCP stream and as ``DataChannel::abort()``). Blocked ``recvPacket()`` calls wake when
+    the queue is drained. Packets arriving after the stream is unregistered are dropped.
 
 .. method:: void MultiStreamSlave::abort()
 
-    Hard teardown. Drop this slave's pending send packets and clear the receive queue, then send
-    ``RESET(Abort)`` immediately. Use this when discarding the stream without waiting for in-flight data.
+    Hard teardown. Drop this slave's pending send packets and send ``RESET(Abort)`` immediately. Use
+    this when discarding the stream without waiting for in-flight data. Payloads already received are
+    still kept readable, exactly like ``close()`` and ``DataChannel::abort()``: the receive queue is
+    drained first and ``recvPacket()`` returns an empty result afterwards.
 
 .. method:: bool MultiStreamSlave::isClosing() const
 

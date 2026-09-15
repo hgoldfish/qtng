@@ -10,7 +10,6 @@ using namespace qtng::utils;
 struct JokerServerPrivate
 {
     explicit JokerServerPrivate(const JokerServerConfigure &configure);
-    ~JokerServerPrivate();
     bool start();
     void handleRequest(shared_ptr<SocketLike> request);
     void handleChannel(shared_ptr<VirtualChannel> channel);
@@ -19,7 +18,6 @@ struct JokerServerPrivate
 public:
     JokerServerConfigure configure;
     shared_ptr<SocketDnsCache> dnsCache;
-    CoroutineGroup *operations;
 };
 
 class JokerKcpRequestHandler : public BaseRequestHandler
@@ -87,13 +85,7 @@ string JokerHttpRequestHandler::serverName()
 JokerServerPrivate::JokerServerPrivate(const JokerServerConfigure &configure)
     : configure(configure)
     , dnsCache(make_shared<SocketDnsCache>())
-    , operations(new CoroutineGroup())
 {
-}
-
-JokerServerPrivate::~JokerServerPrivate()
-{
-    delete operations;
 }
 
 class JokerKcpServer : public KcpServer<JokerKcpRequestHandler>
@@ -182,15 +174,29 @@ void JokerServerPrivate::handleRequest(shared_ptr<SocketLike> request)
         return;
     }
 
+    // Handlers of the sub-channels must not outlive `channel`. A VirtualChannel only
+    // holds a raw pointer to its parent, and a handler parked in the parent's sending
+    // queue (back-pressure) would otherwise be resumed after `channel` -- a stack
+    // object here -- is destroyed and touch freed memory. Keep the handlers in a group
+    // owned by this connection and join them before returning.
+    //
+    // takeChannel() only gives up once the channel is broken, so the loop below normally
+    // ends after abort() already ran; but "broken" also covers a connection that died
+    // without doReceive() noticing (isValid() false, error still NoError). abort() then
+    // closes the queues, which is what keeps the parked handlers from waiting out their
+    // 30s sending timeout inside joinall().
+    CoroutineGroup subOperations;
     while (true) {
         shared_ptr<VirtualChannel> subChannel = channel.takeChannel();
         if (!subChannel) {
-            return;
+            break;
         }
-        operations->spawn([this, subChannel] {
+        subOperations.spawn([this, subChannel] {
             handleChannel(subChannel);
         });
     }
+    channel.abort();
+    subOperations.joinall();
 }
 
 void JokerServerPrivate::handleChannel(shared_ptr<VirtualChannel> channel)

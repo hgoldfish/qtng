@@ -291,11 +291,9 @@ DataChannelPrivate::DataChannelPrivate(DataChannelPole pole, DataChannel *parent
 
 DataChannelPrivate::~DataChannelPrivate()
 {
-    // do not uncomment these lines of code
-    // these codes lead to bug.
-    //    for (int i = 0; i < receivingQueue.getting(); ++i) {
-    //        receivingQueue.put(string());
-    //    }
+    // Intentionally empty: releasing blocked receivers is receivingQueue.close()'s job (see
+    // DataChannelPrivate::abort() below). The empty-string sentinels that used to be planted
+    // from this destructor were what close() replaced; do not bring them back.
 }
 
 string DataChannelPrivate::toString() const
@@ -320,9 +318,12 @@ void DataChannelPrivate::abort(DataChannel::ChannelError reason)
         pluggedChannel.reset();
     }
 
-    for (uint32_t i = 0; i < receivingQueue.getting(); ++i) {
-        receivingQueue.put(string());
-    }
+    // Close, rather than pushing one empty-string sentinel per parked receiver. Closing is what
+    // makes the queue receive-terminal: get() still drains the packets that did arrive and then
+    // returns the empty string, but anything delivered afterwards -- by a doReceive() that has not
+    // noticed the abort, or by a parent that has not dropped this channel yet -- is refused
+    // instead of turning up behind what the caller has already read.
+    receivingQueue.close();
     for (uint32_t i = 0; i < pendingChannelsNotEmpty.getting(); ++i) {
         pendingChannels.push_back(shared_ptr<VirtualChannel>());
     }
@@ -700,9 +701,12 @@ bool SocketChannelPrivate::sendPacketRaw(uint32_t channelNumber, string packet, 
     }
     switch (blocking) {
     case BlockFlag::NonBlock:
-        sendingQueue.putForcedly(
+        // putForcedly() ignores capacity but still refuses a closed queue. abort() sets `error`
+        // before it closes that queue and the check above rejects a broken channel, so this
+        // cannot come back false today; return the real result rather than an unconditional
+        // `true` so the answer stays honest if that ordering is ever changed.
+        return sendingQueue.putForcedly(
                 WritingPacket(channelNumber, std::move(packet), shared_ptr<ValueEvent<bool>>()));
-        return true;
     case BlockFlag::Block_And_Not_Wait_Sent:
         return sendingQueue.put(WritingPacket(channelNumber, std::move(packet), shared_ptr<ValueEvent<bool>>()),
                                 msecs);
@@ -897,6 +901,12 @@ void SocketChannelPrivate::abort(DataChannel::ChannelError reason)
     Coroutine *current = Coroutine::current();
     connection->abort();
 
+    // Close before draining: the drain frees capacity, and that would wake a coroutine
+    // parked in sendPacketRaw()'s put(), letting it enqueue into a channel whose doSend()
+    // is already dead and then wait out the whole sending timeout for a `done` nobody will
+    // ever signal. Closing makes that put() fail at once, so the last sub-channel handler
+    // can return before this channel and its queues are destroyed.
+    sendingQueue.close();
     while (!sendingQueue.isEmpty()) {
         WritingPacket writingPacket = sendingQueue.get();
         if (writingPacket.done) {
@@ -952,6 +962,11 @@ void SocketChannelPrivate::cleanSendingPacket(uint32_t subChannelNumber,
         }
     }
     for (WritingPacket &writingPacket : reserved) {
+        // The return value is deliberately left unchecked: this can only refuse on a closed
+        // queue, and the only place that closes this queue (abort()) drains it right after
+        // closing, so by the time the queue is closed there can be nothing left for this loop
+        // to put back. Were that ever false, this would silently drop a packet whose `done` is
+        // still waited on.
         sendingQueue.putForcedly(std::move(writingPacket));
     }
 }
