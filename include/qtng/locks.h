@@ -489,6 +489,8 @@ void SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::setCapacity(st
 {
     lock.lockForWrite();
     mCapacity = capacity;
+    // While closed this must not clear notFull: close() latched it so that a producer arriving
+    // later fails at once instead of blocking on an event nobody will signal again.
     if (currentSize >= mCapacity && !m_closed) {
         notFull.clear();
     } else {
@@ -508,9 +510,8 @@ void SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::close()
     // is edge-triggered (an event that is already set is not re-notified), but blocking
     // implies the event was clear, so a broadcast is guaranteed here.
     //
-    // Once closed, both latches stay set: every path that could clear one (get(), clear(),
-    // remove(), setCapacity()) respects m_closed, so no later wait can park on a queue that
-    // will never notify it again.
+    // While closed both latches stay set: every path that could clear one checks m_closed, so no
+    // later wait can park on a queue that will never notify it again.
     notEmpty.set();
     notFull.set();
 }
@@ -553,9 +554,11 @@ bool SizedQueueType<T, EventType, ReadWriteLockType, SizeGetter>::remove(const T
         }
     }
     if (n > 0) {
+        // Two subtleties below: a zero-sized element leaves currentSize untouched, so a full queue
+        // can still be full after the removal; and while closed both latches must stay set, or a
+        // later get()/put() parks on an event nobody will signal. Hence "!m_closed" on the clears.
         currentSize -= removedSize;
         if (queue.empty()) {
-            // As above: the wakeup signal must not be cleared while closed.
             if (!m_closed) {
                 notEmpty.clear();
             }
