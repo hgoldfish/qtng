@@ -939,7 +939,8 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 					"input psh: sn=%lu ts=%lu", (unsigned long)sn, (unsigned long)ts);
 			}
 			if (_itimediff(sn, kcp->rcv_nxt + kcp->rcv_wnd) < 0) {
-				ikcp_ack_push(kcp, sn, ts);
+				/* Ignore ack_push OOM: drop this ACK rather than abort. */
+				(void)ikcp_ack_push(kcp, sn, ts);
 				if (_itimediff(sn, kcp->rcv_nxt) >= 0) {
 					seg = ikcp_segment_new(kcp, len);
 					if (seg == NULL) {

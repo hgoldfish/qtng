@@ -86,11 +86,8 @@ static constexpr size_t kReorderSampleCap = 32;
 struct KcpTuner {
     uint64_t lastSampleTs = 0;
     uint32_t lastSndUna = 0;
-    uint32_t lastXmit = 0;
-    uint32_t lastXmitFast = 0;
     uint32_t lastLossRto = 0;
     uint32_t lastSentSegs = 0;
-    uint32_t lastRcvWnd = 0;
     uint32_t lastFastResend = 16;
     bool fastResendInitialized = false;
     uint32_t coldStartTicks = 0;
@@ -449,30 +446,34 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     sendBudgetSegs = max(8u, min(sendBudgetSegs, memoryCapSegs));
     recomputeWaterLine();
 
-    const uint32_t reorderUs = reorderP95Us(tuner);
-    const uint32_t reorderMs = reorderUs / 1000u;
-    const uint32_t interval = max(kcp->interval, 1u);
-    uint32_t newFastResend = min(32u, max(1u, reorderMs / interval + 1u));
-    if (!tuner.fastResendInitialized
-        || (newFastResend > tuner.lastFastResend ? newFastResend - tuner.lastFastResend
-                                                 : tuner.lastFastResend - newFastResend)
-                >= 2u) {
-        ikcp_nodelay(kcp, -1, -1, static_cast<int>(newFastResend), -1);
-        tuner.lastFastResend = newFastResend;
-        tuner.fastResendInitialized = true;
+    // Only adapt fastresend from observed reorder. An empty sample window yields
+    // reorderMs=0 → newFastResend=1; writing that on first tick would slam the
+    // ctor value (16) down to 1 before any reorder was ever seen.
+    if (tuner.reorderCount > 0) {
+        const uint32_t reorderUs = reorderP95Us(tuner);
+        const uint32_t reorderMs = reorderUs / 1000u;
+        const uint32_t interval = max(kcp->interval, 1u);
+        uint32_t newFastResend = min(32u, max(1u, reorderMs / interval + 1u));
+        if (!tuner.fastResendInitialized
+            || (newFastResend > tuner.lastFastResend ? newFastResend - tuner.lastFastResend
+                                                     : tuner.lastFastResend - newFastResend)
+                    >= 2u) {
+            ikcp_nodelay(kcp, -1, -1, static_cast<int>(newFastResend), -1);
+            tuner.lastFastResend = newFastResend;
+            tuner.fastResendInitialized = true;
+        }
     }
 
-    // Keep the receive window at least as large as the ctor default (1024).
-    // Flooring at IKCP_WND_RCV (128) would shrink the window on cold start
-    // (bdpSegs starts at 8 → rcvTarget=12→128) and deadlock sequential
-    // sendall→recvall for payloads bigger than ~rcv_wnd*mss.
-    uint32_t rcvTarget = max(1024u, min(memoryCapSegs, (bdpSegs * 3) / 2));
-    rcvTarget = min(rcvTarget, 0xFFFFu);
-    const uint32_t prevRcv = kcp->rcv_wnd;
-    if (tuner.lastSampleTs == 0 || prevRcv == 0
-        || (rcvTarget > prevRcv ? rcvTarget - prevRcv : prevRcv - rcvTarget) * 5 >= prevRcv) {
-        ikcp_wndsize(kcp, 0, static_cast<int>(rcvTarget));
-        if (kcp->rcv_wnd != prevRcv) {
+    // Grow rcv_wnd with BDP; never shrink. Shrinking below in-flight capacity
+    // deadlocks sequential sendall→recvall once the peer advertises wnd=0.
+    uint32_t rcvTarget = kcp->rcv_wnd;
+    if (tuner.deliveryBps > 0) {
+        uint32_t computed = max(128u /* IKCP_WND_RCV */, min(memoryCapSegs, (bdpSegs * 3) / 2));
+        computed = min(computed, 0xFFFFu);
+        if (computed > rcvTarget
+            && (rcvTarget == 0 || (computed - rcvTarget) * 5 >= rcvTarget)) {
+            rcvTarget = computed;
+            ikcp_wndsize(kcp, 0, static_cast<int>(rcvTarget));
             kcp->probe |= IKCP_ASK_TELL;
         }
     }
@@ -484,11 +485,8 @@ void KcpStreamPrivate::runTuner(uint64_t now)
 
     tuner.lastSampleTs = now;
     tuner.lastSndUna = sndUna;
-    tuner.lastXmit = kcp->xmit;
-    tuner.lastXmitFast = kcp->xmit_fast;
     tuner.lastLossRto = kcp->loss_rto;
     tuner.lastSentSegs = kcp->sent_segs;
-    tuner.lastRcvWnd = kcp->rcv_wnd;
 }
 
 KcpStreamStats KcpStreamPrivate::snapshotStats() const
