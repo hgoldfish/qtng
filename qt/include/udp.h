@@ -1,209 +1,42 @@
 #ifndef QTNG_UDP_H
 #define QTNG_UDP_H
 
-#include <QtCore/qsharedpointer.h>
-#include <QtCore/qstring.h>
-#include <QtCore/qvariant.h>
-#include "network_interface.h"
 #include "socket.h"
 #include "config.h"
 
 QTNETWORKNG_NAMESPACE_BEGIN
 
-class KcpSocketPrivate;
-class KcpSocket
+class DatagramPath
 {
 public:
-    explicit KcpSocket(HostAddress::NetworkLayerProtocol protocol = HostAddress::IPv4Protocol);
-    explicit KcpSocket(qintptr socketDescriptor);
-    explicit KcpSocket(QSharedPointer<Socket> rawSocket);
-    virtual ~KcpSocket();
-public:
-    void setSendBufferLimit(quint64 bytes);
-    quint64 sendBufferLimit() const;
-    void setUdpPacketSize(quint32 udpPacketSize);
-    quint32 udpPacketSize() const;
-    quint32 payloadSizeHint() const;
-    void setTearDownTime(float secs);
-    float tearDownTime() const;
-public:
-    Socket::SocketError error() const;
-    QString errorString() const;
-    bool isValid() const;
-    HostAddress localAddress() const;
-    quint16 localPort() const;
-    HostAddress peerAddress() const;
-    QString peerName() const;
-    quint16 peerPort() const;
-    Socket::SocketType type() const;
-    Socket::SocketState state() const;
-    HostAddress::NetworkLayerProtocol protocol() const;
-    QString localAddressURI() const;
-    QString peerAddressURI() const;
-
-    KcpSocket *accept();
-    KcpSocket *accept(const HostAddress &addr, quint16 port);
-    KcpSocket *accept(const QString &hostName, quint16 port,
-                      QSharedPointer<SocketDnsCache> dnsCache = QSharedPointer<SocketDnsCache>());
-
-    bool bind(const HostAddress &address, quint16 port = 0, Socket::BindMode mode = Socket::DefaultForPlatform);
-    bool bind(quint16 port = 0, Socket::BindMode mode = Socket::DefaultForPlatform);
-    bool connect(const HostAddress &addr, quint16 port);
-    bool connect(const QString &hostName, quint16 port,
-                 QSharedPointer<SocketDnsCache> dnsCache = QSharedPointer<SocketDnsCache>());
-    void close();
-    void abort();
-    bool listen(int backlog);
-    bool setOption(Socket::SocketOption option, const QVariant &value);
-    QVariant option(Socket::SocketOption option) const;
-
-    bool joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface = NetworkInterface());
-    bool leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface = NetworkInterface());
-    NetworkInterface multicastInterface() const;
-    bool setMulticastInterface(const NetworkInterface &iface);
-
-    qint32 peek(char *data, qint32 size);
-    qint32 peekRaw(char *data, qint32 size);
-    qint32 recv(char *data, qint32 size);
-    qint32 recvall(char *data, qint32 size);
-    qint32 send(const char *data, qint32 size);
-    qint32 sendall(const char *data, qint32 size);
-    QByteArray recv(qint32 size);
-    QByteArray recvall(qint32 size);
-    qint32 send(const QByteArray &data);
-    qint32 sendall(const QByteArray &data);
-
-    virtual bool filter(char *data, qint32 *len, HostAddress *addr, quint16 *port);
-    void setFilter(std::function<bool(char *, qint32 *, HostAddress *, quint16 *)> callback);
-    qint32 udpSend(const char *data, qint32 size, const HostAddress &addr, quint16 port);
-    qint32 udpSend(const QByteArray &packet, const HostAddress &addr, quint16 port)
+    DatagramPath() {}
+    explicit DatagramPath(const QString &key)
+        : m_key(key)
     {
-        return udpSend(packet.constData(), packet.size(), addr, port);
     }
 
-    static KcpSocket *createConnection(const HostAddress &host, quint16 port, Socket::SocketError *error = nullptr,
-                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
-    static KcpSocket *createConnection(const QString &hostName, quint16 port, Socket::SocketError *error = nullptr,
-                                       QSharedPointer<SocketDnsCache> dnsCache = QSharedPointer<SocketDnsCache>(),
-                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
-    static KcpSocket *createServer(const HostAddress &host, quint16 port, int backlog = 50);
+    QString key() const { return m_key; }
+    bool isNull() const { return m_key.isEmpty(); }
+
+    bool operator==(const DatagramPath &other) const { return m_key == other.m_key; }
+    bool operator!=(const DatagramPath &other) const { return !(*this == other); }
+    bool operator<(const DatagramPath &other) const { return m_key < other.m_key; }
 private:
-    KcpSocket(KcpSocketPrivate *d);
-    friend class KcpSocketPrivate;
-    KcpSocketPrivate * const d_ptr;
-    Q_DECLARE_PRIVATE(KcpSocket)
-    Q_DISABLE_COPY(KcpSocket)
-    KcpSocket(KcpSocket &&) = delete;
-    KcpSocket &operator=(KcpSocket &&) = delete;
+    QString m_key;
 };
 
-QSharedPointer<class SocketLike> asSocketLike(QSharedPointer<KcpSocket> s);
-
-inline QSharedPointer<class SocketLike> asSocketLike(KcpSocket *s)
-{
-    return asSocketLike(QSharedPointer<KcpSocket>(s));
-}
-
-QSharedPointer<KcpSocket> convertSocketLikeToKcpSocket(QSharedPointer<class SocketLike> socket);
-
-class UtpSocketPrivate;
-class UtpSocket
+class DatagramLink
 {
 public:
-    explicit UtpSocket(HostAddress::NetworkLayerProtocol protocol = HostAddress::IPv4Protocol);
-    explicit UtpSocket(qintptr socketDescriptor);
-    explicit UtpSocket(QSharedPointer<Socket> rawSocket);
-    virtual ~UtpSocket();
-public:
-    void setDelayTarget(float milliseconds);
-    float delayTarget() const;
-    void setMaxWindow(quint32 bytes);
-    quint32 maxWindow() const;
-    void setPacketSize(quint32 bytes);
-    quint32 packetSize() const;
-    quint32 payloadSizeHint() const;
-    void setReceiveBufferSize(quint32 bytes);
-    quint32 receiveBufferSize() const;
-    void setIdleTimeout(float seconds);
-    float idleTimeout() const;
-public:
-    Socket::SocketError error() const;
-    QString errorString() const;
-    bool isValid() const;
-    HostAddress localAddress() const;
-    quint16 localPort() const;
-    HostAddress peerAddress() const;
-    QString peerName() const;
-    quint16 peerPort() const;
-    Socket::SocketType type() const;
-    Socket::SocketState state() const;
-    HostAddress::NetworkLayerProtocol protocol() const;
-    QString localAddressURI() const;
-    QString peerAddressURI() const;
-
-    UtpSocket *accept();
-    UtpSocket *accept(const HostAddress &addr, quint16 port);
-    UtpSocket *accept(const QString &hostName, quint16 port,
-                      QSharedPointer<SocketDnsCache> dnsCache = QSharedPointer<SocketDnsCache>());
-
-    bool bind(const HostAddress &address, quint16 port = 0, Socket::BindMode mode = Socket::DefaultForPlatform);
-    bool bind(quint16 port = 0, Socket::BindMode mode = Socket::DefaultForPlatform);
-    bool connect(const HostAddress &addr, quint16 port);
-    bool connect(const QString &hostName, quint16 port,
-                 QSharedPointer<SocketDnsCache> dnsCache = QSharedPointer<SocketDnsCache>());
-    void close();
-    void abort();
-    bool listen(int backlog);
-    bool setOption(Socket::SocketOption option, const QVariant &value);
-    QVariant option(Socket::SocketOption option) const;
-
-    bool joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface = NetworkInterface());
-    bool leaveMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface = NetworkInterface());
-    NetworkInterface multicastInterface() const;
-    bool setMulticastInterface(const NetworkInterface &iface);
-
-    qint32 peek(char *data, qint32 size);
-    qint32 peekRaw(char *data, qint32 size);
-    qint32 recv(char *data, qint32 size);
-    qint32 recvall(char *data, qint32 size);
-    qint32 send(const char *data, qint32 size);
-    qint32 sendall(const char *data, qint32 size);
-    QByteArray recv(qint32 size);
-    QByteArray recvall(qint32 size);
-    qint32 send(const QByteArray &data);
-    qint32 sendall(const QByteArray &data);
-
-    virtual bool filter(char *data, qint32 *len, HostAddress *addr, quint16 *port);
-    qint32 udpSend(const char *data, qint32 size, const HostAddress &addr, quint16 port);
-    qint32 udpSend(const QByteArray &packet, const HostAddress &addr, quint16 port)
-    {
-        return udpSend(packet.constData(), packet.size(), addr, port);
-    }
-
-    static UtpSocket *createConnection(const HostAddress &host, quint16 port, Socket::SocketError *error = nullptr,
-                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
-    static UtpSocket *createConnection(const QString &hostName, quint16 port, Socket::SocketError *error = nullptr,
-                                       QSharedPointer<SocketDnsCache> dnsCache = QSharedPointer<SocketDnsCache>(),
-                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
-    static UtpSocket *createServer(const HostAddress &host, quint16 port, int backlog = 50);
-private:
-    UtpSocket(UtpSocketPrivate *d);
-    friend class UtpSocketPrivate;
-    UtpSocketPrivate * const d_ptr;
-    Q_DECLARE_PRIVATE(UtpSocket)
-    Q_DISABLE_COPY(UtpSocket)
-    UtpSocket(UtpSocket &&) = delete;
-    UtpSocket &operator=(UtpSocket &&) = delete;
+    virtual ~DatagramLink();
+    virtual qint32 recvfrom(char *data, qint32 size, DatagramPath *who) = 0;
+    virtual qint32 sendto(const char *data, qint32 size, const DatagramPath &who) = 0;
+    virtual void close() = 0;
+    virtual void abort() = 0;
+    virtual bool isValid() const = 0;
+    virtual Socket::SocketError error() const;
+    virtual QString errorString() const;
 };
-
-QSharedPointer<class SocketLike> asSocketLike(QSharedPointer<UtpSocket> s);
-
-inline QSharedPointer<class SocketLike> asSocketLike(UtpSocket *s)
-{
-    return asSocketLike(QSharedPointer<UtpSocket>(s));
-}
-
-QSharedPointer<UtpSocket> convertSocketLikeToUtpSocket(QSharedPointer<class SocketLike> socket);
 
 QTNETWORKNG_NAMESPACE_END
 

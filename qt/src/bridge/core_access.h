@@ -102,6 +102,8 @@ public:
 #undef QTNG_DATA_CHANNEL_H
 #undef QTNG_MULTI_STREAM_H
 #undef QTNG_UDP_H
+#undef QTNG_KCP_H
+#undef QTNG_UTP_H
 #undef QTNG_HTTPD_H
 #undef QTNG_SOCKET_SERVER_H
 #undef QTNG_WEBSOCKET_H

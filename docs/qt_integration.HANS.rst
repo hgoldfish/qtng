@@ -117,5 +117,8 @@ Include 隔离
 API 覆盖
 --------
 
-兼容层以 Qt 类型暴露 qtng 2.0 全部公开 API，并向后兼容 1.0（``qtnetworkng.h``、``kcp.h`` 别名、
-``pool.h`` 等）。2.0 新增模块包括 ``bencode``、``kademlia``、``noise``、``multi_stream``、``udp``。
+兼容层以 Qt 类型暴露 qtng 2.0 全部公开 API，并向后兼容 1.0（``qtnetworkng.h``、``pool.h`` 等）。
+头文件划分与 core 一致：``udp.h`` 是 ``DatagramLink`` / ``DatagramPath``；``kcp.h`` 是
+``KcpStream`` / ``KcpSocket``（及 ``createKcpConnection``）；``utp.h`` 是 ``UtpStream`` /
+``UtpSocket``（及 ``createUtpConnection``）。
+2.0 新增模块包括 ``bencode``、``kademlia``、``noise``、``multi_stream``、``udp``。

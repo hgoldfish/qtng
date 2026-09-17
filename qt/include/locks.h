@@ -91,9 +91,12 @@ public:
     void link(Event &other);
     void unlink(Event &other);
 private:
+    void attachCore(void *coreEvent);
     EventPrivate * const d_ptr;
     Q_DECLARE_PRIVATE(Event)
     Q_DISABLE_COPY(Event)
+    friend class KcpStream;
+    friend class UtpStream;
 };
 
 class ThreadEventPrivate;

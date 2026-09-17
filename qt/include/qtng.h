@@ -15,6 +15,8 @@
 #include "bencode.h"
 #include "httpd.h"
 #include "udp.h"
+#include "kcp.h"
+#include "utp.h"
 #include "socket_server.h"
 #include "network_interface.h"
 #include "websocket.h"

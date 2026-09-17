@@ -3,7 +3,8 @@
 #include "bridge/ssl_access.h"
 #include "bridge/stream_bridge.h"
 #include "multi_stream.h"
-#include "udp.h"
+#include "kcp.h"
+#include "utp.h"
 
 #ifndef QTNG_NO_CRYPTO
 #  include "ssl.h"

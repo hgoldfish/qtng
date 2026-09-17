@@ -93,7 +93,7 @@ set(QTNG_QT_PUBLIC_HEADERS
     ${QTNG_QT_DIR}/include/multi_stream.h
     ${QTNG_QT_DIR}/include/udp.h
     ${QTNG_QT_DIR}/include/kcp.h
-    ${QTNG_QT_DIR}/include/kcp_base.h
+    ${QTNG_QT_DIR}/include/utp.h
     ${QTNG_QT_DIR}/include/lmdb.h
     ${QTNG_QT_DIR}/include/gzip.h
     ${QTNG_QT_DIR}/include/pool.h
@@ -136,6 +136,8 @@ set(QTNG_QT_SOURCES
     ${QTNG_QT_DIR}/src/kademlia.cpp
     ${QTNG_QT_DIR}/src/multi_stream.cpp
     ${QTNG_QT_DIR}/src/udp.cpp
+    ${QTNG_QT_DIR}/src/kcp.cpp
+    ${QTNG_QT_DIR}/src/utp.cpp
     ${QTNG_QT_DIR}/src/lmdb.cpp
     ${QTNG_QT_DIR}/src/gzip.cpp
     ${QTNG_QT_DIR}/src/pool.cpp

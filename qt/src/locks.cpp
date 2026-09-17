@@ -155,12 +155,19 @@ quint32 Condition::getting() const
 class EventPrivate
 {
 public:
-    qtng_core::Event core;
+    qtng_core::Event owned;
+    qtng_core::Event *core;
     Q_DECLARE_PUBLIC(Event)
     Event *q_ptr;
     explicit EventPrivate(Event *q)
-        : q_ptr(q)
+        : core(&owned)
+        , q_ptr(q)
     {
+    }
+
+    void attach(qtng_core::Event *external)
+    {
+        core = external ? external : &owned;
     }
 };
 
@@ -174,46 +181,52 @@ Event::~Event()
     delete d_ptr;
 }
 
+void Event::attachCore(void *coreEvent)
+{
+    Q_D(Event);
+    d->attach(static_cast<qtng_core::Event *>(coreEvent));
+}
+
 bool Event::tryWait(quint32 msecs)
 {
     Q_D(Event);
-    return d->core.tryWait(msecs);
+    return d->core->tryWait(msecs);
 }
 
 void Event::set()
 {
     Q_D(Event);
-    d->core.set();
+    d->core->set();
 }
 
 void Event::clear()
 {
     Q_D(Event);
-    d->core.clear();
+    d->core->clear();
 }
 
 bool Event::isSet() const
 {
     Q_D(const Event);
-    return d->core.isSet();
+    return d->core->isSet();
 }
 
 quint32 Event::getting() const
 {
     Q_D(const Event);
-    return d->core.getting();
+    return d->core->getting();
 }
 
 void Event::link(Event &other)
 {
     Q_D(Event);
-    d->core.link(other.d_func()->core);
+    d->core->link(*other.d_func()->core);
 }
 
 void Event::unlink(Event &other)
 {
     Q_D(Event);
-    d->core.unlink(other.d_func()->core);
+    d->core->unlink(*other.d_func()->core);
 }
 
 class ThreadEventPrivate

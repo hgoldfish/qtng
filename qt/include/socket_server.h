@@ -2,7 +2,7 @@
 #define QTNG_SOCKET_SERVER_H
 
 #include "kcp.h"
-#include "kcp_base.h"
+#include "utp.h"
 #include "socket_utils.h"
 #include "coroutine_utils.h"
 #ifndef QTNG_NO_CRYPTO
@@ -131,14 +131,14 @@ void KcpServer<RequestHandler>::processRequest(QSharedPointer<SocketLike> reques
 }
 
 template<typename RequestHandler>
-class KcpServerV2 : public BaseStreamServer
+class UtpServer : public BaseStreamServer
 {
 public:
-    KcpServerV2(const HostAddress &serverAddress, quint16 serverPort)
+    UtpServer(const HostAddress &serverAddress, quint16 serverPort)
         : BaseStreamServer(serverAddress, serverPort)
     {
     }
-    KcpServerV2(quint16 serverPort)
+    UtpServer(quint16 serverPort)
         : BaseStreamServer(HostAddress::Any, serverPort)
     {
     }
@@ -148,13 +148,13 @@ protected:
 };
 
 template<typename RequestHandler>
-QSharedPointer<SocketLike> KcpServerV2<RequestHandler>::serverCreate()
+QSharedPointer<SocketLike> UtpServer<RequestHandler>::serverCreate()
 {
-    return createKcpServer(serverAddress(), serverPort(), 0);
+    return asSocketLike(UtpSocket::createServer(serverAddress(), serverPort(), 0));
 }
 
 template<typename RequestHandler>
-void KcpServerV2<RequestHandler>::processRequest(QSharedPointer<SocketLike> request)
+void UtpServer<RequestHandler>::processRequest(QSharedPointer<SocketLike> request)
 {
     RequestHandler handler;
     handler.request = request;

@@ -122,5 +122,8 @@ API coverage
 ------------
 
 The binding exposes the full qtng 2.0 public surface with Qt types, plus 1.0 compatibility
-(``qtnetworkng.h``, ``kcp.h`` aliases, ``pool.h``, etc.). New 2.0 modules include
+(``qtnetworkng.h``, ``pool.h``, etc.). Header layout matches core: ``udp.h`` is
+``DatagramLink`` / ``DatagramPath``; ``kcp.h`` is ``KcpStream`` / ``KcpSocket`` (and
+``createKcpConnection``); ``utp.h`` is ``UtpStream`` / ``UtpSocket`` (and
+``createUtpConnection``). New 2.0 modules include
 ``bencode``, ``kademlia``, ``noise``, ``multi_stream``, and ``udp``.
