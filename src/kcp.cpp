@@ -385,6 +385,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
             tuner.srttMin += max(1u, (cur - tuner.srttMin) / 16);
         }
     }
+    bool haveNewReorder = false;
     if (kcp->reorder_samples > 0) {
         tuner.reorderUs[tuner.reorderNext] = kcp->reorder_us_max;
         tuner.reorderNext = (tuner.reorderNext + 1) % kReorderSampleCap;
@@ -393,6 +394,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
         }
         kcp->reorder_us_max = 0;
         kcp->reorder_samples = 0;
+        haveNewReorder = true;
     }
 
     const uint32_t srttForBdp = tuner.srttMin > 0 ? tuner.srttMin : max(srtt, 1u);
@@ -445,10 +447,11 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     sendBudgetSegs = max(8u, min(sendBudgetSegs, memoryCapSegs));
     recomputeWaterLine();
 
-    // Adapt fastresend only from observed reorder, and step at most ±2 per
-    // period. A single near-zero P95 used to jump 16→1 in one write because
-    // |16-1|>=2 satisfied the old hysteresis check.
-    if (tuner.reorderCount > 0) {
+    // Adapt fastresend only when this period produced new reorder evidence,
+    // stepping at most ±2 toward the P95-derived target. Gating on the
+    // cumulative ring (reorderCount>0) used to keep walking toward a stale
+    // near-zero P95 long after reorder stopped.
+    if (haveNewReorder) {
         const uint32_t reorderMs = reorderP95Us(tuner) / 1000u;
         const uint32_t interval = max(kcp->interval, 1u);
         const uint32_t target = min(32u, max(1u, reorderMs / interval + 1u));
