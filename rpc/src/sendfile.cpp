@@ -20,17 +20,10 @@ namespace rpc {
 
 namespace {
 const std::int64_t BLOCK_SIZE = 1024 * 32;
-
-// DataChannel::setCapacity is in packets, not bytes. Keep ~8 MiB of
-// in-flight payload (the historical lafrpc window).
-std::uint32_t streamCapacityPackets(const std::shared_ptr<qtng::DataChannel> &channel)
-{
-    std::uint32_t hint = channel->payloadSizeHint();
-    if (hint == 0) {
-        hint = static_cast<std::uint32_t>(BLOCK_SIZE);
-    }
-    return std::max<std::uint32_t>(16, (8u * 1024u * 1024u) / hint);
-}
+// DataChannel::setCapacity is in packets. This file sends BLOCK_SIZE chunks,
+// so 8 MiB of in-flight payload is 8 MiB / 32 KiB packets.
+const std::uint32_t STREAM_WINDOW_PACKETS =
+        static_cast<std::uint32_t>((8 * 1024 * 1024) / BLOCK_SIZE);
 
 std::int64_t fileTimeToMSecs(const std::filesystem::file_time_type &t)
 {
@@ -107,7 +100,7 @@ bool RpcFilePrivate::sendfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFi
         }
         return true;
     }
-    q->channel->setCapacity(streamCapacityPackets(q->channel));
+    q->channel->setCapacity(STREAM_WINDOW_PACKETS);
 
     std::uint64_t count = 0;
     std::string buf(static_cast<std::size_t>(BLOCK_SIZE), '\0');
@@ -150,7 +143,7 @@ bool RpcFilePrivate::recvfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFi
         }
         return true;
     }
-    q->channel->setCapacity(streamCapacityPackets(q->channel));
+    q->channel->setCapacity(STREAM_WINDOW_PACKETS);
 
     std::uint64_t count = static_cast<std::uint64_t>(header.size());
     std::unique_ptr<qtng::MessageDigest> hasher;

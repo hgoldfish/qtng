@@ -102,8 +102,8 @@ bool NativeRpcDirFileProvider::updateTimes(const std::string &filePath, const qt
 
 namespace {
 
-// DataChannel::setCapacity is in packets, not bytes. Keep ~8 MiB of
-// in-flight payload (the historical lafrpc window).
+// DataChannel::setCapacity is in packets. This file sends payloadSizeHint
+// chunks (32 KiB if the hint is missing), so size the window to ~8 MiB.
 std::uint32_t streamCapacityPackets(const std::shared_ptr<qtng::DataChannel> &channel)
 {
     std::uint32_t hint = channel->payloadSizeHint();
