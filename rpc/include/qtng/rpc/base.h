@@ -210,7 +210,7 @@ public:
             return;
         }
         std::lock_guard<std::mutex> lock(mutex);
-        for (std::vector<std::shared_ptr<Callback>>::iterator it = slots.begin(); it != slots.end(); ++it) {
+        for (typename std::vector<std::shared_ptr<Callback>>::iterator it = slots.begin(); it != slots.end(); ++it) {
             if (*it == conn) {
                 slots.erase(it);
                 return;

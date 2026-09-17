@@ -94,7 +94,7 @@ shared_ptr<UseStream> convertUseStream(const Value &v)
 {
     if (v.type() == Value::Type::Object) {
         shared_ptr<Serializable> s = v.asObject();
-        for (UseStreamConvertor &f : detail::useStreamConvertors()) {
+        for (detail::UseStreamConvertor &f : detail::useStreamConvertors()) {
             shared_ptr<UseStream> p = f(s);
             if (p) {
                 return p;
@@ -109,7 +109,7 @@ void raiseRpcRemoteException(const shared_ptr<RpcRemoteException> &e)
     if (!e) {
         return;
     }
-    for (ExceptionRaiser &f : detail::exceptionRaisers()) {
+    for (detail::ExceptionRaiser &f : detail::exceptionRaisers()) {
         f(e);
     }
     e->raise();
