@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -99,6 +100,21 @@ bool NativeRpcDirFileProvider::updateTimes(const std::string &filePath, const qt
     return std::filesystem::exists(fullFilePath, ec);
 }
 
+namespace {
+
+// DataChannel::setCapacity is in packets, not bytes. Keep ~8 MiB of
+// in-flight payload (the historical lafrpc window).
+std::uint32_t streamCapacityPackets(const std::shared_ptr<qtng::DataChannel> &channel)
+{
+    std::uint32_t hint = channel->payloadSizeHint();
+    if (hint == 0) {
+        hint = 32 * 1024;
+    }
+    return std::max<std::uint32_t>(16, (8u * 1024u * 1024u) / hint);
+}
+
+}  // namespace
+
 class RpcDirPrivate
 {
 public:
@@ -144,7 +160,7 @@ bool RpcDirPrivate::writeTo(std::shared_ptr<RpcDirFileProvider> provider, RpcDir
     if (!q->channel) {
         return false;
     }
-    q->channel->setCapacity(8 * 1024 * 1024);
+    q->channel->setCapacity(streamCapacityPackets(q->channel));
     std::uint64_t totalWritten = 0;
     for (const RpcDirFileEntry &entry : entries) {
         if (entry.isdir) {
@@ -222,7 +238,7 @@ bool RpcDirPrivate::readFrom(std::shared_ptr<RpcDirFileProvider> provider, RpcDi
     if (!q->channel) {
         return false;
     }
-    q->channel->setCapacity(8 * 1024 * 1024);
+    q->channel->setCapacity(streamCapacityPackets(q->channel));
     std::uint64_t totalRead = 0;
     std::string buf(1024 * 64, '\0');
     for (const RpcDirFileEntry &entry : entries) {
