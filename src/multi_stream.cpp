@@ -267,7 +267,10 @@ public:
     shared_ptr<MultiStreamSlave> peekSlave(uint32_t streamNumber);
 
     void abort(MultiStreamMaster::StreamError reason);
-    bool isBroken() const { return error != MultiStreamMaster::NoError || !connection->isValid(); }
+    bool isBroken() const
+    {
+        return error != MultiStreamMaster::NoError || !connection || !connection->isValid();
+    }
     bool sendPacketRaw(uint32_t streamNumber, string packet, BlockFlag blocking);
     bool enqueueCloseBarrier(uint32_t streamNumber, shared_ptr<ValueEvent<bool>> done);
     void enqueueCommand(string packet);
@@ -478,6 +481,11 @@ MultiStreamMasterPrivate::MultiStreamMasterPrivate(shared_ptr<SocketLike> connec
         nextStreamNumber = 0xffffffff;
     } else {
         nextStreamNumber = 1;
+    }
+    // 没有底层连接就不要派收发协程：否则 doReceive 会在空指针上 recvall。
+    if (!connection) {
+        error = MultiStreamMaster::ProgrammingError;
+        return;
     }
     operations->spawnWithName("receiving", [this] { this->doReceive(); });
     operations->spawnWithName("sending", [this] { this->doSend(); });
@@ -927,7 +935,9 @@ void MultiStreamMasterPrivate::abort(MultiStreamMaster::StreamError reason)
     }
     error = reason;
     Coroutine *current = Coroutine::current();
-    connection->abort();
+    if (connection) {
+        connection->abort();
+    }
 
     while (!commandQueue.isEmpty()) {
         commandQueue.get();
