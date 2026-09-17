@@ -14,7 +14,6 @@ struct Endpoint {
 };
 
 bool parseEndpoint(const std::string &text, Endpoint *endpoint, std::string *errorMessage);
-bool parseKcpMode(const std::string &modeStr, qtng::KcpSocket::Mode *mode, std::string *errorMessage);
 
 const char *kcptunVersion();
 

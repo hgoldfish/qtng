@@ -149,14 +149,6 @@ static ParserResult parseArguments(const string &configFilePath, JokerClientConf
         }
     }
 
-    if ((*server)->type == JokerServerConnection::Kcp) {
-        const string modeStr = settings.value("remote", "mode");
-        if (!parseKcpMode(modeStr, &(*server)->mode, errorMessage)) {
-            *errorMessage = "the remote kcp mode `" + modeStr + "` is unknown.";
-            return Failed;
-        }
-    }
-
     return Success;
 }
 

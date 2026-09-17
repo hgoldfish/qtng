@@ -279,6 +279,7 @@ struct IKCPSEG
 	IUINT32 rto;
 	IUINT32 fastack;
 	IUINT32 xmit;
+	IUINT32 first_fastack_ts;	// kcp->current when fastack first became non-zero
 	char data[1];
 };
 
@@ -294,6 +295,12 @@ struct IKCPCB
 	IINT32 rx_rttval, rx_srtt, rx_rto, rx_minrto;
 	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe;
 	IUINT32 current, interval, ts_flush, xmit;
+	IUINT32 xmit_fast;			// cumulative fast-retransmit count (vs xmit = RTO)
+	IUINT32 loss_rto;			// segments retired with xmit >= 2 (true loss)
+	IUINT32 reorder_retire;		// segments retired with xmit == 1 && fastack > 0
+	IUINT32 reorder_us_max;		// max reorder delay (us) in the current sample window
+	IUINT32 reorder_samples;	// samples contributing to reorder_us_max
+	IUINT32 sent_segs;			// cumulative segments first-sent (for loss-rate diffs)
 	IUINT32 nrcv_buf, nsnd_buf;
 	IUINT32 nrcv_que, nsnd_que;
 	IUINT32 nodelay, updated;
@@ -343,6 +350,10 @@ typedef struct IKCPCB ikcpcb;
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Probe flags for kcp->probe (also used by KcpStream after ikcp_wndsize).
+extern const IUINT32 IKCP_ASK_SEND;		// need to send IKCP_CMD_WASK
+extern const IUINT32 IKCP_ASK_TELL;		// need to send IKCP_CMD_WINS
 
 //---------------------------------------------------------------------
 // interface

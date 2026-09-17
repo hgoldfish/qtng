@@ -3907,16 +3907,31 @@ HTTP/2 的多流是为 Web 设计的：由客户端发起、一次请求一条�
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ``KcpStream``（头文件 ``qtng/kcp.h``）是传输无关的 KCP 会话核心：连接管理、
-listen/connect/accept、keepalive、发送队列水位与 Mode。它只做可靠字节流，不实现 ``SocketLike``，
-也不暴露 bind / 组播 / DNS / 原始 UDP 收发。
+listen/connect/accept、keepalive，以及自适应发送队列水位。它只做可靠字节流，不实现
+``SocketLike``，也不暴露 bind / 组播 / DNS / 原始 UDP 收发。
 
 底层通过精简的 ``DatagramLink``（``recvfrom`` / ``sendto`` / ``close`` / ``abort``）收发报文；
 对端身份用 ``DatagramPath`` 表示——它只是不透明路径键（``key()``），与 IP/端口无关，因此同一套
 会话逻辑可以跑在 UDP、ICMP 或其它自定义报文通道上。
 
-``Mode`` 包括 ``LargeDelayInternet``、``Internet``、``FastInternet``、``Ethernet``、
-``Loopback`` 与 ``AsymmetricInternet``（``ikcp_nodelay(..., resend=1, nc=0)``，适合非对称链路）。
-``KcpSocket::createConnection()`` 默认使用 ``AsymmetricInternet``；服务端通常仍用 ``Internet``。
+已删除 ``Mode`` / ``setMode``。构造时固定策略为 ``nodelay=1``、``interval=10``、
+``resend=16``、``nc=1``、``rx_minrto=30``、``dead_link=10``，MTU 默认 ``1400``。
+内部 Tuner 再根据 BDP 与乱序样本自适应 ``sendBudgetSegs`` / ``waterLine`` /
+``fastresend`` / ``rcv_wnd``。公开旋钮：
+
+* ``setSendBufferLimit`` / ``sendBufferLimit`` — 以**字节**计的内存预算
+  （经 ``mss+72`` 换算为段数）；生效水位为 ``min(BDP 额度, 该上限, rmt_wnd)``。
+  冷启动预算为 256 段。
+* ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU。
+  ``accept()`` 得到的 slave 在**创建时**快照 master 的 MTU；之后在 master 上
+  ``setPacketSize()`` 不会回灌到已有 slave。``waitsnd()>0`` 时拒绝修改。
+* ``setTearDownTime`` / ``tearDownTime`` — 空闲 / 排空超时。
+* ``stats()`` — 只读 ``KcpStreamStats``（waterLine、预算、重传计数、lossRate、
+  deliveryBps）。
+
+当某段重传次数达到 ``dead_link`` 时，``kcp->state`` 置为 ``-1``，``KcpStream``
+以 ``SocketTimeoutError``（``"KcpStream dead link."``）关闭。``ikcp_wndsize``
+将窗口钳制到 ``0xFFFF``；段/ACK 分配失败返回错误而不再 ``abort``。
 
 优雅 ``close()`` 最多等待 3 秒排空发送队列。``CLOSE`` 控制包仅在源 ``DatagramPath`` 与已记录
 对端路径一致时生效；其它路径发来的伪造关闭会被忽略。
@@ -3961,7 +3976,7 @@ ACK 打包进紧凑的 ``0x55`` ACKN 帧——``[conv(4)][cmd(1)=0x55][count(2)]
 ``accept`` 或 ``connect``，以及字节流 ``peek`` / ``recv`` / ``recvall`` / ``send`` /
 ``sendall``、``busy`` / ``notBusy``、``peerPath``。
 
-它**不**提供 KCP 专有 API（``Mode``、``setMode``、``setSendQueueSize``、``setTearDownTime``、
+它**不**提供 KCP 专有 API（``setSendBufferLimit``、``stats``、``setTearDownTime``、
 ikcp MTU 相关接口），而是使用 BEP-29 / LEDBAT 参数：
 
 * ``setDelayTarget`` / ``delayTarget`` — LEDBAT 目标单向时延（默认 100 ms）
@@ -3980,7 +3995,7 @@ ikcp MTU 相关接口），而是使用 BEP-29 / LEDBAT 参数：
 
 ``UtpSocket``（``qtng/utp.h``）是 ``UdpDatagramLink`` + ``UtpStream`` 的薄 UDP 门面，用法对齐
 ``KcpSocket``。可用 ``wrapUtpStreamAsSocket``、``asSocketLike`` 与 ``UtpServer``。工厂
-``UtpSocket::createConnection`` / ``createServer`` 不接受 KCP ``Mode`` 参数。
+``UtpSocket::createConnection`` / ``createServer`` 不接受 KCP 相关的 mode 参数。
 
 8.2.2 QuicConnection 与 QuicStream（QUIC 传输层 MVP）
 ++++++++++++++++++++++++++++++++++++++++++++++++++++

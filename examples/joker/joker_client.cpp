@@ -59,7 +59,6 @@ JokerServerConnection::JokerServerConnection()
     , remoteAddress("127.0.0.1")
     , remotePort(8000)
     , mtu(1400)
-    , mode(KcpSocket::Internet)
 {
 }
 
@@ -104,7 +103,6 @@ bool JokerServerConnection::connectKcp(shared_ptr<Cipher> templateCipher)
     if (!kcp) {
         return false;
     }
-    kcp->setMode(mode);
     kcp->setUdpPacketSize(mtu);
     shared_ptr<SocketLike> encryptedConnection = encrypted(templateCipher, asSocketLike(kcp));
     channel.reset(new SocketChannel(encryptedConnection, DataChannelPole::PositivePole));

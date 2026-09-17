@@ -2,11 +2,10 @@
 
 #include <cstdlib>
 
-#include "qtng/utils/string_utils.h"
+#include "qtng/hostaddress.h"
 
 using namespace std;
 using namespace qtng;
-using namespace qtng::utils;
 
 const char *kcptunVersion()
 {
@@ -93,25 +92,4 @@ bool parseEndpoint(const string &text, Endpoint *endpoint, string *errorMessage)
 
     endpoint->host = hostPart;
     return true;
-}
-
-bool parseKcpMode(const string &modeStr, KcpSocket::Mode *mode, string *errorMessage)
-{
-    const string normalized = toLower(modeStr);
-    if (normalized == "fast") {
-        *mode = KcpSocket::FastInternet;
-        return true;
-    }
-    if (normalized == "normal") {
-        *mode = KcpSocket::Internet;
-        return true;
-    }
-    if (normalized == "asymmetric") {
-        *mode = KcpSocket::AsymmetricInternet;
-        return true;
-    }
-    if (errorMessage) {
-        *errorMessage = "mode `" + modeStr + "` is unknown. choices are `fast`, `normal` and `asymmetric`.";
-    }
-    return false;
 }

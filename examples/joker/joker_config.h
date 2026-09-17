@@ -185,37 +185,4 @@ inline bool isHostAddress(const std::string &str)
     return isDomainName(str);
 }
 
-inline bool parseKcpMode(const std::string &modeStr, qtng::KcpSocket::Mode *mode, std::string *errorMessage)
-{
-    const std::string normalized = qtng::utils::toLower(modeStr);
-    if (normalized.empty() || normalized == "normal") {
-        *mode = qtng::KcpSocket::Internet;
-        return true;
-    }
-    if (normalized == "slow") {
-        *mode = qtng::KcpSocket::LargeDelayInternet;
-        return true;
-    }
-    if (normalized == "fast") {
-        *mode = qtng::KcpSocket::FastInternet;
-        return true;
-    }
-    if (normalized == "fast2") {
-        *mode = qtng::KcpSocket::Ethernet;
-        return true;
-    }
-    if (normalized == "fast3") {
-        *mode = qtng::KcpSocket::Loopback;
-        return true;
-    }
-    if (normalized == "asymmetric") {
-        *mode = qtng::KcpSocket::AsymmetricInternet;
-        return true;
-    }
-    if (errorMessage) {
-        *errorMessage = "kcp mode `" + modeStr + "` is unknown.";
-    }
-    return false;
-}
-
 #endif

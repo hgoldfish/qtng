@@ -7,8 +7,6 @@
 
 QTNETWORKNG_NAMESPACE_BEGIN
 
-typedef KcpSocket::Mode KcpMode;
-
 class KcpSocketLikeHelper
 {
 public:
@@ -17,8 +15,7 @@ public:
     bool isValid() const;
     void setSocket(QSharedPointer<SocketLike> socket);
     quint32 payloadSizeHint() const;
-    void setMode(KcpMode mode);
-    void setSendQueueSize(quint32 sendQueueSize);
+    void setSendBufferLimit(quint64 bytes);
     void setUdpPacketSize(quint32 udpPacketSize);
     void setTearDownTime(float secs);
     bool setFilter(std::function<bool(char *, qint32 *, HostAddress *, quint16 *)> callback);
@@ -33,14 +30,11 @@ protected:
 };
 
 QSharedPointer<SocketLike> createKcpConnection(const HostAddress &host, quint16 port, Socket::SocketError *error = nullptr,
-                                               int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol,
-                                               KcpMode mode = KcpSocket::AsymmetricInternet);
+                                               int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
 QSharedPointer<SocketLike> createKcpConnection(const QString &hostName, quint16 port, Socket::SocketError *error = nullptr,
                                                QSharedPointer<SocketDnsCache> dnsCache = QSharedPointer<SocketDnsCache>(),
-                                               int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol,
-                                               KcpMode mode = KcpSocket::AsymmetricInternet);
-QSharedPointer<SocketLike> createKcpServer(const HostAddress &host, quint16 port, int backlog = 50,
-                                           KcpMode mode = KcpSocket::Internet);
+                                               int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
+QSharedPointer<SocketLike> createKcpServer(const HostAddress &host, quint16 port, int backlog = 50);
 
 QTNETWORKNG_NAMESPACE_END
 

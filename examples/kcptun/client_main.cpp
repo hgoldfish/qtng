@@ -17,19 +17,17 @@ namespace {
 
 const char *clientUsage =
     "Usage:\n"
-    "  kcptun-client -l \":12948\" -r \"HOST:29900\" [-mode fast|normal]\n"
+    "  kcptun-client -l \":12948\" -r \"HOST:29900\"\n"
     "\n"
     "Options:\n"
     "  -l, --localaddr   local TCP listen address (default: \":12948\")\n"
     "  -r, --remoteaddr  kcp server address (required)\n"
-    "  -mode             kcp profile: fast, normal (default: fast)\n"
     "  -h, --help        show help\n"
     "  -v, --version     print version\n";
 
 struct ClientConfig {
     Endpoint local;
     Endpoint remote;
-    KcpSocket::Mode mode = KcpSocket::FastInternet;
 };
 
 struct ClientContext {
@@ -77,7 +75,6 @@ ParserResult parseArguments(int argc, char **argv, ClientConfig *config, string 
     config->local.address = HostAddress(HostAddress::Any);
     config->local.port = 12948;
     config->remote = Endpoint();
-    config->mode = KcpSocket::FastInternet;
 
     bool hasRemote = false;
 
@@ -125,13 +122,6 @@ ParserResult parseArguments(int argc, char **argv, ClientConfig *config, string 
                 return Failed;
             }
             hasRemote = true;
-        } else if (arg == "-mode" || arg == "--mode") {
-            if (!takeValue(arg)) {
-                return Failed;
-            }
-            if (!parseKcpMode(value, &config->mode, errorMessage)) {
-                return Failed;
-            }
         } else {
             *errorMessage = "unknown argument `" + arg + "`.\n" + clientUsage;
             return Failed;
@@ -157,7 +147,6 @@ shared_ptr<KcpSocket> connectRemote(const ClientConfig &config, string *errorMes
         *errorMessage = "failed to connect kcp server.";
         return shared_ptr<KcpSocket>();
     }
-    kcp->setMode(config.mode);
     return kcp;
 }
 

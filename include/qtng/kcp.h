@@ -13,18 +13,21 @@
 
 namespace qtng {
 
+struct KcpStreamStats {
+    std::uint32_t waterLine;       // effective send watermark (segments)
+    std::uint32_t sendBudgetSegs;  // Tuner BDP budget (segments)
+    std::uint32_t memoryCapSegs;   // memory budget converted to segments
+    std::uint32_t rtoResends;      // cumulative RTO retransmits (kcp->xmit)
+    std::uint32_t fastResends;     // cumulative fast retransmits (kcp->xmit_fast)
+    std::uint32_t fastresend;      // current fastresend threshold
+    double lossRate;               // Tuner estimate
+    double deliveryBps;            // Tuner estimate (bits/s)
+};
+
 class KcpStreamPrivate;
 class KcpStream
 {
 public:
-    enum Mode {
-        LargeDelayInternet,
-        Internet,
-        FastInternet,
-        Ethernet,
-        Loopback,
-        AsymmetricInternet,
-    };
     // Wire framing always carries sessionId on KcpStream control commands
     // (CREATE_MULTIPATH / CLOSE / KEEPALIVE): [1-byte type][4-byte BE sessionId][pad...]
     //
@@ -54,15 +57,19 @@ public:
     void setProtocolVersion(std::uint8_t version);
     std::uint8_t protocolVersion() const;
 
-    void setMode(Mode mode);
-    Mode mode() const;
-    void setSendQueueSize(std::uint32_t sendQueueSize);
-    std::uint32_t sendQueueSize() const;
+    // Memory budget for the send queue (bytes). Converted to segments via
+    // (mss + 72). The effective watermark is min(BDP budget, this limit, rmt_wnd).
+    void setSendBufferLimit(std::uint64_t bytes);
+    std::uint64_t sendBufferLimit() const;
+    // MTU for ikcp segments. Default 1400. Accept()-ed slaves snapshot the
+    // master's MTU at construction time; later setPacketSize() on the master
+    // does not propagate to already-accepted slaves. Refused while waitsnd()>0.
     void setPacketSize(std::uint32_t packetSize);
     std::uint32_t packetSize() const;
     std::uint32_t payloadSizeHint() const;
     void setTearDownTime(float secs);
     float tearDownTime() const;
+    KcpStreamStats stats() const;
     Event busy;
     Event notBusy;
 public:
@@ -93,7 +100,7 @@ public:
     std::int32_t send(const std::string &data);
     std::int32_t sendall(const std::string &data);
 private:
-    KcpStream(KcpStreamPrivate *d, const DatagramPath &remote, Mode mode);
+    KcpStream(KcpStreamPrivate *d, const DatagramPath &remote);
     friend class SlaveKcpStreamPrivate;
     friend class MasterKcpStreamPrivate;
 private:
@@ -105,29 +112,19 @@ class KcpSocketPrivate;
 class KcpSocket
 {
 public:
-    enum Mode {
-        LargeDelayInternet,
-        Internet,
-        FastInternet,
-        Ethernet,
-        Loopback,
-        AsymmetricInternet,
-    };
-public:
     explicit KcpSocket(HostAddress::NetworkLayerProtocol protocol = HostAddress::IPv4Protocol);
     explicit KcpSocket(std::intptr_t socketDescriptor);
     explicit KcpSocket(std::shared_ptr<Socket> rawSocket);
     virtual ~KcpSocket();
 public:
-    void setMode(Mode mode);
-    Mode mode() const;
-    void setSendQueueSize(std::uint32_t sendQueueSize);
-    std::uint32_t sendQueueSize() const;
+    void setSendBufferLimit(std::uint64_t bytes);
+    std::uint64_t sendBufferLimit() const;
     void setUdpPacketSize(std::uint32_t udpPacketSize);
     std::uint32_t udpPacketSize() const;
     std::uint32_t payloadSizeHint() const;
     void setTearDownTime(float secs);
     float tearDownTime() const;
+    KcpStreamStats stats() const;
 public:
     Socket::SocketError error() const;
     std::string errorString() const;
@@ -184,12 +181,10 @@ public:
     }
 
     static KcpSocket *createConnection(const HostAddress &host, std::uint16_t port, Socket::SocketError *error = nullptr,
-                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol,
-                                       Mode mode = AsymmetricInternet);
+                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
     static KcpSocket *createConnection(const std::string &hostName, std::uint16_t port, Socket::SocketError *error = nullptr,
                                        std::shared_ptr<SocketDnsCache> dnsCache = std::shared_ptr<SocketDnsCache>(),
-                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol,
-                                       Mode mode = AsymmetricInternet);
+                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
     // if backlog == 0, do not bind and listen.
     static KcpSocket *createServer(const HostAddress &host, std::uint16_t port, int backlog = 50);
 private:

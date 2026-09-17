@@ -14,24 +14,13 @@ class KcpSocketPrivate;
 class KcpSocket
 {
 public:
-    enum Mode {
-        LargeDelayInternet,
-        Internet,
-        FastInternet,
-        Ethernet,
-        Loopback,
-        AsymmetricInternet,
-    };
-public:
     explicit KcpSocket(HostAddress::NetworkLayerProtocol protocol = HostAddress::IPv4Protocol);
     explicit KcpSocket(qintptr socketDescriptor);
     explicit KcpSocket(QSharedPointer<Socket> rawSocket);
     virtual ~KcpSocket();
 public:
-    void setMode(Mode mode);
-    Mode mode() const;
-    void setSendQueueSize(quint32 sendQueueSize);
-    quint32 sendQueueSize() const;
+    void setSendBufferLimit(quint64 bytes);
+    quint64 sendBufferLimit() const;
     void setUdpPacketSize(quint32 udpPacketSize);
     quint32 udpPacketSize() const;
     quint32 payloadSizeHint() const;
@@ -93,12 +82,10 @@ public:
     }
 
     static KcpSocket *createConnection(const HostAddress &host, quint16 port, Socket::SocketError *error = nullptr,
-                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol,
-                                       Mode mode = AsymmetricInternet);
+                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
     static KcpSocket *createConnection(const QString &hostName, quint16 port, Socket::SocketError *error = nullptr,
                                        QSharedPointer<SocketDnsCache> dnsCache = QSharedPointer<SocketDnsCache>(),
-                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol,
-                                       Mode mode = AsymmetricInternet);
+                                       int allowProtocol = HostAddress::IPv4Protocol | HostAddress::IPv6Protocol);
     static KcpSocket *createServer(const HostAddress &host, quint16 port, int backlog = 50);
 private:
     KcpSocket(KcpSocketPrivate *d);

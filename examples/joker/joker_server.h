@@ -22,7 +22,6 @@ public:
 
     qtng::HostAddress kcpAddress;
     std::uint16_t kcpPort;
-    qtng::KcpSocket::Mode kcpMode;
 
     qtng::HostAddress httpAddress;
     std::uint16_t httpPort;

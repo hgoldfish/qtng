@@ -19,14 +19,13 @@ namespace {
 
 const char *serverUsage =
     "Usage:\n"
-    "  kcptun-server -t \"127.0.0.1:22\" [-mode fast|normal]\n"
-    "  kcptun-server -r \"/path/to/webroot\" [-mode fast|normal]\n"
+    "  kcptun-server -t \"127.0.0.1:22\"\n"
+    "  kcptun-server -r \"/path/to/webroot\"\n"
     "\n"
     "Options:\n"
     "  -l, --listen   kcp server listen address (default: \":8000\")\n"
     "  -t, --target   target tcp server address (default: \"127.0.0.1:22\")\n"
     "  -r, --webroot  serve static files from this directory instead of -t\n"
-    "  -mode          kcp profile: fast, normal (default: fast)\n"
     "  -h, --help     show help\n"
     "  -v, --version  print version\n"
     "\n"
@@ -39,7 +38,6 @@ struct ServerConfig {
     Endpoint target;
     PosixPath webRoot;
     bool httpdMode = false;
-    KcpSocket::Mode mode = KcpSocket::FastInternet;
 };
 
 struct ServerContext {
@@ -86,7 +84,6 @@ protected:
         if (!kcp) {
             return;
         }
-        kcp->setMode(ctx->config.mode);
 
         MultiStreamMaster master(kcp, MultiStreamNegativePole);
         master.setKeepaliveTimeout(30.0f);
@@ -129,7 +126,6 @@ ParserResult parseArguments(int argc, char **argv, ServerConfig *config, string 
     config->target.port = 22;
     config->webRoot = PosixPath();
     config->httpdMode = false;
-    config->mode = KcpSocket::FastInternet;
 
     bool hasTarget = false;
     bool hasWebRoot = false;
@@ -189,13 +185,6 @@ ParserResult parseArguments(int argc, char **argv, ServerConfig *config, string 
             }
             config->webRoot = root;
             hasWebRoot = true;
-        } else if (arg == "-mode" || arg == "--mode") {
-            if (!takeValue(arg)) {
-                return Failed;
-            }
-            if (!parseKcpMode(value, &config->mode, errorMessage)) {
-                return Failed;
-            }
         } else {
             *errorMessage = "unknown argument `" + arg + "`.\n" + serverUsage;
             return Failed;

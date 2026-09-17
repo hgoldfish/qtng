@@ -209,24 +209,14 @@ KcpSocket::~KcpSocket()
     delete d_ptr;
 }
 
-void KcpSocket::setMode(Mode mode)
+void KcpSocket::setSendBufferLimit(quint64 bytes)
 {
-    d_ptr->core->setMode(static_cast<qtng_core::KcpSocket::Mode>(mode));
+    d_ptr->core->setSendBufferLimit(bytes);
 }
 
-KcpSocket::Mode KcpSocket::mode() const
+quint64 KcpSocket::sendBufferLimit() const
 {
-    return static_cast<Mode>(d_ptr->core->mode());
-}
-
-void KcpSocket::setSendQueueSize(quint32 sendQueueSize)
-{
-    d_ptr->core->setSendQueueSize(sendQueueSize);
-}
-
-quint32 KcpSocket::sendQueueSize() const
-{
-    return d_ptr->core->sendQueueSize();
+    return d_ptr->core->sendBufferLimit();
 }
 
 void KcpSocket::setUdpPacketSize(quint32 udpPacketSize)
@@ -482,12 +472,11 @@ qint32 KcpSocket::udpSend(const char *data, qint32 size, const HostAddress &addr
 }
 
 KcpSocket *KcpSocket::createConnection(const HostAddress &host, quint16 port, Socket::SocketError *error,
-                                       int allowProtocol, Mode mode)
+                                       int allowProtocol)
 {
     qtng_core::Socket::SocketError coreError = qtng_core::Socket::UnknownSocketError;
     qtng_core::KcpSocket *raw = qtng_core::KcpSocket::createConnection(
-            toCoreAddress(host), port, error ? &coreError : nullptr, allowProtocol,
-            static_cast<qtng_core::KcpSocket::Mode>(mode));
+            toCoreAddress(host), port, error ? &coreError : nullptr, allowProtocol);
     if (error) {
         *error = static_cast<Socket::SocketError>(coreError);
     }
@@ -498,12 +487,11 @@ KcpSocket *KcpSocket::createConnection(const HostAddress &host, quint16 port, So
 }
 
 KcpSocket *KcpSocket::createConnection(const QString &hostName, quint16 port, Socket::SocketError *error,
-                                       QSharedPointer<SocketDnsCache> dnsCache, int allowProtocol, Mode mode)
+                                       QSharedPointer<SocketDnsCache> dnsCache, int allowProtocol)
 {
     qtng_core::Socket::SocketError coreError = qtng_core::Socket::UnknownSocketError;
     qtng_core::KcpSocket *raw = qtng_core::KcpSocket::createConnection(
-            toStdString(hostName), port, error ? &coreError : nullptr, dnsCacheCoreOf(dnsCache.data()), allowProtocol,
-            static_cast<qtng_core::KcpSocket::Mode>(mode));
+            toStdString(hostName), port, error ? &coreError : nullptr, dnsCacheCoreOf(dnsCache.data()), allowProtocol);
     if (error) {
         *error = static_cast<Socket::SocketError>(coreError);
     }
@@ -1028,19 +1016,11 @@ quint32 KcpSocketLikeHelper::payloadSizeHint() const
     return kcp ? kcp->payloadSizeHint() : 0;
 }
 
-void KcpSocketLikeHelper::setMode(KcpMode mode)
+void KcpSocketLikeHelper::setSendBufferLimit(quint64 bytes)
 {
     QSharedPointer<KcpSocket> kcp = convertSocketLikeToKcpSocket(socket);
     if (kcp) {
-        kcp->setMode(mode);
-    }
-}
-
-void KcpSocketLikeHelper::setSendQueueSize(quint32 sendQueueSize)
-{
-    QSharedPointer<KcpSocket> kcp = convertSocketLikeToKcpSocket(socket);
-    if (kcp) {
-        kcp->setSendQueueSize(sendQueueSize);
+        kcp->setSendBufferLimit(bytes);
     }
 }
 
@@ -1108,24 +1088,21 @@ QVariant KcpSocketLikeHelper::option(Socket::SocketOption option) const
 }
 
 QSharedPointer<SocketLike> createKcpConnection(const HostAddress &host, quint16 port, Socket::SocketError *error,
-                                               int allowProtocol, KcpMode mode)
+                                               int allowProtocol)
 {
-    return asSocketLike(QSharedPointer<KcpSocket>(KcpSocket::createConnection(host, port, error, allowProtocol, mode)));
+    return asSocketLike(QSharedPointer<KcpSocket>(KcpSocket::createConnection(host, port, error, allowProtocol)));
 }
 
 QSharedPointer<SocketLike> createKcpConnection(const QString &hostName, quint16 port, Socket::SocketError *error,
-                                                 QSharedPointer<SocketDnsCache> dnsCache, int allowProtocol, KcpMode mode)
+                                                 QSharedPointer<SocketDnsCache> dnsCache, int allowProtocol)
 {
     return asSocketLike(QSharedPointer<KcpSocket>(
-            KcpSocket::createConnection(hostName, port, error, dnsCache, allowProtocol, mode)));
+            KcpSocket::createConnection(hostName, port, error, dnsCache, allowProtocol)));
 }
 
-QSharedPointer<SocketLike> createKcpServer(const HostAddress &host, quint16 port, int backlog, KcpMode mode)
+QSharedPointer<SocketLike> createKcpServer(const HostAddress &host, quint16 port, int backlog)
 {
     QSharedPointer<KcpSocket> server(QSharedPointer<KcpSocket>(KcpSocket::createServer(host, port, backlog)));
-    if (server) {
-        server->setMode(mode);
-    }
     return asSocketLike(server);
 }
 

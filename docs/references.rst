@@ -4265,18 +4265,35 @@ recommended above.
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ``KcpStream`` (header ``qtng/kcp.h``) is the transport-agnostic KCP session core:
-connection management, listen/connect/accept, keepalive, send-queue watermarks and Mode.
-It is a reliable byte stream only — no ``SocketLike`` adapter, and no bind / multicast / DNS /
-raw UDP I/O.
+connection management, listen/connect/accept, keepalive, and adaptive send-queue
+watermarks. It is a reliable byte stream only — no ``SocketLike`` adapter, and no
+bind / multicast / DNS / raw UDP I/O.
 
 I/O goes through a minimal ``DatagramLink`` (``recvfrom`` / ``sendto`` / ``close`` / ``abort``).
 Peers are identified by ``DatagramPath``, an opaque path key (``key()``) not tied to IP/port, so the
 same session logic can run over UDP, ICMP, or other custom datagram transports.
 
-``Mode`` includes ``LargeDelayInternet``, ``Internet``, ``FastInternet``, ``Ethernet``,
-``Loopback``, and ``AsymmetricInternet`` (``ikcp_nodelay(..., resend=1, nc=0)``, suited to
-asymmetric links). ``KcpSocket::createConnection()`` defaults to ``AsymmetricInternet``;
-servers typically keep ``Internet``.
+There is no ``Mode`` / ``setMode`` enum. Fixed policy in the constructor is
+``nodelay=1``, ``interval=10``, ``resend=16``, ``nc=1``, ``rx_minrto=30``,
+``dead_link=10``, MTU default ``1400``. An internal Tuner then adapts
+``sendBudgetSegs`` / ``waterLine`` / ``fastresend`` / ``rcv_wnd`` from BDP and
+reorder samples. Public knobs:
+
+* ``setSendBufferLimit`` / ``sendBufferLimit`` — memory budget in **bytes**
+  (converted to segments via ``mss+72``); effective watermark is
+  ``min(BDP budget, this limit, rmt_wnd)``. Cold-start budget is 256 segments.
+* ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU.
+  Accept()-ed slaves **snapshot** the master's MTU at construction; later
+  ``setPacketSize()`` on the master does not propagate to existing slaves.
+  Refused while ``waitsnd()>0``.
+* ``setTearDownTime`` / ``tearDownTime`` — idle / drain timeout.
+* ``stats()`` — read-only ``KcpStreamStats`` (waterLine, budgets, resend
+  counters, lossRate, deliveryBps).
+
+When a segment hits ``dead_link`` retransmits, ``kcp->state`` becomes ``-1`` and
+``KcpStream`` closes with ``SocketTimeoutError`` (``"KcpStream dead link."``).
+``ikcp_wndsize`` clamps windows to ``0xFFFF``; OOM on segment/ACK allocation
+returns an error instead of aborting.
 
 Graceful ``close()`` waits up to 3 seconds for the send queue to drain. A ``CLOSE`` control
 packet is accepted only when its source ``DatagramPath`` matches the recorded peer path;
@@ -4331,7 +4348,7 @@ link, then ``markBound`` / ``listen`` / ``accept`` or ``connect``, plus byte-str
 ``peek`` / ``recv`` / ``recvall`` / ``send`` / ``sendall``, ``busy`` / ``notBusy``, and
 ``peerPath``.
 
-It does **not** expose KCP-specific APIs (``Mode``, ``setMode``, ``setSendQueueSize``,
+It does **not** expose KCP-specific APIs (``setSendBufferLimit``, ``stats``,
 ``setTearDownTime``, ikcp MTU helpers). Instead it provides BEP-29 / LEDBAT parameters:
 
 * ``setDelayTarget`` / ``delayTarget`` — LEDBAT target one-way delay (default 100 ms)
@@ -4352,7 +4369,7 @@ session never stalls the scheduler.
 ``UtpSocket`` (``qtng/utp.h``) is the thin UDP façade around ``UdpDatagramLink`` + ``UtpStream``,
 analogous to ``KcpSocket``. Use ``wrapUtpStreamAsSocket``, ``asSocketLike``, and
 ``UtpServer`` the same way as the KCP counterparts. Factory helpers
-``UtpSocket::createConnection`` / ``createServer`` take no KCP ``Mode`` argument.
+``UtpSocket::createConnection`` / ``createServer`` take no KCP-specific mode argument.
 
 8.2.2 QuicConnection and QuicStream (QUIC transport MVP)
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++

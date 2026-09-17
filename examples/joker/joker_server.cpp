@@ -41,7 +41,6 @@ JokerServerConfigure::JokerServerConfigure()
     , exchangeBufferSize(1024 * 1024 * 8)
     , kcpAddress(HostAddress::Any)
     , kcpPort(8000)
-    , kcpMode(KcpSocket::Mode::Internet)
     , httpAddress(HostAddress::Any)
     , httpPort(8000)
     , httpRootDir(PosixPath("./htdocs/"))
@@ -143,9 +142,6 @@ bool JokerServerPrivate::start()
 void JokerServerPrivate::handleRequest(shared_ptr<SocketLike> request)
 {
     shared_ptr<KcpSocket> kcpRequest = convertSocketLikeToKcpSocket(request);
-    if (kcpRequest) {
-        kcpRequest->setMode(configure.kcpMode);
-    }
 
     shared_ptr<SocketLike> encryptedConnection = encrypted(configure.templateCipher, request);
     SocketChannel channel(encryptedConnection, DataChannelPole::NegativePole);

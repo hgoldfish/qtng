@@ -77,10 +77,37 @@ static bool isIkcpCommand(uint8_t cmd)
 //#define DEBUG_PROTOCOL 1
 
 class SlaveKcpStreamPrivate;
+static constexpr uint32_t kDefaultMtu = 1400;
+static constexpr uint64_t kDefaultSendBufferLimit = 16ull * 1024ull * 1024ull;  // 16 MiB
+static constexpr uint32_t kInitialSendBudgetSegs = 256;                          // former Internet waterLine
+static constexpr uint32_t kSegOverheadBytes = 72;                                // ikcp overhead + path framing budget
+static constexpr size_t kReorderSampleCap = 32;
+
+struct KcpTuner {
+    uint64_t lastSampleTs = 0;
+    uint32_t lastSndUna = 0;
+    uint32_t lastXmit = 0;
+    uint32_t lastXmitFast = 0;
+    uint32_t lastLossRto = 0;
+    uint32_t lastSentSegs = 0;
+    uint32_t lastRcvWnd = 0;
+    uint32_t lastFastResend = 16;
+    bool fastResendInitialized = false;
+    uint32_t coldStartTicks = 0;
+    uint32_t inflateStreak = 0;
+    uint64_t freezeGrowthUntil = 0;
+    double deliveryBps = 0;
+    double lossRate = 0;
+    uint32_t srttMin = 0;
+    uint32_t reorderUs[kReorderSampleCap] = {};
+    size_t reorderCount = 0;
+    size_t reorderNext = 0;
+};
+
 class KcpStreamPrivate
 {
 public:
-    KcpStreamPrivate(KcpStream *q, uint32_t sessionId = 0);
+    KcpStreamPrivate(KcpStream *q, uint32_t sessionId = 0, uint32_t mtu = kDefaultMtu);
     virtual ~KcpStreamPrivate();
 public:
     virtual Socket::SocketError getError() const = 0;
@@ -93,7 +120,11 @@ public:
     virtual bool close(bool force) = 0;
     virtual bool listen(int backlog) = 0;
 public:
-    void setMode(KcpStream::Mode mode);
+    void applyFixedPolicy(uint32_t mtu);
+    void recalculateMemoryCap();
+    void recomputeWaterLine();
+    void runTuner(uint64_t now);
+    KcpStreamStats snapshotStats() const;
     int32_t send(const char *data, int32_t size, bool all);
     int32_t recv(char *data, int32_t size, bool all);
     int32_t peek(char *data, int32_t size);
@@ -129,7 +160,7 @@ public:
     Event sendingQueueNotFull;
     Event sendingQueueEmpty;
     Event receivingQueueNotEmpty;
-    RLock kcpLock;
+    mutable RLock kcpLock;
     Gate forceToUpdate;
     string receivingBuffer;
 
@@ -138,13 +169,15 @@ public:
     uint64_t lastKeepaliveTimestamp;
     uint64_t tearDownTime;
     ikcpcb *kcp;
+    uint64_t sendBufferLimitBytes;
+    uint32_t memoryCapSegs;
+    uint32_t sendBudgetSegs;
     uint32_t waterLine;
     uint32_t sessionId;
     uint8_t protocolVersion;
+    KcpTuner tuner;
 
     DatagramPath remotePath;
-
-    KcpStream::Mode mode;
 };
 
 
@@ -185,7 +218,7 @@ public:
     SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, const DatagramPath &remote, KcpStream *q);
     virtual ~SlaveKcpStreamPrivate() override;
 public:
-    static KcpStream *create(KcpStreamPrivate *d, const DatagramPath &remote, KcpStream::Mode mode);
+    static KcpStream *create(KcpStreamPrivate *d, const DatagramPath &remote);
     static SlaveKcpStreamPrivate *getPrivateHelper(KcpStream *s);
 public:
     virtual Socket::SocketError getError() const override;
@@ -204,9 +237,9 @@ public:
     MasterKcpStreamPrivate *parent;
 };
 
-KcpStream *SlaveKcpStreamPrivate::create(KcpStreamPrivate *d, const DatagramPath &remote, KcpStream::Mode mode)
+KcpStream *SlaveKcpStreamPrivate::create(KcpStreamPrivate *d, const DatagramPath &remote)
 {
-    return new KcpStream(d, remote, mode);
+    return new KcpStream(d, remote);
 }
 
 SlaveKcpStreamPrivate *SlaveKcpStreamPrivate::getPrivateHelper(KcpStream *s)
@@ -237,7 +270,7 @@ int kcp_callback(const char *buf, int len, ikcpcb *, void *user)
     return sentBytes;
 }
 
-KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId)
+KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId, uint32_t mtu)
     : q_ptr(q)
     , operations(new CoroutineGroup)
     , state(Socket::UnconnectedState)
@@ -246,10 +279,12 @@ KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId)
     , lastActiveTimestamp(zeroTimestamp)
     , lastKeepaliveTimestamp(zeroTimestamp)
     , tearDownTime(1000 * 30)
-    , waterLine(1024)
+    , sendBufferLimitBytes(kDefaultSendBufferLimit)
+    , memoryCapSegs(kInitialSendBudgetSegs)
+    , sendBudgetSegs(kInitialSendBudgetSegs)
+    , waterLine(kInitialSendBudgetSegs)
     , sessionId(sessionId)
     , protocolVersion(KcpStream::Version1)
-    , mode(KcpStream::Internet)
 {
     kcp = ikcp_create(0, this);
     ikcp_setoutput(kcp, kcp_callback);
@@ -258,7 +293,7 @@ KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId)
     receivingQueueNotEmpty.clear();
     q_ptr->busy.clear();
     q_ptr->notBusy.set();
-    setMode(mode);
+    applyFixedPolicy(mtu);
 }
 
 KcpStreamPrivate::~KcpStreamPrivate()
@@ -267,60 +302,207 @@ KcpStreamPrivate::~KcpStreamPrivate()
     ikcp_release(kcp);
 }
 
-//{
-// }
-
-void KcpStreamPrivate::setMode(KcpStream::Mode mode)
+void KcpStreamPrivate::applyFixedPolicy(uint32_t mtu)
 {
-    this->mode = mode;
-    switch (mode) {
-    case KcpStream::LargeDelayInternet:
-        waterLine = 512;
-        ikcp_nodelay(kcp, 0, 20, 32, 1);
-        ikcp_setmtu(kcp, 1400);
-        ikcp_wndsize(kcp, 1024, 1024);
-        break;
-    case KcpStream::Internet:
-        waterLine = 256;
-        ikcp_nodelay(kcp, 1, 10, 16, 1);
-        ikcp_setmtu(kcp, 1400);
-        ikcp_wndsize(kcp, 1024, 1024);
-        kcp->rx_minrto = 30;
-        // kcp->interval = 5;
-        break;
-    case KcpStream::AsymmetricInternet:
-        waterLine = 256;
-        ikcp_nodelay(kcp, 1, 10, 1, 0);
-        ikcp_setmtu(kcp, 1400);
-        ikcp_wndsize(kcp, 1024, 1024);
-        kcp->rx_minrto = 30;
-        // kcp->interval = 5;
-        break;
-    case KcpStream::FastInternet:
-        waterLine = 192;
-        ikcp_nodelay(kcp, 1, 10, 8, 1);
-        ikcp_setmtu(kcp, 1400);
-        ikcp_wndsize(kcp, 512, 512);
-        kcp->rx_minrto = 20;
-        // kcp->interval = 2;
-        break;
-    case KcpStream::Ethernet:
-        waterLine = 64;
-        ikcp_nodelay(kcp, 1, 10, 4, 1);
-        ikcp_setmtu(kcp, 1024 * 32);
-        ikcp_wndsize(kcp, 128, 128);
-        kcp->rx_minrto = 10;
-        // kcp->interval = 1;
-        break;
-    case KcpStream::Loopback:
-        waterLine = 64;
-        ikcp_nodelay(kcp, 1, 10, 1, 1);
-        ikcp_setmtu(kcp, 1024 * 64 - 256);
-        ikcp_wndsize(kcp, 128, 128);
-        kcp->rx_minrto = 5;
-        // kcp->interval = 1;
-        break;
+    // Fixed Internet strategy. nocwnd=1 is load-bearing: ikcp only consumes
+    // cwnd at ikcp.c:1088 (`if (nocwnd == 0) cwnd = min(cwnd, ...)`). With
+    // nc=1 the cwnd path is unused and rate is governed by snd_wnd / rmt_wnd /
+    // waterLine (Tuner). Do NOT change nc back to 0 — on multipath links
+    // reorder is treated as loss, cwnd collapses to 1, and dead_link can tear
+    // down a healthy connection.
+    const uint32_t clampedMtu = max(mtu, 50u);
+    ikcp_nodelay(kcp, /*nodelay=*/1, /*interval=*/10, /*resend=*/16, /*nc=*/1);
+    ikcp_setmtu(kcp, static_cast<int>(clampedMtu));
+    ikcp_wndsize(kcp, 1024, 1024);
+    kcp->rx_minrto = 30;
+    kcp->dead_link = 10;
+    recalculateMemoryCap();
+    recomputeWaterLine();
+}
+
+void KcpStreamPrivate::recalculateMemoryCap()
+{
+    const uint32_t segBytes = kcp->mss + kSegOverheadBytes;
+    if (segBytes == 0) {
+        memoryCapSegs = kInitialSendBudgetSegs;
+        return;
     }
+    uint64_t segs = sendBufferLimitBytes / segBytes;
+    if (segs < 8) {
+        segs = 8;
+    }
+    if (segs > 0xFFFFu) {
+        segs = 0xFFFFu;
+    }
+    memoryCapSegs = static_cast<uint32_t>(segs);
+}
+
+void KcpStreamPrivate::recomputeWaterLine()
+{
+    uint32_t rmt = kcp->rmt_wnd ? kcp->rmt_wnd : 8;
+    waterLine = min({sendBudgetSegs, memoryCapSegs, max(rmt, 8u)});
+}
+
+static uint32_t reorderP95Us(KcpTuner &t)
+{
+    if (t.reorderCount == 0) {
+        return 0;
+    }
+    uint32_t tmp[kReorderSampleCap];
+    const size_t n = t.reorderCount;
+    for (size_t i = 0; i < n; ++i) {
+        tmp[i] = t.reorderUs[i];
+    }
+    sort(tmp, tmp + n);
+    const size_t idx = min(n - 1, (n * 95) / 100);
+    return tmp[idx];
+}
+
+void KcpStreamPrivate::runTuner(uint64_t now)
+{
+    const uint32_t srtt = kcp->rx_srtt > 0 ? static_cast<uint32_t>(kcp->rx_srtt) : 200u;
+    const uint32_t period = max(200u, min(1000u, srtt));
+    if (tuner.lastSampleTs != 0 && now > tuner.lastSampleTs && (now - tuner.lastSampleTs) < period) {
+        return;
+    }
+
+    const uint64_t dtMs = tuner.lastSampleTs == 0 ? period : max<uint64_t>(1, now - tuner.lastSampleTs);
+    const uint32_t sndUna = kcp->snd_una;
+    const uint32_t deltaUna = tuner.lastSampleTs == 0 ? 0 : (sndUna - tuner.lastSndUna);
+    const uint32_t deltaSent = tuner.lastSampleTs == 0 ? 0 : (kcp->sent_segs - tuner.lastSentSegs);
+    const uint32_t deltaLoss = tuner.lastSampleTs == 0 ? 0 : (kcp->loss_rto - tuner.lastLossRto);
+    const uint32_t segBytes = kcp->mss + kSegOverheadBytes;
+
+    if (deltaUna > 0 && dtMs > 0) {
+        const double sampleBps = (static_cast<double>(deltaUna) * segBytes * 8.0 * 1000.0) / static_cast<double>(dtMs);
+        tuner.deliveryBps = tuner.deliveryBps <= 0 ? sampleBps : (tuner.deliveryBps * 7.0 + sampleBps) / 8.0;
+    }
+    if (deltaSent > 0) {
+        const double sampleLoss = static_cast<double>(deltaLoss) / static_cast<double>(deltaSent);
+        tuner.lossRate = tuner.lastSampleTs == 0 ? sampleLoss : (tuner.lossRate * 7.0 + sampleLoss) / 8.0;
+    }
+    if (kcp->rx_srtt > 0) {
+        const uint32_t cur = static_cast<uint32_t>(kcp->rx_srtt);
+        tuner.srttMin = tuner.srttMin == 0 ? cur : min(tuner.srttMin, cur);
+        // Slow decay so a transient dip does not pin the min forever.
+        if (tuner.srttMin + 1 < cur) {
+            tuner.srttMin += max(1u, (cur - tuner.srttMin) / 16);
+        }
+    }
+    if (kcp->reorder_samples > 0) {
+        tuner.reorderUs[tuner.reorderNext] = kcp->reorder_us_max;
+        tuner.reorderNext = (tuner.reorderNext + 1) % kReorderSampleCap;
+        if (tuner.reorderCount < kReorderSampleCap) {
+            tuner.reorderCount++;
+        }
+        kcp->reorder_us_max = 0;
+        kcp->reorder_samples = 0;
+    }
+
+    const uint32_t srttForBdp = tuner.srttMin > 0 ? tuner.srttMin : max(srtt, 1u);
+    uint32_t bdpSegs = 8;
+    if (tuner.deliveryBps > 0 && segBytes > 0) {
+        const double bdpBytes = tuner.deliveryBps * static_cast<double>(srttForBdp) / 8000.0;
+        bdpSegs = max(8u, static_cast<uint32_t>(bdpBytes / segBytes + 0.999));
+    }
+
+    constexpr double kGamma = 1.25;
+    uint32_t targetBudget = max(8u, static_cast<uint32_t>(bdpSegs * kGamma + 0.999));
+    targetBudget = min(targetBudget, memoryCapSegs);
+
+    const int32_t rttVar = kcp->rx_rttval > 0 ? kcp->rx_rttval : 0;
+    const uint32_t qdelay = (kcp->rx_srtt > 0 && tuner.srttMin > 0 && static_cast<uint32_t>(kcp->rx_srtt) > tuner.srttMin)
+            ? (static_cast<uint32_t>(kcp->rx_srtt) - tuner.srttMin)
+            : 0;
+    const uint32_t qThreshold = max(static_cast<uint32_t>(4 * max(rttVar, 1)), max(srttForBdp / 2, 1u));
+    bool reduce = false;
+    if (qdelay > qThreshold) {
+        tuner.inflateStreak++;
+        if (tuner.inflateStreak >= 2) {
+            reduce = true;
+        }
+    } else {
+        tuner.inflateStreak = 0;
+    }
+    if (tuner.lossRate > 0.05) {
+        reduce = true;
+    }
+
+    if (tuner.coldStartTicks < 3 && !reduce) {
+        sendBudgetSegs = min(memoryCapSegs, max(sendBudgetSegs * 2, kInitialSendBudgetSegs));
+        tuner.coldStartTicks++;
+    } else if (reduce) {
+        sendBudgetSegs = max(bdpSegs, (sendBudgetSegs * 7) / 10);
+        if (tuner.lossRate > 0.05) {
+            sendBudgetSegs = max(bdpSegs, (sendBudgetSegs * 85) / 100);
+        }
+        tuner.freezeGrowthUntil = now + 2ull * period;
+    } else if (now >= tuner.freezeGrowthUntil) {
+        if (sendBudgetSegs < targetBudget) {
+            const uint32_t step = max(1u, (targetBudget - sendBudgetSegs) / 8);
+            sendBudgetSegs = min(targetBudget, sendBudgetSegs + step);
+        } else if (sendBudgetSegs > targetBudget) {
+            sendBudgetSegs = targetBudget;
+        }
+    }
+
+    sendBudgetSegs = max(8u, min(sendBudgetSegs, memoryCapSegs));
+    recomputeWaterLine();
+
+    const uint32_t reorderUs = reorderP95Us(tuner);
+    const uint32_t reorderMs = reorderUs / 1000u;
+    const uint32_t interval = max(kcp->interval, 1u);
+    uint32_t newFastResend = min(32u, max(1u, reorderMs / interval + 1u));
+    if (!tuner.fastResendInitialized
+        || (newFastResend > tuner.lastFastResend ? newFastResend - tuner.lastFastResend
+                                                 : tuner.lastFastResend - newFastResend)
+                >= 2u) {
+        ikcp_nodelay(kcp, -1, -1, static_cast<int>(newFastResend), -1);
+        tuner.lastFastResend = newFastResend;
+        tuner.fastResendInitialized = true;
+    }
+
+    // Keep the receive window at least as large as the ctor default (1024).
+    // Flooring at IKCP_WND_RCV (128) would shrink the window on cold start
+    // (bdpSegs starts at 8 → rcvTarget=12→128) and deadlock sequential
+    // sendall→recvall for payloads bigger than ~rcv_wnd*mss.
+    uint32_t rcvTarget = max(1024u, min(memoryCapSegs, (bdpSegs * 3) / 2));
+    rcvTarget = min(rcvTarget, 0xFFFFu);
+    const uint32_t prevRcv = kcp->rcv_wnd;
+    if (tuner.lastSampleTs == 0 || prevRcv == 0
+        || (rcvTarget > prevRcv ? rcvTarget - prevRcv : prevRcv - rcvTarget) * 5 >= prevRcv) {
+        ikcp_wndsize(kcp, 0, static_cast<int>(rcvTarget));
+        if (kcp->rcv_wnd != prevRcv) {
+            kcp->probe |= IKCP_ASK_TELL;
+        }
+    }
+
+    const uint32_t sndTarget = min(0xFFFFu, max(waterLine, rcvTarget));
+    if (kcp->snd_wnd != sndTarget) {
+        ikcp_wndsize(kcp, static_cast<int>(sndTarget), 0);
+    }
+
+    tuner.lastSampleTs = now;
+    tuner.lastSndUna = sndUna;
+    tuner.lastXmit = kcp->xmit;
+    tuner.lastXmitFast = kcp->xmit_fast;
+    tuner.lastLossRto = kcp->loss_rto;
+    tuner.lastSentSegs = kcp->sent_segs;
+    tuner.lastRcvWnd = kcp->rcv_wnd;
+}
+
+KcpStreamStats KcpStreamPrivate::snapshotStats() const
+{
+    KcpStreamStats s;
+    s.waterLine = waterLine;
+    s.sendBudgetSegs = sendBudgetSegs;
+    s.memoryCapSegs = memoryCapSegs;
+    s.rtoResends = kcp ? kcp->xmit : 0;
+    s.fastResends = kcp ? kcp->xmit_fast : 0;
+    s.fastresend = kcp ? static_cast<uint32_t>(max(kcp->fastresend, 0)) : 0;
+    s.lossRate = tuner.lossRate;
+    s.deliveryBps = tuner.deliveryBps;
+    return s;
 }
 
 int32_t KcpStreamPrivate::send(const char *data, int32_t size, bool all)
@@ -338,9 +520,26 @@ int32_t KcpStreamPrivate::send(const char *data, int32_t size, bool all)
             errorString = "KcpStream is not connected.";
             return -1;
         }
-        bool ok = sendingQueueNotFull.tryWait();
-        if (!ok) {
-            return -1;
+        bool ok = false;
+        const uint32_t pollMs = max(200u, min(1000u, static_cast<uint32_t>(tearDownTime / 10)));
+        const uint64_t waitDeadline =
+                static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch()) + tearDownTime;
+        while (true) {
+            if (state != Socket::ConnectedState) {
+                error = Socket::SocketAccessError;
+                errorString = "KcpStream is not connected.";
+                return count > 0 ? count : -1;
+            }
+            ok = sendingQueueNotFull.tryWait(pollMs);
+            if (ok) {
+                break;
+            }
+            const uint64_t now = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
+            if (now >= waitDeadline) {
+                error = Socket::SocketTimeoutError;
+                errorString = "KcpStream send buffer is full.";
+                return count > 0 ? count : -1;
+            }
         }
         int32_t nextBlockSize = min<int32_t>(static_cast<int32_t>(kcp->mss), size - count);
         int result;
@@ -429,6 +628,9 @@ bool KcpStreamPrivate::handleDatagram(char *buf, uint32_t len, const DatagramPat
             result = ikcp_input(kcp, segment, static_cast<long>(segmentLen));
         }
         if (result < 0) {
+            if (result == -2) {
+                ngWarning() << "ikcp_input dropped a segment due to allocation failure.";
+            }
 #ifdef DEBUG_PROTOCOL
             ngDebug() << "invalid datagram. kcp returns" << result;
 #endif
@@ -516,6 +718,13 @@ void KcpStreamPrivate::doUpdate()
 
             ikcp_update(kcp,
                         current);  // ikcp_update() call ikcp_flush() and then kcp_callback(), and maybe close(true)
+            if (kcp->state != 0) {
+                error = Socket::SocketTimeoutError;
+                errorString = "KcpStream dead link.";
+                close(true);
+                return;
+            }
+            runTuner(now);
         }
         if (!(state == Socket::ConnectedState || (state == Socket::UnconnectedState && error == Socket::NoError))) {
             return;
@@ -560,7 +769,11 @@ void KcpStreamPrivate::updateKcp()
 
 void KcpStreamPrivate::updateStatus()
 {
-    int sendingQueueSize = ikcp_waitsnd(kcp);
+    int sendingQueueSize;
+    {
+        ScopedLock<RLock> l(kcpLock);
+        sendingQueueSize = ikcp_waitsnd(kcp);
+    }
     if (sendingQueueSize <= 0) {
         sendingQueueNotFull.set();
         sendingQueueEmpty.set();
@@ -568,7 +781,8 @@ void KcpStreamPrivate::updateStatus()
         q_ptr->notBusy.set();
     } else {
         sendingQueueEmpty.clear();
-        if (static_cast<uint32_t>(sendingQueueSize) > (waterLine * 1.2)) {
+        const uint32_t busyThreshold = waterLine + max(8u, waterLine / 5u);
+        if (static_cast<uint32_t>(sendingQueueSize) > busyThreshold) {
             sendingQueueNotFull.clear();
             q_ptr->busy.set();
             q_ptr->notBusy.clear();
@@ -955,7 +1169,7 @@ void MasterKcpStreamPrivate::doAccept()
                     }
                 }
             } else if (pendingSlaves.size() < pendingSlaves.capacity()) {  // not full. process new connection.
-                unique_ptr<KcpStream> slave(SlaveKcpStreamPrivate::create(this, who, this->mode));
+                unique_ptr<KcpStream> slave(SlaveKcpStreamPrivate::create(this, who));
                 SlaveKcpStreamPrivate *d = SlaveKcpStreamPrivate::getPrivateHelper(slave.get());
                 d->originalHostAndPort = key;
                 d->sessionId = nextSessionId();
@@ -1024,7 +1238,7 @@ KcpStream *MasterKcpStreamPrivate::accept(const DatagramPath &remote)
     if (receiver && receiver->isValid()) {
         return nullptr;
     } else {
-        unique_ptr<KcpStream> slave(SlaveKcpStreamPrivate::create(this, remote, this->mode));
+        unique_ptr<KcpStream> slave(SlaveKcpStreamPrivate::create(this, remote));
         SlaveKcpStreamPrivate *d = SlaveKcpStreamPrivate::getPrivateHelper(slave.get());
         d->originalHostAndPort = key;
         d->updateKcp();
@@ -1059,7 +1273,7 @@ int32_t MasterKcpStreamPrivate::rawSend(const char *data, int32_t size)
 
 
 SlaveKcpStreamPrivate::SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, const DatagramPath &remote, KcpStream *q)
-    : KcpStreamPrivate(q, 0)
+    : KcpStreamPrivate(q, 0, parent ? static_cast<uint32_t>(parent->kcp->mtu) : kDefaultMtu)
     , parent(parent)
 {
     remotePath = remote;
@@ -1185,10 +1399,9 @@ KcpStream::KcpStream(shared_ptr<DatagramLink> link, uint32_t sessionId)
 }
 
 
-KcpStream::KcpStream(KcpStreamPrivate *parent, const DatagramPath &remote, KcpStream::Mode mode)
+KcpStream::KcpStream(KcpStreamPrivate *parent, const DatagramPath &remote)
     : d_ptr(new SlaveKcpStreamPrivate(static_cast<MasterKcpStreamPrivate *>(parent), remote, this))
 {
-    setMode(mode);
 }
 
 KcpStream::~KcpStream()
@@ -1196,23 +1409,19 @@ KcpStream::~KcpStream()
     delete d_ptr;
 }
 
-void KcpStream::setMode(Mode mode)
-{
-    NG_D(KcpStream);
-    d->setMode(mode);
-}
-
-KcpStream::Mode KcpStream::mode() const
-{
-    NG_D(const KcpStream);
-    return d->mode;
-}
-
 void KcpStream::setPacketSize(uint32_t udpPacketSize)
 {
-    NG_D(const KcpStream);
-    if (udpPacketSize < 65535) {
-        ikcp_setmtu(d->kcp, static_cast<int>(udpPacketSize));
+    NG_D(KcpStream);
+    if (udpPacketSize >= 65535 || udpPacketSize < 50) {
+        return;
+    }
+    ScopedLock<RLock> l(d->kcpLock);
+    if (ikcp_waitsnd(d->kcp) > 0) {
+        return;
+    }
+    if (ikcp_setmtu(d->kcp, static_cast<int>(udpPacketSize)) == 0) {
+        d->recalculateMemoryCap();
+        d->recomputeWaterLine();
     }
 }
 
@@ -1222,22 +1431,36 @@ uint32_t KcpStream::packetSize() const
     return d->kcp->mtu;
 }
 
-void KcpStream::setSendQueueSize(uint32_t sendQueueSize)
+void KcpStream::setSendBufferLimit(uint64_t bytes)
 {
     NG_D(KcpStream);
-    d->waterLine = sendQueueSize;
+    if (bytes == 0) {
+        bytes = kDefaultSendBufferLimit;
+    }
+    ScopedLock<RLock> l(d->kcpLock);
+    d->sendBufferLimitBytes = bytes;
+    d->recalculateMemoryCap();
+    d->sendBudgetSegs = min(d->sendBudgetSegs, d->memoryCapSegs);
+    d->recomputeWaterLine();
 }
 
-uint32_t KcpStream::sendQueueSize() const
+uint64_t KcpStream::sendBufferLimit() const
 {
     NG_D(const KcpStream);
-    return d->waterLine;
+    return d->sendBufferLimitBytes;
 }
 
 uint32_t KcpStream::payloadSizeHint() const
 {
     NG_D(const KcpStream);
     return d->kcp->mss;
+}
+
+KcpStreamStats KcpStream::stats() const
+{
+    NG_D(const KcpStream);
+    ScopedLock<RLock> l(d->kcpLock);
+    return d->snapshotStats();
 }
 
 void KcpStream::setTearDownTime(float secs)
@@ -1501,16 +1724,6 @@ static KcpSocketPrivate *makePrivateRaw(shared_ptr<UdpDatagramLink> udp)
     return new KcpSocketPrivate(udp, udp, stream);
 }
 
-static KcpStream::Mode toStreamMode(KcpSocket::Mode mode)
-{
-    return static_cast<KcpStream::Mode>(mode);
-}
-
-static KcpSocket::Mode toSocketMode(KcpStream::Mode mode)
-{
-    return static_cast<KcpSocket::Mode>(mode);
-}
-
 KcpSocket::KcpSocket(HostAddress::NetworkLayerProtocol protocol)
     : d_ptr(makePrivateRaw(make_shared<UdpDatagramLink>(protocol)))
 {
@@ -1551,16 +1764,6 @@ KcpSocket::~KcpSocket()
     delete d_ptr;
 }
 
-void KcpSocket::setMode(Mode mode)
-{
-    d_ptr->stream->setMode(toStreamMode(mode));
-}
-
-KcpSocket::Mode KcpSocket::mode() const
-{
-    return toSocketMode(d_ptr->stream->mode());
-}
-
 void KcpSocket::setUdpPacketSize(uint32_t udpPacketSize)
 {
     d_ptr->stream->setPacketSize(udpPacketSize);
@@ -1571,14 +1774,19 @@ uint32_t KcpSocket::udpPacketSize() const
     return d_ptr->stream->packetSize();
 }
 
-void KcpSocket::setSendQueueSize(uint32_t sendQueueSize)
+void KcpSocket::setSendBufferLimit(uint64_t bytes)
 {
-    d_ptr->stream->setSendQueueSize(sendQueueSize);
+    d_ptr->stream->setSendBufferLimit(bytes);
 }
 
-uint32_t KcpSocket::sendQueueSize() const
+uint64_t KcpSocket::sendBufferLimit() const
 {
-    return d_ptr->stream->sendQueueSize();
+    return d_ptr->stream->sendBufferLimit();
+}
+
+KcpStreamStats KcpSocket::stats() const
+{
+    return d_ptr->stream->stats();
 }
 
 uint32_t KcpSocket::payloadSizeHint() const
@@ -1865,24 +2073,15 @@ int32_t KcpSocket::udpSend(const char *data, int32_t size, const HostAddress &ad
 }
 
 KcpSocket *KcpSocket::createConnection(const HostAddress &host, uint16_t port, Socket::SocketError *error,
-                                       int allowProtocol, Mode mode)
+                                       int allowProtocol)
 {
-    KcpSocket *socket = qtng::createConnection<KcpSocket>(host, port, error, allowProtocol, MakeSocketType<KcpSocket>);
-    if (socket) {
-        socket->setMode(mode);
-    }
-    return socket;
+    return qtng::createConnection<KcpSocket>(host, port, error, allowProtocol, MakeSocketType<KcpSocket>);
 }
 
 KcpSocket *KcpSocket::createConnection(const string &hostName, uint16_t port, Socket::SocketError *error,
-                                       shared_ptr<SocketDnsCache> dnsCache, int allowProtocol, Mode mode)
+                                       shared_ptr<SocketDnsCache> dnsCache, int allowProtocol)
 {
-    KcpSocket *socket =
-            qtng::createConnection<KcpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<KcpSocket>);
-    if (socket) {
-        socket->setMode(mode);
-    }
-    return socket;
+    return qtng::createConnection<KcpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<KcpSocket>);
 }
 
 KcpSocket *KcpSocket::createServer(const HostAddress &host, uint16_t port, int backlog)

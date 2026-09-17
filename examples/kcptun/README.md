@@ -60,16 +60,14 @@ Options
 
 Client::
 
-    kcptun-client -l ":12948" -r "HOST:8000" [-mode fast|normal]
+    kcptun-client -l ":12948" -r "HOST:8000"
 
 Server (pick one of ``-t`` or ``-r``)::
 
-    kcptun-server [-l ":8000"] -t "127.0.0.1:22" [-mode fast|normal]
-    kcptun-server [-l ":8000"] -r "/path/to/webroot" [-mode fast|normal]
+    kcptun-server [-l ":8000"] -t "127.0.0.1:22"
+    kcptun-server [-l ":8000"] -r "/path/to/webroot"
 
 - Server ``-l`` defaults to ``0.0.0.0:8000`` (``Any:8000``) when omitted.
-- ``-mode fast`` maps to ``KcpSocket::FastInternet`` (default)
-- ``-mode normal`` maps to ``KcpSocket::Internet``
 - Server ``-t`` and ``-r`` are mutually exclusive. Without ``-r``, the
   default remains TCP forward to ``127.0.0.1:22``.
 - Without ``-t``, the TCP target defaults to ``127.0.0.1:22``.

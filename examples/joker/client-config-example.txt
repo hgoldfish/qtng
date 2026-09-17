@@ -6,7 +6,6 @@ timeout = 10
 type = kcp
 #address = yourhost.com
 port = 8000
-mode = normal
 mtu = 1400
 
 [local/socks5]

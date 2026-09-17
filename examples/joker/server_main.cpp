@@ -96,11 +96,6 @@ static ParserResult parseArguments(const string &configFilePath, JokerServerConf
         }
     }
 
-    const string kcpModeStr = settings.value("kcp", "mode");
-    if (!parseKcpMode(kcpModeStr, &configure->kcpMode, errorMessage)) {
-        return Failed;
-    }
-
     const string httpAddressStr = settings.value("http", "address");
     if (!httpAddressStr.empty()) {
         HostAddress address(httpAddressStr);

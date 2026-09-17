@@ -41,7 +41,6 @@ public:
     std::string remoteAddress;
     std::uint16_t remotePort;
     std::uint16_t mtu;
-    qtng::KcpSocket::Mode mode;
 public:
     std::shared_ptr<qtng::SocketChannel> channel;
 private:
