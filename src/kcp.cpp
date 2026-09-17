@@ -89,7 +89,6 @@ struct KcpTuner {
     uint32_t lastLossRto = 0;
     uint32_t lastSentSegs = 0;
     uint32_t lastFastResend = 16;
-    bool fastResendInitialized = false;
     uint32_t coldStartTicks = 0;
     uint32_t inflateStreak = 0;
     uint64_t freezeGrowthUntil = 0;
@@ -446,21 +445,22 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     sendBudgetSegs = max(8u, min(sendBudgetSegs, memoryCapSegs));
     recomputeWaterLine();
 
-    // Only adapt fastresend from observed reorder. An empty sample window yields
-    // reorderMs=0 → newFastResend=1; writing that on first tick would slam the
-    // ctor value (16) down to 1 before any reorder was ever seen.
+    // Adapt fastresend only from observed reorder, and step at most ±2 per
+    // period. A single near-zero P95 used to jump 16→1 in one write because
+    // |16-1|>=2 satisfied the old hysteresis check.
     if (tuner.reorderCount > 0) {
-        const uint32_t reorderUs = reorderP95Us(tuner);
-        const uint32_t reorderMs = reorderUs / 1000u;
+        const uint32_t reorderMs = reorderP95Us(tuner) / 1000u;
         const uint32_t interval = max(kcp->interval, 1u);
-        uint32_t newFastResend = min(32u, max(1u, reorderMs / interval + 1u));
-        if (!tuner.fastResendInitialized
-            || (newFastResend > tuner.lastFastResend ? newFastResend - tuner.lastFastResend
-                                                     : tuner.lastFastResend - newFastResend)
-                    >= 2u) {
-            ikcp_nodelay(kcp, -1, -1, static_cast<int>(newFastResend), -1);
-            tuner.lastFastResend = newFastResend;
-            tuner.fastResendInitialized = true;
+        const uint32_t target = min(32u, max(1u, reorderMs / interval + 1u));
+        uint32_t applied = tuner.lastFastResend;
+        if (target > tuner.lastFastResend) {
+            applied = tuner.lastFastResend + min(2u, target - tuner.lastFastResend);
+        } else if (target < tuner.lastFastResend) {
+            applied = tuner.lastFastResend - min(2u, tuner.lastFastResend - target);
+        }
+        if (applied != tuner.lastFastResend) {
+            ikcp_nodelay(kcp, -1, -1, static_cast<int>(applied), -1);
+            tuner.lastFastResend = applied;
         }
     }
 
@@ -470,8 +470,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     if (tuner.deliveryBps > 0) {
         uint32_t computed = max(128u /* IKCP_WND_RCV */, min(memoryCapSegs, (bdpSegs * 3) / 2));
         computed = min(computed, 0xFFFFu);
-        if (computed > rcvTarget
-            && (rcvTarget == 0 || (computed - rcvTarget) * 5 >= rcvTarget)) {
+        if (computed > rcvTarget && (computed - rcvTarget) * 5 >= rcvTarget) {
             rcvTarget = computed;
             ikcp_wndsize(kcp, 0, static_cast<int>(rcvTarget));
             kcp->probe |= IKCP_ASK_TELL;
