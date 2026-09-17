@@ -3914,19 +3914,14 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 对端身份用 ``DatagramPath`` 表示——它只是不透明路径键（``key()``），与 IP/端口无关，因此同一套
 会话逻辑可以跑在 UDP、ICMP 或其它自定义报文通道上。
 
-已删除 ``Mode`` / ``setMode``。构造时固定策略为 ``nodelay=1``、``interval=10``、
-``resend=16``、``nc=1``、``rx_minrto=30``、``dead_link=10``，MTU 默认 ``1400``。
-内部 Tuner 再根据 BDP 与乱序样本自适应 ``sendBudgetSegs`` / ``waterLine`` /
-``fastresend`` / ``rcv_wnd``。公开旋钮：
-
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — 以**字节**计的内存预算
-  （经 ``mss+72`` 换算为段数）；生效水位为 ``min(BDP 额度, 该上限, rmt_wnd)``。
+  （经 ``mss+72`` 换算为段数）；生效发送窗口为 ``min(BDP 额度, 该上限, rmt_wnd)``。
   冷启动预算为 256 段。
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU。
   ``accept()`` 得到的 slave 在**创建时**快照 master 的 MTU；之后在 master 上
   ``setPacketSize()`` 不会回灌到已有 slave。``waitsnd()>0`` 时拒绝修改。
 * ``setTearDownTime`` / ``tearDownTime`` — 空闲 / 排空超时。
-* ``stats()`` — 只读 ``KcpStreamStats``（waterLine、预算、重传计数、lossRate、
+* ``stats()`` — 只读 ``KcpStreamStats``（sndWnd、预算、重传计数、lossRate、
   deliveryBps）。
 
 当某段重传次数达到 ``dead_link`` 时，``kcp->state`` 置为 ``-1``，``KcpStream``

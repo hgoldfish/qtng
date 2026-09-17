@@ -4273,21 +4273,17 @@ I/O goes through a minimal ``DatagramLink`` (``recvfrom`` / ``sendto`` / ``close
 Peers are identified by ``DatagramPath``, an opaque path key (``key()``) not tied to IP/port, so the
 same session logic can run over UDP, ICMP, or other custom datagram transports.
 
-There is no ``Mode`` / ``setMode`` enum. Fixed policy in the constructor is
-``nodelay=1``, ``interval=10``, ``resend=16``, ``nc=1``, ``rx_minrto=30``,
-``dead_link=10``, MTU default ``1400``. An internal Tuner then adapts
-``sendBudgetSegs`` / ``waterLine`` / ``fastresend`` / ``rcv_wnd`` from BDP and
-reorder samples. Public knobs:
+Public knobs:
 
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — memory budget in **bytes**
-  (converted to segments via ``mss+72``); effective watermark is
+  (converted to segments via ``mss+72``); effective send window is
   ``min(BDP budget, this limit, rmt_wnd)``. Cold-start budget is 256 segments.
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU.
   Accept()-ed slaves **snapshot** the master's MTU at construction; later
   ``setPacketSize()`` on the master does not propagate to existing slaves.
   Refused while ``waitsnd()>0``.
 * ``setTearDownTime`` / ``tearDownTime`` — idle / drain timeout.
-* ``stats()`` — read-only ``KcpStreamStats`` (waterLine, budgets, resend
+* ``stats()`` — read-only ``KcpStreamStats`` (sndWnd, budgets, resend
   counters, lossRate, deliveryBps).
 
 When a segment hits ``dead_link`` retransmits, ``kcp->state`` becomes ``-1`` and

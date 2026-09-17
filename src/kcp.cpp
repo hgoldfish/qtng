@@ -118,7 +118,7 @@ public:
 public:
     void applyFixedPolicy(uint32_t mtu);
     void recalculateMemoryCap();
-    void recomputeWaterLine();
+    void applySendWindow();
     void runTuner(uint64_t now);
     KcpStreamStats snapshotStats() const;
     int32_t send(const char *data, int32_t size, bool all);
@@ -168,7 +168,6 @@ public:
     uint64_t sendBufferLimitBytes;
     uint32_t memoryCapSegs;
     uint32_t sendBudgetSegs;
-    uint32_t waterLine;
     uint32_t sessionId;
     uint8_t protocolVersion;
     KcpTuner tuner;
@@ -278,7 +277,6 @@ KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId, uint32_t mt
     , sendBufferLimitBytes(kDefaultSendBufferLimit)
     , memoryCapSegs(kInitialSendBudgetSegs)
     , sendBudgetSegs(kInitialSendBudgetSegs)
-    , waterLine(kInitialSendBudgetSegs)
     , sessionId(sessionId)
     , protocolVersion(KcpStream::Version1)
 {
@@ -302,10 +300,10 @@ void KcpStreamPrivate::applyFixedPolicy(uint32_t mtu)
 {
     // Fixed Internet strategy. nocwnd=1 is load-bearing: ikcp only consumes
     // cwnd at ikcp.c:1088 (`if (nocwnd == 0) cwnd = min(cwnd, ...)`). With
-    // nc=1 the cwnd path is unused and rate is governed by snd_wnd / rmt_wnd /
-    // waterLine (Tuner). Do NOT change nc back to 0 — on multipath links
-    // reorder is treated as loss, cwnd collapses to 1, and dead_link can tear
-    // down a healthy connection.
+    // nc=1 the cwnd path is unused and rate is governed by snd_wnd / rmt_wnd
+    // (Tuner). Do NOT change nc back to 0 — on multipath links reorder is
+    // treated as loss, cwnd collapses to 1, and dead_link can tear down a
+    // healthy connection.
     const uint32_t clampedMtu = max(mtu, 50u);
     ikcp_nodelay(kcp, /*nodelay=*/1, /*interval=*/10, /*resend=*/16, /*nc=*/1);
     ikcp_setmtu(kcp, static_cast<int>(clampedMtu));
@@ -313,7 +311,7 @@ void KcpStreamPrivate::applyFixedPolicy(uint32_t mtu)
     kcp->rx_minrto = 30;
     kcp->dead_link = 10;
     recalculateMemoryCap();
-    recomputeWaterLine();
+    applySendWindow();
 }
 
 void KcpStreamPrivate::recalculateMemoryCap()
@@ -333,10 +331,16 @@ void KcpStreamPrivate::recalculateMemoryCap()
     memoryCapSegs = static_cast<uint32_t>(segs);
 }
 
-void KcpStreamPrivate::recomputeWaterLine()
+void KcpStreamPrivate::applySendWindow()
 {
-    uint32_t rmt = kcp->rmt_wnd ? kcp->rmt_wnd : 8;
-    waterLine = min({sendBudgetSegs, memoryCapSegs, max(rmt, 8u)});
+    // App backpressure (updateStatus) and ikcp flight share the same limit:
+    // snd_wnd = min(BDP budget, memory cap, peer rmt_wnd). rcv_wnd is independent.
+    // Must re-run whenever rmt_wnd moves — otherwise a peer window open stays
+    // invisible until the next Tuner period (up to ~1s).
+    const uint32_t sndTarget = min({0xFFFFu, sendBudgetSegs, memoryCapSegs, max(kcp->rmt_wnd, 8u)});
+    if (kcp->snd_wnd != sndTarget) {
+        ikcp_wndsize(kcp, static_cast<int>(sndTarget), 0);
+    }
 }
 
 static uint32_t reorderP95Us(KcpTuner &t)
@@ -358,7 +362,16 @@ void KcpStreamPrivate::runTuner(uint64_t now)
 {
     const uint32_t srtt = kcp->rx_srtt > 0 ? static_cast<uint32_t>(kcp->rx_srtt) : 200u;
     const uint32_t period = max(200u, min(1000u, srtt));
-    if (tuner.lastSampleTs != 0 && now > tuner.lastSampleTs && (now - tuner.lastSampleTs) < period) {
+    // wall-clock can step backwards; same guard as tearDown/keepalive below.
+    // Refresh differentials so a later catch-up does not dump a huge Δuna into a tiny dtMs.
+    if (tuner.lastSampleTs != 0 && now <= tuner.lastSampleTs) {
+        tuner.lastSampleTs = now;
+        tuner.lastSndUna = kcp->snd_una;
+        tuner.lastLossRto = kcp->loss_rto;
+        tuner.lastSentSegs = kcp->sent_segs;
+        return;
+    }
+    if (tuner.lastSampleTs != 0 && (now - tuner.lastSampleTs) < period) {
         return;
     }
 
@@ -413,27 +426,26 @@ void KcpStreamPrivate::runTuner(uint64_t now)
             ? (static_cast<uint32_t>(kcp->rx_srtt) - tuner.srttMin)
             : 0;
     const uint32_t qThreshold = max(static_cast<uint32_t>(4 * max(rttVar, 1)), max(srttForBdp / 2, 1u));
-    bool reduce = false;
+    bool delayReduce = false;
     if (qdelay > qThreshold) {
         tuner.inflateStreak++;
         if (tuner.inflateStreak >= 2) {
-            reduce = true;
+            delayReduce = true;
         }
     } else {
         tuner.inflateStreak = 0;
     }
-    if (tuner.lossRate > 0.05) {
-        reduce = true;
-    }
+    const bool lossReduce = tuner.lossRate > 0.05;
+    const bool reduce = delayReduce || lossReduce;
 
     if (tuner.coldStartTicks < 3 && !reduce) {
         sendBudgetSegs = min(memoryCapSegs, max(sendBudgetSegs * 2, kInitialSendBudgetSegs));
         tuner.coldStartTicks++;
     } else if (reduce) {
-        sendBudgetSegs = max(bdpSegs, (sendBudgetSegs * 7) / 10);
-        if (tuner.lossRate > 0.05) {
-            sendBudgetSegs = max(bdpSegs, (sendBudgetSegs * 85) / 100);
-        }
+        // Delay cut is stronger (×0.7). Loss-only uses ×0.85. Never stack both —
+        // the old code did ×0.7 then ×0.85 ≈ ×0.595 whenever lossRate was high.
+        const uint32_t scaled = delayReduce ? (sendBudgetSegs * 7) / 10 : (sendBudgetSegs * 85) / 100;
+        sendBudgetSegs = max(bdpSegs, scaled);
         tuner.freezeGrowthUntil = now + 2ull * period;
     } else if (now >= tuner.freezeGrowthUntil) {
         if (sendBudgetSegs < targetBudget) {
@@ -445,7 +457,6 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     }
 
     sendBudgetSegs = max(8u, min(sendBudgetSegs, memoryCapSegs));
-    recomputeWaterLine();
 
     // Adapt fastresend only when this period produced new reorder evidence,
     // stepping at most ±2 toward the P95-derived target. Gating on the
@@ -469,21 +480,17 @@ void KcpStreamPrivate::runTuner(uint64_t now)
 
     // Grow rcv_wnd with BDP; never shrink. Shrinking below in-flight capacity
     // deadlocks sequential sendall→recvall once the peer advertises wnd=0.
-    uint32_t rcvTarget = kcp->rcv_wnd;
     if (tuner.deliveryBps > 0) {
+        uint32_t rcvTarget = kcp->rcv_wnd;
         uint32_t computed = max(128u /* IKCP_WND_RCV */, min(memoryCapSegs, (bdpSegs * 3) / 2));
         computed = min(computed, 0xFFFFu);
         if (computed > rcvTarget && (computed - rcvTarget) * 5 >= rcvTarget) {
-            rcvTarget = computed;
-            ikcp_wndsize(kcp, 0, static_cast<int>(rcvTarget));
+            ikcp_wndsize(kcp, 0, static_cast<int>(computed));
             kcp->probe |= IKCP_ASK_TELL;
         }
     }
 
-    const uint32_t sndTarget = min(0xFFFFu, max(waterLine, rcvTarget));
-    if (kcp->snd_wnd != sndTarget) {
-        ikcp_wndsize(kcp, static_cast<int>(sndTarget), 0);
-    }
+    applySendWindow();
 
     tuner.lastSampleTs = now;
     tuner.lastSndUna = sndUna;
@@ -494,7 +501,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
 KcpStreamStats KcpStreamPrivate::snapshotStats() const
 {
     KcpStreamStats s;
-    s.waterLine = waterLine;
+    s.sndWnd = kcp ? kcp->snd_wnd : 0;
     s.sendBudgetSegs = sendBudgetSegs;
     s.memoryCapSegs = memoryCapSegs;
     s.rtoResends = kcp ? kcp->xmit : 0;
@@ -770,9 +777,12 @@ void KcpStreamPrivate::updateKcp()
 void KcpStreamPrivate::updateStatus()
 {
     int sendingQueueSize;
+    uint32_t sndWnd;
     {
         ScopedLock<RLock> l(kcpLock);
+        applySendWindow();
         sendingQueueSize = ikcp_waitsnd(kcp);
+        sndWnd = kcp->snd_wnd ? kcp->snd_wnd : 8;
     }
     if (sendingQueueSize <= 0) {
         sendingQueueNotFull.set();
@@ -781,12 +791,12 @@ void KcpStreamPrivate::updateStatus()
         q_ptr->notBusy.set();
     } else {
         sendingQueueEmpty.clear();
-        const uint32_t busyThreshold = waterLine + max(8u, waterLine / 5u);
+        const uint32_t busyThreshold = sndWnd + max(8u, sndWnd / 5u);
         if (static_cast<uint32_t>(sendingQueueSize) > busyThreshold) {
             sendingQueueNotFull.clear();
             q_ptr->busy.set();
             q_ptr->notBusy.clear();
-        } else if (static_cast<uint32_t>(sendingQueueSize) > waterLine) {
+        } else if (static_cast<uint32_t>(sendingQueueSize) > sndWnd) {
             q_ptr->busy.set();
             q_ptr->notBusy.clear();
         } else {
@@ -1421,7 +1431,7 @@ void KcpStream::setPacketSize(uint32_t udpPacketSize)
     }
     if (ikcp_setmtu(d->kcp, static_cast<int>(udpPacketSize)) == 0) {
         d->recalculateMemoryCap();
-        d->recomputeWaterLine();
+        d->applySendWindow();
     }
 }
 
@@ -1441,7 +1451,7 @@ void KcpStream::setSendBufferLimit(uint64_t bytes)
     d->sendBufferLimitBytes = bytes;
     d->recalculateMemoryCap();
     d->sendBudgetSegs = min(d->sendBudgetSegs, d->memoryCapSegs);
-    d->recomputeWaterLine();
+    d->applySendWindow();
 }
 
 uint64_t KcpStream::sendBufferLimit() const

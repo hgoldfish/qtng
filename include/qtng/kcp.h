@@ -14,7 +14,7 @@
 namespace qtng {
 
 struct KcpStreamStats {
-    std::uint32_t waterLine;       // effective send watermark (segments)
+    std::uint32_t sndWnd;          // effective send window = min(BDP, mem, rmt) (segments)
     std::uint32_t sendBudgetSegs;  // Tuner BDP budget (segments)
     std::uint32_t memoryCapSegs;   // memory budget converted to segments
     std::uint32_t rtoResends;      // cumulative RTO retransmits (kcp->xmit)
@@ -57,8 +57,8 @@ public:
     void setProtocolVersion(std::uint8_t version);
     std::uint8_t protocolVersion() const;
 
-    // Memory budget for the send queue (bytes). Converted to segments via
-    // (mss + 72). The effective watermark is min(BDP budget, this limit, rmt_wnd).
+    // Memory budget for the send path (bytes). Converted to segments via
+    // (mss + 72). Effective snd_wnd is min(BDP budget, this limit, rmt_wnd).
     void setSendBufferLimit(std::uint64_t bytes);
     std::uint64_t sendBufferLimit() const;
     // MTU for ikcp segments. Default 1400. Accept()-ed slaves snapshot the
