@@ -1916,7 +1916,6 @@ string NoiseDatagram::decrypt(const string &packet)
     uint64_t n = 0;
     string ct;
     if (!unpackTransport(packet, &n, &ct)) {
-        ngDebug() << "truncated datagram";
         d->error = "truncated datagram";
         return string();
     }
@@ -1931,7 +1930,6 @@ string NoiseDatagram::decrypt(const string &packet)
         return string();
     }
     if (!d->replay.validate(n)) {
-        ngDebug() << "replay or stale nonce " << n;
         d->error = "replay or stale nonce";
         return string();
     }
