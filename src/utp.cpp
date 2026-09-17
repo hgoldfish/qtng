@@ -1285,6 +1285,20 @@ bool UtpStream::feedDatagram(const char *data, int32_t len, const DatagramPath &
     return d->handleDatagram(data, len, remote);
 }
 
+bool UtpStream::plaintextLooksCritical(const char *data, int32_t size)
+{
+    if (!data || size < 1) {
+        return false;
+    }
+    const uint8_t t = static_cast<uint8_t>(data[0]);
+    // First byte: [type:4][version:4]. Only version 1 is on the wire.
+    if ((t & 0x0f) != kUtpVersion) {
+        return false;
+    }
+    const uint8_t type = packetType(t);
+    return type == ST_FIN || type == ST_STATE || type == ST_RESET;
+}
+
 class UtpSocketPrivate
 {
 public:

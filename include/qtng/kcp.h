@@ -72,7 +72,12 @@ public:
     KcpStreamStats stats() const;
     Event busy;
     Event notBusy;
-public:
+
+    // Multipath / redundant-send heuristics: does this DatagramLink plaintext
+    // contain a control frame that should be sprayed across paths (CLOSE /
+    // KEEPALIVE / ikcp ACK / ACKN)? Shares cmd constants with the wire parser.
+    static bool plaintextLooksCritical(const char *data, std::int32_t size);
+
     Socket::SocketError error() const;
     std::string errorString() const;
     bool isValid() const;

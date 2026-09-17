@@ -3923,6 +3923,10 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 * ``setTearDownTime`` / ``tearDownTime`` — 空闲 / 排空超时。
 * ``stats()`` — 只读 ``KcpStreamStats``（sndWnd、预算、重传计数、lossRate、
   deliveryBps）。
+* ``plaintextLooksCritical(data, size)`` — 静态辅助函数，供多路径/冗余发送层使用：
+  当 DatagramLink 明文为 CLOSE、KEEPALIVE、原生 ikcp ACK（``0x52``）、紧凑 ACKN
+  （``0x55``），或旧版 ``DATA``（``0x01``）包装且偏移 5 处 ikcp cmd 为 ACK/ACKN
+  时返回 true。
 
 当某段重传次数达到 ``dead_link`` 时，``kcp->state`` 置为 ``-1``，``KcpStream``
 以 ``SocketTimeoutError``（``"KcpStream dead link."``）关闭。``ikcp_wndsize``
@@ -3979,6 +3983,8 @@ ikcp MTU 相关接口），而是使用 BEP-29 / LEDBAT 参数：
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — DATA 载荷大小
 * ``setReceiveBufferSize`` / ``receiveBufferSize`` — 通告接收窗口
 * ``setIdleTimeout`` / ``idleTimeout`` — 可选空闲断开（0 表示禁用）
+* ``plaintextLooksCritical(data, size)`` — 静态辅助函数，供多路径/冗余发送层使用：
+  当 µTP v1 首字节编码为 ``ST_FIN`` / ``ST_STATE`` / ``ST_RESET`` 时返回 true。
 
 线协议为 µTP v1（``ST_DATA`` / ``ST_FIN`` / ``ST_STATE`` / ``ST_RESET`` / ``ST_SYN``），
 按 ``connection_id`` 解复用。运行时不依赖 libutp。

@@ -1645,6 +1645,30 @@ uint8_t KcpStream::protocolVersion() const
     return d->protocolVersion;
 }
 
+bool KcpStream::plaintextLooksCritical(const char *data, int32_t size)
+{
+    if (!data || size < 1) {
+        return false;
+    }
+    const uint8_t t = static_cast<uint8_t>(data[0]);
+    // CLOSE / KEEPALIVE tear down or probe the session; ACK / ACKN must not
+    // stall behind a single lossy path.
+    if (t == static_cast<uint8_t>(PACKET_TYPE_CLOSE)
+            || t == static_cast<uint8_t>(PACKET_TYPE_KEEPALIVE)
+            || t == PACKET_TYPE_KCP_ACK
+            || t == PACKET_TYPE_KCP_ACKN) {
+        return true;
+    }
+    // Legacy DATA (0x01) still carries a full ikcp segment; cmd sits at offset 5.
+    if (t == static_cast<uint8_t>(PACKET_TYPE_UNCOMPRESSED_DATA) && size >= 6) {
+        const uint8_t cmd = static_cast<uint8_t>(data[5]);
+        if (cmd == PACKET_TYPE_KCP_ACK || cmd == PACKET_TYPE_KCP_ACKN) {
+            return true;
+        }
+    }
+    return false;
+}
+
 uint32_t KcpStream::sessionId() const
 {
     NG_D(const KcpStream);

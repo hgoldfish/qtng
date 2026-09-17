@@ -4285,6 +4285,10 @@ Public knobs:
 * ``setTearDownTime`` / ``tearDownTime`` — idle / drain timeout.
 * ``stats()`` — read-only ``KcpStreamStats`` (sndWnd, budgets, resend
   counters, lossRate, deliveryBps).
+* ``plaintextLooksCritical(data, size)`` — static helper for multipath /
+  redundant-send layers: true when the DatagramLink plaintext is CLOSE,
+  KEEPALIVE, native ikcp ACK (``0x52``), compact ACKN (``0x55``), or a legacy
+  ``DATA`` (``0x01``) wrapper whose ikcp cmd at offset 5 is ACK/ACKN.
 
 When a segment hits ``dead_link`` retransmits, ``kcp->state`` becomes ``-1`` and
 ``KcpStream`` closes with ``SocketTimeoutError`` (``"KcpStream dead link."``).
@@ -4352,6 +4356,9 @@ It does **not** expose KCP-specific APIs (``setSendBufferLimit``, ``stats``,
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — DATA payload sizing
 * ``setReceiveBufferSize`` / ``receiveBufferSize`` — advertised receive window
 * ``setIdleTimeout`` / ``idleTimeout`` — optional idle disconnect (0 disables)
+* ``plaintextLooksCritical(data, size)`` — static helper for multipath /
+  redundant-send layers: true when the µTP v1 first byte encodes ``ST_FIN``,
+  ``ST_STATE``, or ``ST_RESET``.
 
 Wire protocol is µTP v1 (``ST_DATA`` / ``ST_FIN`` / ``ST_STATE`` / ``ST_RESET`` / ``ST_SYN``)
 with connection-id demultiplexing. Runtime does not depend on libutp.

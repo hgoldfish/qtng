@@ -37,7 +37,11 @@ public:
 
     Event busy;
     Event notBusy;
-public:
+
+    // Multipath / redundant-send heuristics: true for ST_STATE / ST_FIN / ST_RESET
+    // (µTP v1 first byte = [type:4][version:4]).
+    static bool plaintextLooksCritical(const char *data, std::int32_t size);
+
     Socket::SocketError error() const;
     std::string errorString() const;
     bool isValid() const;
