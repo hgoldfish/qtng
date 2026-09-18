@@ -100,7 +100,10 @@ struct PoolEntries
 };
 
 // Global fallback pool shared by all threads, guarded by a mutex. It receives
-// stacks that overflow the thread-local cap and stacks flushed on thread exit.
+// stacks that overflow the thread-local cap. Thread-exit must not flush into
+// it: musl runs thread_local destructors via atexit, when this function-local
+// static may already be gone. That was ace-server's SIGSEGV on Ctrl-C
+// (push_back in pushToGlobal from ~ThreadLocalPool).
 struct GlobalPool
 {
     ~GlobalPool()
@@ -148,15 +151,14 @@ void pushToGlobal(Stack stack)
 // same event-loop thread, so this path serves almost every release/acquire.
 struct ThreadLocalPool
 {
-    ~ThreadLocalPool() { flushToGlobal(); }
-    void flushToGlobal()
+    ~ThreadLocalPool()
     {
+        // Unmap locally. Do not touch globalPool(); see GlobalPool comment.
         for (pair<const size_t, vector<Stack>> &entry : entries.freeList) {
             for (Stack &stack : entry.second) {
-                pushToGlobal(stack);
+                freeStack(&stack);
             }
         }
-        entries = PoolEntries();
     }
     PoolEntries entries;
 };
