@@ -5,6 +5,7 @@
 #include <cassert>
 #include <climits>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <string>
@@ -80,17 +81,24 @@ inline void callInEventLoopAsync(std::function<void()> func, std::uint32_t msecs
     EventLoopCoroutine::get()->callLater(msecs, new LambdaFunctor(func));
 }
 
-// Run func on a dedicated worker thread and return an Event that is set when
-// the work completes. The caller yields on the Event (tryWait) so the calling
-// coroutine does not block the OS thread. NgThread/DeferCallThread are internal
-// details and live in private/coroutine_utils_p.h.
+// Run func on the process-wide worker thread pool and return an Event that is
+// set when the work completes. The caller yields on the Event (tryWait) so the
+// calling coroutine does not block the OS thread. Workers are reused; a burst
+// of DNS lookups or other blocking calls does not create and destroy an OS
+// thread (LWP) per task. Exceptions are logged, not rethrown; use callInThread
+// if the caller needs to see them. Must be called from a coroutine with an
+// event loop.
 std::shared_ptr<Event> spawnInThread(const std::function<void()> &func);
+
+// Run func on the process-wide worker thread pool and wait for it. Exceptions
+// thrown by func are rethrown on the calling coroutine.
+void callInThread(const std::function<void()> &func);
 
 template<typename T>
 T callInThread(std::function<T()> func)
 {
     std::shared_ptr<T> result = std::make_shared<T>();
-    spawnInThread([result, func]() mutable { *result = func(); })->tryWait();
+    callInThread(std::function<void()>([result, func]() { *result = func(); }));
     return *result;
 }
 
@@ -98,11 +106,6 @@ template<typename T, typename ARG1, typename... Args>
 T callInThread(std::function<T(ARG1, Args...)> func, ARG1 arg1, Args... args)
 {
     return callInThread<T>([func, arg1, args...]() -> T { return func(arg1, args...); });
-}
-
-inline void callInThread(const std::function<void()> &func)
-{
-    spawnInThread(func)->tryWait();
 }
 
 #ifdef QTNG_HAS_STD_THREAD
@@ -330,18 +333,26 @@ public:
 
     void call(std::function<void()> func);
 
-    // Dispatch asynchronously: returns an Event immediately, set once the task completes; exceptions on
-    // worker threads are only logged, never rethrown to the caller.
+    // Dispatch asynchronously: returns an Event immediately, set once the task
+    // completes. Exceptions on the worker are logged, never rethrown; use call()
+    // when the caller needs to see them.
     std::shared_ptr<Event> spawn(const std::function<void()> &func);
 
 private:
+    struct SubmitResult
+    {
+        std::shared_ptr<Event> done;
+        std::shared_ptr<std::exception_ptr> error;
+    };
+    SubmitResult submit(std::function<void()> func);
     template<typename T, typename Func, typename... ARGS>
     T apply_dispatch(Func func, detail::NormalType, ARGS... args);
     template<typename T, typename Func, typename... ARGS>
     T apply_dispatch(Func func, detail::VoidType, ARGS... args);
 
     class WorkThread;
-    std::vector<std::shared_ptr<WorkThread>> threads;
+    std::vector<std::shared_ptr<WorkThread>> idle;
+    std::vector<std::shared_ptr<WorkThread>> workers;
     std::shared_ptr<Semaphore> semaphore;
     std::shared_ptr<std::atomic<bool>> alive;
     NG_DISABLE_COPY_MOVE(ThreadPool)

@@ -8,8 +8,6 @@
 #include <thread>
 #include <vector>
 
-#include "qtng/locks.h"
-
 namespace qtng {
 
 class EventLoopCoroutine;
@@ -44,19 +42,6 @@ private:
     std::mutex finishedCallbacksMutex;
     std::vector<std::function<void()>> finishedCallbacks;
     friend void ngThreadEntry(NgThread *self);
-};
-
-class DeferCallThread : public NgThread
-{
-public:
-    DeferCallThread(std::function<void()> makeResult, std::shared_ptr<Event> done,
-                    std::shared_ptr<EventLoopCoroutine> eventloop);
-    void run() override;
-
-private:
-    std::function<void()> makeResult;
-    std::shared_ptr<Event> done;
-    std::weak_ptr<EventLoopCoroutine> eventloop;
 };
 
 }  // namespace qtng

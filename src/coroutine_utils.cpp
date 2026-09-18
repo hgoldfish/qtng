@@ -44,8 +44,8 @@ NgThread::~NgThread()
     if (thread.joinable()) {
         // Joining the current thread would self-deadlock (EDEADLK); detach
         // instead. Callers must not destroy a still-running NgThread from another
-        // thread without joining first (DeferCallThread joins on the event loop
-        // before delete).
+        // thread without joining first (ThreadPool joins its workers in its
+        // destructor; CoroutineThread joins in wait()).
         if (thread.get_id() == std::this_thread::get_id()) {
             thread.detach();
         } else {
@@ -120,48 +120,26 @@ bool MarkDoneFunctor::operator()()
     return true;
 }
 
-DeferCallThread::DeferCallThread(function<void()> makeResult, shared_ptr<Event> done,
-                                 shared_ptr<EventLoopCoroutine> eventloop)
-    : makeResult(std::move(makeResult))
-    , done(std::move(done))
-    , eventloop(eventloop)
+namespace {
+
+ThreadPool &sharedThreadPool()
 {
+    // Process-lifetime pool: never destroyed, so workers are not joined during
+    // static teardown (the event loop is already gone by then).
+    static ThreadPool *const pool = new ThreadPool;
+    return *pool;
 }
 
-void DeferCallThread::run()
-{
-    // Do not delete this from the worker thread. ngThreadEntry() continues to
-    // touch the NgThread after run() returns (finished flag + callbacks); deleting
-    // here is a use-after-free that corrupts the heap (often detected later in
-    // OpenBSD ASR TLS destructors as "write to free mem"). Match qtnetworkng:
-    // signal completion immediately, then join+delete from the event loop.
-    struct Cleanup
-    {
-        DeferCallThread *self;
-        ~Cleanup()
-        {
-            shared_ptr<EventLoopCoroutine> loop = self->eventloop.lock();
-            if (!loop) {
-                return;
-            }
-            DeferCallThread *thread = self;
-            shared_ptr<Event> doneEvent = self->done;
-            loop->callLaterThreadSafe(0, new MarkDoneFunctor(doneEvent));
-            loop->callLaterThreadSafe(0, new LambdaFunctor([thread] {
-                thread->wait();
-                delete thread;
-            }));
-        }
-    } cleanup{this};
-    makeResult();
-}
+}  // namespace
 
 shared_ptr<Event> spawnInThread(const function<void()> &func)
 {
-    shared_ptr<Event> done = make_shared<Event>();
-    DeferCallThread *thread = new DeferCallThread(func, done, currentLoop()->get());
-    thread->start();
-    return done;
+    return sharedThreadPool().spawn(func);
+}
+
+void callInThread(const function<void()> &func)
+{
+    sharedThreadPool().call(func);
 }
 
 class CoroutineThreadPrivate : public NgThread
@@ -456,6 +434,7 @@ public:
     {
     }
     function<void()> makeResult;
+    function<void()> onLoopFinished;
     shared_ptr<Event> done;
     weak_ptr<EventLoopCoroutine> eventloop;
     shared_ptr<exception_ptr> error;
@@ -465,7 +444,7 @@ class ThreadPool::WorkThread : public NgThread
 {
 public:
     WorkThread() = default;
-    void call(function<void()> func);
+    ThreadPool::SubmitResult enqueue(function<void()> func, function<void()> onLoopFinished);
     void kill();
 
 private:
@@ -477,26 +456,28 @@ private:
     atomic<bool> exiting{false};
 };
 
-void ThreadPool::WorkThread::call(function<void()> func)
+ThreadPool::SubmitResult ThreadPool::WorkThread::enqueue(function<void()> func, function<void()> onLoopFinished)
 {
-    if (exiting.load()) {
-        return;
-    }
     ThreadPoolWorkItem item;
     item.makeResult = std::move(func);
+    item.onLoopFinished = std::move(onLoopFinished);
     item.eventloop = currentLoop()->get();
-    // Keep shared_ptr copies: push_back(std::move(item)) empties item fields.
-    shared_ptr<Event> done = item.done;
-    shared_ptr<exception_ptr> error = item.error;
+    SubmitResult result;
+    result.done = item.done;
+    result.error = item.error;
     {
         lock_guard<mutex> lock(queueMutex);
-        queue.push_back(std::move(item));
+        if (!exiting.load()) {
+            queue.push_back(std::move(item));
+            hasWork.notify_all();
+            return result;
+        }
     }
-    hasWork.notify_all();
-    done->tryWait();
-    if (error && *error) {
-        rethrow_exception(*error);
+    if (item.onLoopFinished) {
+        item.onLoopFinished();
     }
+    result.done->set();
+    return result;
 }
 
 void ThreadPool::WorkThread::kill()
@@ -511,18 +492,21 @@ void ThreadPool::WorkThread::kill()
 
 void ThreadPool::WorkThread::run()
 {
-    while (!exiting.load()) {
+    while (true) {
         ThreadPoolWorkItem item;
         {
             unique_lock<mutex> lock(queueMutex);
             hasWork.wait(lock, [this] { return exiting.load() || !queue.empty(); });
-            if (queue.empty() || exiting.load()) {
+            if (queue.empty()) {
                 return;
             }
             item = std::move(queue.front());
             queue.pop_front();
         }
-        if (item.eventloop.expired()) {
+        shared_ptr<EventLoopCoroutine> loop = item.eventloop.lock();
+        if (!loop) {
+            // Cannot signal Event or recycle: both need the submitting loop.
+            // Dropping onLoopFinished is safe because workers still owns *this.
             return;
         }
         try {
@@ -532,9 +516,10 @@ void ThreadPool::WorkThread::run()
                 *item.error = current_exception();
             }
         }
-        if (shared_ptr<EventLoopCoroutine> loop = item.eventloop.lock()) {
-            loop->callLaterThreadSafe(0, new MarkDoneFunctor(item.done));
+        if (item.onLoopFinished) {
+            loop->callLaterThreadSafe(0, new LambdaFunctor(std::move(item.onLoopFinished)));
         }
+        loop->callLaterThreadSafe(0, new MarkDoneFunctor(item.done));
     }
 }
 
@@ -555,58 +540,68 @@ ThreadPool::ThreadPool(int threads)
 ThreadPool::~ThreadPool()
 {
     alive->store(false);
-    for (shared_ptr<WorkThread> &thread : threads) {
+    for (shared_ptr<WorkThread> &thread : workers) {
         thread->kill();
     }
 }
 
-void ThreadPool::call(function<void()> func)
+ThreadPool::SubmitResult ThreadPool::submit(function<void()> func)
 {
+    auto alreadyDone = []() {
+        SubmitResult result;
+        result.done = make_shared<Event>();
+        result.done->set();
+        result.error = make_shared<exception_ptr>();
+        return result;
+    };
     shared_ptr<Semaphore> sem = semaphore;
-    ScopedLock<Semaphore> lock(*sem);
-    if (!lock.isSuccess()) {
-        return;
+    if (!sem->tryAcquire()) {
+        return alreadyDone();
+    }
+    if (!alive->load()) {
+        sem->release();
+        return alreadyDone();
     }
     shared_ptr<WorkThread> thread;
-    if (threads.empty()) {
+    if (idle.empty()) {
         thread = make_shared<WorkThread>();
         thread->start();
+        workers.push_back(thread);
     } else {
-        thread = threads.front();
-        threads.erase(threads.begin());
+        thread = idle.front();
+        idle.erase(idle.begin());
     }
     shared_ptr<atomic<bool>> token = alive;
-    try {
-        thread->call(std::move(func));
+    return thread->enqueue(std::move(func), [this, thread, token, sem]() {
+        sem->release();
+        // ~ThreadPool kills every worker in `workers`; do not join from here.
         if (token->load()) {
-            threads.push_back(thread);
-        } else {
-            thread->kill();
+            idle.push_back(thread);
         }
-    } catch (...) {
-        if (token->load()) {
-            threads.push_back(thread);
-        } else {
-            thread->kill();
-        }
-        throw;
+    });
+}
+
+void ThreadPool::call(function<void()> func)
+{
+    SubmitResult result = submit(std::move(func));
+    result.done->tryWait();
+    if (result.error && *result.error) {
+        rethrow_exception(*result.error);
     }
 }
 
 shared_ptr<Event> ThreadPool::spawn(const function<void()> &func)
 {
-    shared_ptr<Event> done = make_shared<Event>();
-    Coroutine::spawn([this, done, func]() {
-        try {
-            call(func);
-        } catch (const exception &e) {
-            ngWarning() << "thread pool task threw std::exception: " << e.what();
-        } catch (...) {
-            ngWarning() << "thread pool task threw an unknown exception";
-        }
-        done->set();
-    });
-    return done;
+    return submit([func] {
+               try {
+                   func();
+               } catch (const exception &e) {
+                   ngWarning() << "thread pool task threw std::exception: " << e.what();
+               } catch (...) {
+                   ngWarning() << "thread pool task threw an unknown exception";
+               }
+           })
+            .done;
 }
 
 }  // namespace qtng

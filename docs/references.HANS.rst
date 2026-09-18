@@ -358,11 +358,11 @@ qtng 参考文档
 
 .. method:: std::shared_ptr<Coroutine> spawnInThreadWithName(const std::string &name, const std::function<void()> &func, bool replace = false)
 
-    在新线程执行 ``func``，创建等待线程完成的协程并命名。同名处理逻辑同 ``spawnWithName``
+    把 ``func`` 提交到进程级工作线程池，创建等待其完成的协程并命名。同名处理逻辑同 ``spawnWithName``
 
 .. method:: std::shared_ptr<Coroutine> spawnInThread(const std::function<void()> &func)
 
-    在新线程执行 ``func``，创建等待线程完成的协程并添加到组
+    把 ``func`` 提交到进程级工作线程池，创建等待其完成的协程并添加到组
 
 .. method:: static std::vector<T> map(std::function<T(S)> func, const std::vector<S> &l)
 
@@ -772,7 +772,17 @@ qtng 编程中**最严重的错误**是在事件循环协程中调用阻塞函�
     
 .. method:: T callInThread(std::function<T()> func)
 
-    在新线程执行函数并返回结果。若 ``func`` 本身带参数，可在其后继续传入。
+    在进程级工作线程池中执行函数并返回结果。若 ``func`` 本身带参数，可在其后继续传入。
+    ``func`` 抛出的异常会在调用方协程上重新抛出。
+    工作线程会被复用，因此反复调用（例如 ``Socket::resolve`` 里的 DNS）不会为每个任务
+    创建再销毁一条 OS 线程。那种 churn 会让调试器不断刷 ``New LWP`` / ``LWP exited``，
+    并打乱与终端共用的 TUI。
+
+.. function:: std::shared_ptr<Event> spawnInThread(const std::function<void()> &func)
+
+    把 ``func`` 提交到同一线程池并立即返回一个 ``Event``，任务完成时该事件被 set。
+    调用方协程应对该事件 ``tryWait()``。工作线程上的异常只记日志、不重新抛出；
+    需要看到异常时用 ``callInThread()``。必须在已有事件循环的协程中调用。
     
 
 1.7 内部机制：协程如何切换

@@ -357,11 +357,11 @@ Functions in ``CorotuineGroup``.
 
 .. method:: std::shared_ptr<Coroutine> spawnInThreadWithName(const std::string &name, const std::function<void()> &func, bool replace = false)`
 
-    Start a new thread to run ``func``. Create a new coroutine which waits for the new thread finishing, and add it to group with ``name``. If the parameter ``replace`` is false, and there is already a coroutine with the same name exists, no action is taken. Otherwise, if there is already a coroutine with the same name exists, the old one is returned. This function returns the new coroutine.
+    Submit ``func`` to the process-wide worker thread pool. Create a coroutine which waits for the work to finish, and add it to the group with ``name``. If the parameter ``replace`` is false, and there is already a coroutine with the same name exists, no action is taken. Otherwise, if there is already a coroutine with the same name exists, the old one is returned. This function returns the new coroutine.
 
 .. method:: std::shared_ptr<Coroutine> spawnInThread(const std::function<void()> &func)
 
-    Start a new thread to run ``func``. Create a new coroutine which waits for the new thread finishing, and add it to group. This function returns the new coroutine.
+    Submit ``func`` to the process-wide worker thread pool. Create a coroutine which waits for the work to finish, and add it to the group. This function returns the new coroutine.
 
 .. method:: static std::vector<T> map(std::function<T(S)> func, const std::vector<S> &l)
 
@@ -777,7 +777,21 @@ Several utilities help run work on the internal event loop or in background thre
 
 .. method:: T callInThread(std::function<T()> func)
 
-    Run ``func`` in a new thread and return its value. Extra arguments may be passed when ``func`` itself takes parameters.
+    Run ``func`` on the process-wide worker thread pool and return its value.
+    Extra arguments may be passed when ``func`` itself takes parameters.
+    Exceptions thrown by ``func`` are rethrown on the calling coroutine.
+    Workers are reused, so repeated calls (for example DNS in ``Socket::resolve``)
+    do not create and destroy an OS thread per task. That churn otherwise
+    floods a debugger with ``New LWP`` / ``LWP exited`` lines and can corrupt
+    a TUI that shares the terminal.
+
+.. function:: std::shared_ptr<Event> spawnInThread(const std::function<void()> &func)
+
+    Submit ``func`` to the same worker pool and return immediately with an
+    ``Event`` that is set when the work completes. The calling coroutine
+    should ``tryWait()`` on that event. Exceptions on the worker are logged,
+    never rethrown; use ``callInThread()`` when the caller needs to see them.
+    Must be called from a coroutine that already has an event loop.
 
 
 1.7 The Internal: How Coroutines Switch

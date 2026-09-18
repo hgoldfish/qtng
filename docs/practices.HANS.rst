@@ -26,3 +26,10 @@ send()和sendall()、recv()和recvall()的不同点
 可在进程启动时调用一次 ``qtng::utils::setLogHandler(handler)``，把每次 ``LogStream`` 刷出
 转到自定义接收端（例如 TUI 日志栏）。传入 ``nullptr`` 恢复默认行为。在其它线程正在刷日志时
 更换 handler 不是线程安全的。
+
+
+阻塞工作走线程池
+^^^^^^^^^^^^^^^^
+
+``callInThread()`` 和 ``spawnInThread()`` 跑在进程级工作线程池上，而不是每次调用都新建
+一条 OS 线程。DNS、磁盘等阻塞活应走这两条 API，以免 TUI 或调试器被线程创建/退出消息打乱。

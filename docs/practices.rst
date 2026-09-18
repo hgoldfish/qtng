@@ -26,3 +26,11 @@ By default ``ngDebug()`` / ``ngWarning()`` / ``ngCritical()`` / ``ngFatal()`` wr
 Call ``qtng::utils::setLogHandler(handler)`` once at process startup to route every
 ``LogStream`` flush into your own sink (for example a TUI log pane). Pass ``nullptr`` to
 restore the default. Swapping the handler while other threads are flushing is not thread-safe.
+
+
+Blocking work goes through the thread pool
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``callInThread()`` and ``spawnInThread()`` run on a process-wide worker pool rather
+than starting a new OS thread per call. Use them for DNS, disk, and other blocking
+work so a TUI or debugger is not flooded with thread create/exit messages.
