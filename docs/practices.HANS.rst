@@ -17,3 +17,12 @@ send()和sendall()、recv()和recvall()的不同点
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 若 lambda 捕获的对象必须在协程运行期间保持有效，应通过值捕获，或将可变状态放入 ``std::shared_ptr<T>``。除非能确保对象在协程结束前一直存在，否则不要捕获指向栈上或短生命周期对象的裸指针。
+
+
+用 setLogHandler 接管 ngDebug / ngWarning
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+默认情况下 ``ngDebug()`` / ``ngWarning()`` / ``ngCritical()`` / ``ngFatal()`` 写到 stderr。
+可在进程启动时调用一次 ``qtng::utils::setLogHandler(handler)``，把每次 ``LogStream`` 刷出
+转到自定义接收端（例如 TUI 日志栏）。传入 ``nullptr`` 恢复默认行为。在其它线程正在刷日志时
+更换 handler 不是线程安全的。

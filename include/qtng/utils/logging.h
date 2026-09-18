@@ -60,6 +60,14 @@ LogStream ngFatal(const char *category = "qtng");
 
 void logMessage(LogLevel level, const char *category, const std::string &message);
 
+// Optional process-wide sink for ngDebug/ngInfo/ngWarning/ngCritical/ngFatal.
+// When set, LogStream::flush() invokes the handler instead of writing to stderr.
+// Pass nullptr to restore the default cerr sink. Not thread-safe to swap while
+// other threads are flushing; install once at process startup.
+typedef void (*LogHandler)(LogLevel level, const char *category, const std::string &message);
+void setLogHandler(LogHandler handler);
+LogHandler logHandler();
+
 } // namespace utils
 } // namespace qtng
 

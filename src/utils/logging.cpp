@@ -8,6 +8,10 @@ using namespace std;
 namespace qtng {
 namespace utils {
 
+namespace {
+LogHandler g_logHandler = nullptr;
+}
+
 const char *LogStream::levelName(LogLevel level)
 {
     switch (level) {
@@ -24,9 +28,23 @@ const char *LogStream::levelName(LogLevel level)
     }
 }
 
+void setLogHandler(LogHandler handler)
+{
+    g_logHandler = handler;
+}
+
+LogHandler logHandler()
+{
+    return g_logHandler;
+}
+
 void LogStream::flush()
 {
-    cerr << levelName(level) << " [" << (category ? category : "qtng") << "] " << message << endl;
+    if (g_logHandler) {
+        g_logHandler(level, category ? category : "qtng", message);
+    } else {
+        cerr << levelName(level) << " [" << (category ? category : "qtng") << "] " << message << endl;
+    }
     if (level == LogLevel::Fatal) {
         abort();
     }

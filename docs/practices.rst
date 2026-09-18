@@ -17,3 +17,12 @@ Pass std::shared_ptr<T> to coroutine entry
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 When a lambda captures objects that must outlive the coroutine, pass them by value or wrap mutable state in ``std::shared_ptr<T>``. Never capture raw pointers to stack or short-lived objects unless you can guarantee they remain valid until the coroutine finishes.
+
+
+Redirect ngDebug / ngWarning with setLogHandler
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+By default ``ngDebug()`` / ``ngWarning()`` / ``ngCritical()`` / ``ngFatal()`` write to stderr.
+Call ``qtng::utils::setLogHandler(handler)`` once at process startup to route every
+``LogStream`` flush into your own sink (for example a TUI log pane). Pass ``nullptr`` to
+restore the default. Swapping the handler while other threads are flushing is not thread-safe.
