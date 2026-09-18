@@ -57,6 +57,14 @@ public:
     void setProtocolVersion(std::uint8_t version);
     std::uint8_t protocolVersion() const;
 
+    // When true (default), Tuner loss above 5% shrinks the send budget, but
+    // the loss-only floor is the cold-start budget (256 segments), not a
+    // collapsed BDP. When false, loss does not shrink the budget; only
+    // sustained queuing delay does. SLOW turns this off: multipath loss is
+    // not congestion. Accept()-ed slaves snapshot the flag at construction.
+    void setLossBasedBudget(bool enabled);
+    bool lossBasedBudget() const;
+
     // Memory budget for the send path (bytes). Converted to segments via
     // (mss + 72). Effective snd_wnd is min(BDP budget, this limit, rmt_wnd).
     void setSendBufferLimit(std::uint64_t bytes);

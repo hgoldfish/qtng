@@ -92,6 +92,16 @@ quint8 KcpStream::protocolVersion() const
     return d_ptr->core->protocolVersion();
 }
 
+void KcpStream::setLossBasedBudget(bool enabled)
+{
+    d_ptr->core->setLossBasedBudget(enabled);
+}
+
+bool KcpStream::lossBasedBudget() const
+{
+    return d_ptr->core->lossBasedBudget();
+}
+
 void KcpStream::setSendBufferLimit(quint64 bytes)
 {
     d_ptr->core->setSendBufferLimit(bytes);

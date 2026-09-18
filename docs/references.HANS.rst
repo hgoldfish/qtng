@@ -3927,6 +3927,11 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — 以**字节**计的内存预算
   （经 ``mss+72`` 换算为段数）；生效发送窗口为 ``min(BDP 额度, 该上限, rmt_wnd)``。
   冷启动预算为 256 段。
+* ``setLossBasedBudget`` / ``lossBasedBudget`` — 为 true（默认，``KcpSocket``
+  使用）时，Tuner 丢包率超过 5% 会收缩发送预算，但只因丢包收缩时的下限是冷启动
+  预算（256 段），而不是已经塌缩的 BDP。为 false 时丢包不收缩预算，只有持续的
+  排队时延才会收缩。SLOW 将其设为 false：多路径丢包不是拥塞。``accept()`` 得到的
+  slave 在创建时快照该标志，与 MTU 相同。
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU。
   ``accept()`` 得到的 slave 在**创建时**快照 master 的 MTU；之后在 master 上
   ``setPacketSize()`` 不会回灌到已有 slave。``waitsnd()>0`` 时拒绝修改。

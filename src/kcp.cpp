@@ -29,6 +29,7 @@
 #include "qtng/utils/logging.h"
 #include "qtng/utils/string_utils.h"
 #include "./kcp/ikcp.h"
+#include "./kcp/tuner_budget.h"
 
 using namespace std;
 
@@ -170,6 +171,7 @@ public:
     uint32_t sendBudgetSegs;
     uint32_t sessionId;
     uint8_t protocolVersion;
+    bool lossBasedBudget;
     KcpTuner tuner;
 
     DatagramPath remotePath;
@@ -279,6 +281,7 @@ KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId, uint32_t mt
     , sendBudgetSegs(kInitialSendBudgetSegs)
     , sessionId(sessionId)
     , protocolVersion(KcpStream::Version1)
+    , lossBasedBudget(true)
 {
     kcp = ikcp_create(0, this);
     ikcp_setoutput(kcp, kcp_callback);
@@ -435,28 +438,12 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     } else {
         tuner.inflateStreak = 0;
     }
-    const bool lossReduce = tuner.lossRate > 0.05;
-    const bool reduce = delayReduce || lossReduce;
-
-    if (tuner.coldStartTicks < 3 && !reduce) {
-        sendBudgetSegs = min(memoryCapSegs, max(sendBudgetSegs * 2, kInitialSendBudgetSegs));
-        tuner.coldStartTicks++;
-    } else if (reduce) {
-        // Delay cut is stronger (×0.7). Loss-only uses ×0.85. Never stack both —
-        // the old code did ×0.7 then ×0.85 ≈ ×0.595 whenever lossRate was high.
-        const uint32_t scaled = delayReduce ? (sendBudgetSegs * 7) / 10 : (sendBudgetSegs * 85) / 100;
-        sendBudgetSegs = max(bdpSegs, scaled);
-        tuner.freezeGrowthUntil = now + 2ull * period;
-    } else if (now >= tuner.freezeGrowthUntil) {
-        if (sendBudgetSegs < targetBudget) {
-            const uint32_t step = max(1u, (targetBudget - sendBudgetSegs) / 8);
-            sendBudgetSegs = min(targetBudget, sendBudgetSegs + step);
-        } else if (sendBudgetSegs > targetBudget) {
-            sendBudgetSegs = targetBudget;
-        }
-    }
-
-    sendBudgetSegs = max(8u, min(sendBudgetSegs, memoryCapSegs));
+    const KcpBudgetStep stepped = stepKcpSendBudget(
+            sendBudgetSegs, bdpSegs, memoryCapSegs, kInitialSendBudgetSegs, targetBudget, tuner.lossRate,
+            delayReduce, lossBasedBudget, tuner.coldStartTicks, now, tuner.freezeGrowthUntil, period);
+    sendBudgetSegs = stepped.sendBudgetSegs;
+    tuner.coldStartTicks = stepped.coldStartTicks;
+    tuner.freezeGrowthUntil = stepped.freezeGrowthUntil;
 
     // Adapt fastresend only when this period produced new reorder evidence,
     // stepping at most ±2 toward the P95-derived target. Gating on the
@@ -1290,6 +1277,9 @@ SlaveKcpStreamPrivate::SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, con
     state = Socket::ConnectedState;
     if (parent) {
         protocolVersion = parent->protocolVersion;
+        // Snapshot, same as MTU: later setLossBasedBudget() on the master
+        // does not reach slaves already accepted.
+        lossBasedBudget = parent->lossBasedBudget;
     }
 }
 
@@ -1643,6 +1633,20 @@ uint8_t KcpStream::protocolVersion() const
 {
     NG_D(const KcpStream);
     return d->protocolVersion;
+}
+
+void KcpStream::setLossBasedBudget(bool enabled)
+{
+    NG_D(KcpStream);
+    ScopedLock<RLock> l(d->kcpLock);
+    d->lossBasedBudget = enabled;
+}
+
+bool KcpStream::lossBasedBudget() const
+{
+    NG_D(const KcpStream);
+    ScopedLock<RLock> l(d->kcpLock);
+    return d->lossBasedBudget;
 }
 
 bool KcpStream::plaintextLooksCritical(const char *data, int32_t size)

@@ -40,6 +40,9 @@ public:
     void setProtocolVersion(quint8 version);
     quint8 protocolVersion() const;
 
+    void setLossBasedBudget(bool enabled);
+    bool lossBasedBudget() const;
+
     void setSendBufferLimit(quint64 bytes);
     quint64 sendBufferLimit() const;
     void setPacketSize(quint32 packetSize);

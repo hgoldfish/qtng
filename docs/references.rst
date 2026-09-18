@@ -4292,6 +4292,12 @@ Public knobs:
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — memory budget in **bytes**
   (converted to segments via ``mss+72``); effective send window is
   ``min(BDP budget, this limit, rmt_wnd)``. Cold-start budget is 256 segments.
+* ``setLossBasedBudget`` / ``lossBasedBudget`` — when true (default, used by
+  ``KcpSocket``), a Tuner loss rate above 5% shrinks the send budget, but the
+  loss-only floor is the cold-start budget (256 segments), not a collapsed BDP.
+  When false, loss does not shrink the budget; only sustained queuing delay
+  does. SLOW sets this to false because multipath loss is not congestion.
+  ``accept()`` slaves snapshot the flag at construction, like MTU.
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU.
   Accept()-ed slaves **snapshot** the master's MTU at construction; later
   ``setPacketSize()`` on the master does not propagate to existing slaves.
