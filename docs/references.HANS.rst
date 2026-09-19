@@ -3926,7 +3926,15 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — 以**字节**计的内存预算
   （经 ``mss+72`` 换算为段数）；生效发送窗口为 ``min(BDP 额度, 该上限, rmt_wnd)``。
-  冷启动预算为 256 段。
+  冷启动预算为 256 段。没有任何丢包或排队时延证据时，发送预算不低于
+  ``max(冷启动预算, setActivePathCount 给出的路径数 × 32)``；只有丢包或持续排队
+  时延才能把它压到这个下限以下。应用未填满窗口（``waitsnd == 0``，或本拍发送量
+  远小于窗口）时不更新 ``deliveryBps``，也不收缩窗口。
+* ``setActivePathCount`` — 活跃路径数。0 或 1 保持单路径下限。SLOW 在路径增删时
+  调用，使总窗口随路径数放大。单条 ``KcpSocket`` 保持默认 1。
+* ``setCapacityHintBps`` — 外部容量估计，单位 bit/s。为 0 时 BDP 退回 Tuner 自己的
+  达成速率；大于 0 时用它代替「被窗口夹住的达成速率」计算 BDP。SLOW 传入各活跃
+  路径 ``bwEstimate`` 之和。
 * ``setLossBasedBudget`` / ``lossBasedBudget`` — 为 true（默认，``KcpSocket``
   使用）时，Tuner 丢包率超过 5% 会收缩发送预算，但只因丢包收缩时的下限是冷启动
   预算（256 段），而不是已经塌缩的 BDP。为 false 时丢包不收缩预算，只有持续的
@@ -3940,8 +3948,9 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
   ``accept()`` 得到的 slave 在**创建时**快照 master 的 MTU；之后在 master 上
   ``setPacketSize()`` 不会回灌到已有 slave。``waitsnd()>0`` 时拒绝修改。
 * ``setTearDownTime`` / ``tearDownTime`` — 空闲 / 排空超时。
-* ``stats()`` — 只读 ``KcpStreamStats``（sndWnd、预算、重传计数、lossRate、
-  deliveryBps）。
+* ``stats()`` — 只读 ``KcpStreamStats``（sndWnd、sendBudgetSegs、memoryCapSegs、
+  waitsnd、sndUna、sndNxt、sentSegs、rmtWnd、rxSrtt、srttMin、mss、重传计数、
+  lossRate、deliveryBps）。
 * ``plaintextLooksCritical(data, size)`` — 静态辅助函数，供多路径/冗余发送层使用：
   当 DatagramLink 明文为 CLOSE、KEEPALIVE、原生 ikcp ACK（``0x52``）、紧凑 ACKN
   （``0x55``），或旧版 ``DATA``（``0x01``）包装且偏移 5 处 ikcp cmd 为 ACK/ACKN

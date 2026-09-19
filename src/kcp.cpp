@@ -81,6 +81,7 @@ class SlaveKcpStreamPrivate;
 static constexpr uint32_t kDefaultMtu = 1400;
 static constexpr uint64_t kDefaultSendBufferLimit = 16ull * 1024ull * 1024ull;  // 16 MiB
 static constexpr uint32_t kInitialSendBudgetSegs = 256;                          // former Internet waterLine
+static constexpr uint32_t kBaseWindowSegs = 32;                                  // per active path
 static constexpr uint32_t kSegOverheadBytes = 72;                                // ikcp overhead + path framing budget
 static constexpr size_t kReorderSampleCap = 32;
 
@@ -173,6 +174,9 @@ public:
     uint8_t protocolVersion;
     bool lossBasedBudget;
     bool fastResendEnabled;
+    uint32_t activePathCount = 1;
+    double capacityHintBps = 0;  // bits/s; 0 = unset, Tuner uses deliveryBps
+    bool updateLoopAlive = false;
     KcpTuner tuner;
 
     DatagramPath remotePath;
@@ -393,7 +397,15 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     const uint32_t deltaLoss = tuner.lastSampleTs == 0 ? 0 : (kcp->loss_rto - tuner.lastLossRto);
     const uint32_t segBytes = kcp->mss + kSegOverheadBytes;
 
-    if (deltaUna > 0 && dtMs > 0) {
+    const int waitsndNow = ikcp_waitsnd(kcp);
+    const uint32_t wndForLimit = kcp->snd_wnd > 0 ? kcp->snd_wnd : sendBudgetSegs;
+    // Empty queue, or this period sent far less than the window allows: the
+    // application (or the peer) is not filling the pipe. Do not treat that
+    // achieved rate as the path's capacity.
+    const bool appLimited = waitsndNow <= 0
+            || (wndForLimit > 0 && deltaSent * 4u < wndForLimit);
+
+    if (!appLimited && deltaUna > 0 && dtMs > 0) {
         const double sampleBps = (static_cast<double>(deltaUna) * segBytes * 8.0 * 1000.0) / static_cast<double>(dtMs);
         tuner.deliveryBps = tuner.deliveryBps <= 0 ? sampleBps : (tuner.deliveryBps * 7.0 + sampleBps) / 8.0;
     }
@@ -422,9 +434,12 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     }
 
     const uint32_t srttForBdp = tuner.srttMin > 0 ? tuner.srttMin : max(srtt, 1u);
+    // Prefer an external capacity hint (SLOW's sum of path bwEstimate) so the
+    // BDP is not computed from a rate the window itself just clamped.
+    const double rateBps = capacityHintBps > 0 ? capacityHintBps : tuner.deliveryBps;
     uint32_t bdpSegs = 8;
-    if (tuner.deliveryBps > 0 && segBytes > 0) {
-        const double bdpBytes = tuner.deliveryBps * static_cast<double>(srttForBdp) / 8000.0;
+    if (rateBps > 0 && segBytes > 0) {
+        const double bdpBytes = rateBps * static_cast<double>(srttForBdp) / 8000.0;
         bdpSegs = max(8u, static_cast<uint32_t>(bdpBytes / segBytes + 0.999));
     }
 
@@ -446,9 +461,12 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     } else {
         tuner.inflateStreak = 0;
     }
+    const uint32_t pathFloor = kBaseWindowSegs * max(1u, activePathCount);
+    const uint32_t minBudget = max(kInitialSendBudgetSegs, pathFloor);
     const KcpBudgetStep stepped = stepKcpSendBudget(
             sendBudgetSegs, bdpSegs, memoryCapSegs, kInitialSendBudgetSegs, targetBudget, tuner.lossRate,
-            delayReduce, lossBasedBudget, tuner.coldStartTicks, now, tuner.freezeGrowthUntil, period);
+            delayReduce, lossBasedBudget, tuner.coldStartTicks, now, tuner.freezeGrowthUntil, period,
+            minBudget, appLimited);
     sendBudgetSegs = stepped.sendBudgetSegs;
     tuner.coldStartTicks = stepped.coldStartTicks;
     tuner.freezeGrowthUntil = stepped.freezeGrowthUntil;
@@ -476,7 +494,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
 
     // Grow rcv_wnd with BDP; never shrink. Shrinking below in-flight capacity
     // deadlocks sequential sendall→recvall once the peer advertises wnd=0.
-    if (tuner.deliveryBps > 0) {
+    if (rateBps > 0) {
         uint32_t rcvTarget = kcp->rcv_wnd;
         uint32_t computed = max(128u /* IKCP_WND_RCV */, min(memoryCapSegs, (bdpSegs * 3) / 2));
         computed = min(computed, 0xFFFFu);
@@ -505,6 +523,14 @@ KcpStreamStats KcpStreamPrivate::snapshotStats() const
     s.fastresend = kcp ? static_cast<uint32_t>(max(kcp->fastresend, 0)) : 0;
     s.lossRate = tuner.lossRate;
     s.deliveryBps = tuner.deliveryBps;
+    s.waitsnd = kcp ? static_cast<uint32_t>(ikcp_waitsnd(kcp)) : 0;
+    s.sndUna = kcp ? kcp->snd_una : 0;
+    s.sndNxt = kcp ? kcp->snd_nxt : 0;
+    s.sentSegs = kcp ? kcp->sent_segs : 0;
+    s.rmtWnd = kcp ? kcp->rmt_wnd : 0;
+    s.rxSrtt = kcp && kcp->rx_srtt > 0 ? static_cast<uint32_t>(kcp->rx_srtt) : 0;
+    s.srttMin = tuner.srttMin;
+    s.mss = kcp ? kcp->mss : 0;
     return s;
 }
 
@@ -523,52 +549,82 @@ int32_t KcpStreamPrivate::send(const char *data, int32_t size, bool all)
             errorString = "KcpStream is not connected.";
             return -1;
         }
-        bool ok = false;
-        const uint32_t pollMs = max(200u, min(1000u, static_cast<uint32_t>(tearDownTime / 10)));
-        const uint64_t waitDeadline =
-                static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch()) + tearDownTime;
-        while (true) {
-            if (state != Socket::ConnectedState) {
-                error = Socket::SocketAccessError;
-                errorString = "KcpStream is not connected.";
-                return count > 0 ? count : -1;
-            }
-            ok = sendingQueueNotFull.tryWait(pollMs);
-            if (ok) {
-                break;
-            }
-            const uint64_t now = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
-            if (now >= waitDeadline) {
-                error = Socket::SocketTimeoutError;
-                errorString = "KcpStream send buffer is full.";
-                return count > 0 ? count : -1;
-            }
-        }
-        int32_t nextBlockSize = min<int32_t>(static_cast<int32_t>(kcp->mss), size - count);
-        int result;
+        uint32_t mss = 0;
+        uint32_t room = 0;
         {
             ScopedLock<RLock> l(kcpLock);
-            result = ikcp_send(kcp, data + count, nextBlockSize);
+            applySendWindow();
+            const uint32_t sndWnd = kcp->snd_wnd ? kcp->snd_wnd : 8;
+            const uint32_t busyThreshold = sndWnd + max(8u, sndWnd / 5u);
+            const int waiting = ikcp_waitsnd(kcp);
+            mss = kcp->mss;
+            // updateStatus() only clears sendingQueueNotFull once waitsnd is
+            // *past* busyThreshold. Stopping at == leaves the event set, and
+            // tryWait returns immediately — sendall then spins until tearDown.
+            if (waiting >= 0 && static_cast<uint32_t>(waiting) <= busyThreshold) {
+                room = busyThreshold - static_cast<uint32_t>(waiting) + 1u;
+            }
+        }
+        if (room == 0) {
+            const uint32_t pollMs = max(200u, min(1000u, static_cast<uint32_t>(tearDownTime / 10)));
+            const uint64_t waitDeadline =
+                    static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch()) + tearDownTime;
+            bool ok = false;
+            while (!ok) {
+                if (state != Socket::ConnectedState) {
+                    error = Socket::SocketAccessError;
+                    errorString = "KcpStream is not connected.";
+                    return count > 0 ? count : -1;
+                }
+                ok = sendingQueueNotFull.tryWait(pollMs);
+                if (ok) {
+                    break;
+                }
+                const uint64_t now = static_cast<uint64_t>(utils::DateTime::currentMSecsSinceEpoch());
+                if (now >= waitDeadline) {
+                    error = Socket::SocketTimeoutError;
+                    errorString = "KcpStream send buffer is full.";
+                    return count > 0 ? count : -1;
+                }
+            }
+            continue;
+        }
+        if (mss == 0) {
+            mss = 1;
+        }
+        // Fill the open window in one pass. send() still returns after one
+        // segment; sendall() keeps going until the window or the buffer ends,
+        // and only then waits.
+        bool failed = false;
+        uint32_t filled = 0;
+        while (count < size && filled < room) {
+            const int32_t nextBlockSize = min<int32_t>(static_cast<int32_t>(mss), size - count);
+            int result;
+            {
+                ScopedLock<RLock> l(kcpLock);
+                result = ikcp_send(kcp, data + count, nextBlockSize);
+            }
+            if (result < 0) {
+                failed = true;
+                break;
+            }
+            count += nextBlockSize;
+            ++filled;
+            if (!all) {
+                break;
+            }
         }
         updateStatus();
-        if (result < 0) {
+        updateKcp();
+        if (failed) {
             ngWarning() << "why this happened?";
-            if (count > 0) {
-                updateKcp();
-                return count;
-            } else {
-                return -1;
-            }
-        } else {  // result == 0
-            count += nextBlockSize;
-            if (!all) {
-                updateKcp();
-                return count;
-            }
+            return count > 0 ? count : -1;
+        }
+        if (!all) {
+            return isValid() ? count : -1;
         }
     }
     assert(all);
-    updateKcp();
     return isValid() ? count : -1;
 }
 
@@ -764,8 +820,26 @@ void KcpStreamPrivate::doUpdate()
 
 void KcpStreamPrivate::updateKcp()
 {
-    shared_ptr<Coroutine> t = operations->spawnWithName(
-            "update_kcp", [this] { doUpdate(); }, false);
+    // doUpdate parks on forceToUpdate. Waking it is enough while it is alive;
+    // spawning a new coroutine per send just to find the old one is the hot path.
+    if (!updateLoopAlive) {
+        updateLoopAlive = true;
+        operations->spawnWithName(
+                "update_kcp",
+                [this] {
+                    try {
+                        doUpdate();
+                    } catch (const CoroutineExitException &) {
+                        updateLoopAlive = false;
+                        throw;
+                    } catch (...) {
+                        updateLoopAlive = false;
+                        throw;
+                    }
+                    updateLoopAlive = false;
+                },
+                false);
+    }
     kcp->updated = 0;
     forceToUpdate.open();
 }
@@ -1290,6 +1364,8 @@ SlaveKcpStreamPrivate::SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, con
         // does not reach slaves already accepted.
         lossBasedBudget = parent->lossBasedBudget;
         fastResendEnabled = parent->fastResendEnabled;
+        activePathCount = parent->activePathCount;
+        capacityHintBps = parent->capacityHintBps;
         if (!fastResendEnabled && kcp) {
             ikcp_nodelay(kcp, -1, -1, 0, -1);
             tuner.lastFastResend = 0;
@@ -1685,6 +1761,20 @@ bool KcpStream::fastResendEnabled() const
     NG_D(const KcpStream);
     ScopedLock<RLock> l(d->kcpLock);
     return d->fastResendEnabled;
+}
+
+void KcpStream::setActivePathCount(uint32_t n)
+{
+    NG_D(KcpStream);
+    ScopedLock<RLock> l(d->kcpLock);
+    d->activePathCount = n == 0 ? 1u : n;
+}
+
+void KcpStream::setCapacityHintBps(double bitsPerSec)
+{
+    NG_D(KcpStream);
+    ScopedLock<RLock> l(d->kcpLock);
+    d->capacityHintBps = bitsPerSec > 0.0 ? bitsPerSec : 0.0;
 }
 
 bool KcpStream::plaintextLooksCritical(const char *data, int32_t size)

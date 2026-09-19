@@ -22,6 +22,14 @@ struct KcpStreamStats {
     std::uint32_t fastresend;      // current fastresend threshold
     double lossRate;               // Tuner estimate
     double deliveryBps;            // Tuner estimate (bits/s)
+    std::uint32_t waitsnd;         // ikcp_waitsnd: queued + in flight segments
+    std::uint32_t sndUna;          // oldest unacknowledged segment
+    std::uint32_t sndNxt;          // next segment number to send
+    std::uint32_t sentSegs;        // cumulative first-sends
+    std::uint32_t rmtWnd;          // peer advertised window (segments)
+    std::uint32_t rxSrtt;          // smoothed RTT (ms)
+    std::uint32_t srttMin;         // Tuner's decaying minimum srtt (ms)
+    std::uint32_t mss;             // ikcp mss (bytes)
 };
 
 class KcpStreamPrivate;
@@ -71,6 +79,15 @@ public:
     // slaves snapshot the flag at construction, like setLossBasedBudget.
     void setFastResendEnabled(bool enabled);
     bool fastResendEnabled() const;
+
+    // Multiplies the send-budget floor by the number of paths that can carry
+    // data. 0 or 1 keeps the single-path floor (the cold-start budget).
+    // SLOW calls this as paths come and go; a single KcpSocket leaves it at 1.
+    void setActivePathCount(std::uint32_t n);
+    // External capacity estimate in bits/s. 0 clears it, and the Tuner falls
+    // back to its own delivered-rate estimate. When set, BDP uses this instead
+    // of the rate the window itself just achieved.
+    void setCapacityHintBps(double bitsPerSec);
 
     // Memory budget for the send path (bytes). Converted to segments via
     // (mss + 72). Effective snd_wnd is min(BDP budget, this limit, rmt_wnd).

@@ -4292,6 +4292,18 @@ Public knobs:
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — memory budget in **bytes**
   (converted to segments via ``mss+72``); effective send window is
   ``min(BDP budget, this limit, rmt_wnd)``. Cold-start budget is 256 segments.
+  With no loss and no queuing-delay evidence, the send budget stays at least
+  ``max(cold-start budget, activePathCount × 32)``. Only loss or sustained
+  queuing delay may push it below that floor. An app-limited period
+  (``waitsnd == 0``, or this period sent far less than the window) does not
+  update ``deliveryBps`` and never shrinks the window.
+* ``setActivePathCount`` — number of paths that can carry data. 0 or 1 keeps
+  the single-path floor. SLOW updates this as paths come and go so the window
+  grows with the path count. A lone ``KcpSocket`` leaves it at 1.
+* ``setCapacityHintBps`` — external capacity estimate in bits/s. 0 falls back
+  to the Tuner's own delivered rate. A positive value is used for the BDP
+  instead of the rate the window itself just achieved. SLOW passes the sum of
+  active-path ``bwEstimate`` values.
 * ``setLossBasedBudget`` / ``lossBasedBudget`` — when true (default, used by
   ``KcpSocket``), a Tuner loss rate above 5% shrinks the send budget, but the
   loss-only floor is the cold-start budget (256 segments), not a collapsed BDP.
@@ -4308,8 +4320,9 @@ Public knobs:
   ``setPacketSize()`` on the master does not propagate to existing slaves.
   Refused while ``waitsnd()>0``.
 * ``setTearDownTime`` / ``tearDownTime`` — idle / drain timeout.
-* ``stats()`` — read-only ``KcpStreamStats`` (sndWnd, budgets, resend
-  counters, lossRate, deliveryBps).
+* ``stats()`` — read-only ``KcpStreamStats`` (sndWnd, sendBudgetSegs,
+  memoryCapSegs, waitsnd, sndUna, sndNxt, sentSegs, rmtWnd, rxSrtt, srttMin,
+  mss, resend counters, lossRate, deliveryBps).
 * ``plaintextLooksCritical(data, size)`` — static helper for multipath /
   redundant-send layers: true when the DatagramLink plaintext is CLOSE,
   KEEPALIVE, native ikcp ACK (``0x52``), compact ACKN (``0x55``), or a legacy

@@ -40,6 +40,14 @@ static KcpStreamStats toQtStats(const qtng_core::KcpStreamStats &s)
     out.fastresend = s.fastresend;
     out.lossRate = s.lossRate;
     out.deliveryBps = s.deliveryBps;
+    out.waitsnd = s.waitsnd;
+    out.sndUna = s.sndUna;
+    out.sndNxt = s.sndNxt;
+    out.sentSegs = s.sentSegs;
+    out.rmtWnd = s.rmtWnd;
+    out.rxSrtt = s.rxSrtt;
+    out.srttMin = s.srttMin;
+    out.mss = s.mss;
     return out;
 }
 
@@ -110,6 +118,16 @@ void KcpStream::setFastResendEnabled(bool enabled)
 bool KcpStream::fastResendEnabled() const
 {
     return d_ptr->core->fastResendEnabled();
+}
+
+void KcpStream::setActivePathCount(quint32 n)
+{
+    d_ptr->core->setActivePathCount(n);
+}
+
+void KcpStream::setCapacityHintBps(double bitsPerSec)
+{
+    d_ptr->core->setCapacityHintBps(bitsPerSec);
 }
 
 void KcpStream::setSendBufferLimit(quint64 bytes)

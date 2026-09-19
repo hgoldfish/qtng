@@ -18,6 +18,14 @@ struct KcpStreamStats {
     quint32 fastresend;
     double lossRate;
     double deliveryBps;
+    quint32 waitsnd;
+    quint32 sndUna;
+    quint32 sndNxt;
+    quint32 sentSegs;
+    quint32 rmtWnd;
+    quint32 rxSrtt;
+    quint32 srttMin;
+    quint32 mss;
 };
 
 class KcpStreamPrivate;
@@ -45,6 +53,9 @@ public:
 
     void setFastResendEnabled(bool enabled);
     bool fastResendEnabled() const;
+
+    void setActivePathCount(quint32 n);
+    void setCapacityHintBps(double bitsPerSec);
 
     void setSendBufferLimit(quint64 bytes);
     quint64 sendBufferLimit() const;
