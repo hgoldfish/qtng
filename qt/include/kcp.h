@@ -43,6 +43,9 @@ public:
     void setLossBasedBudget(bool enabled);
     bool lossBasedBudget() const;
 
+    void setFastResendEnabled(bool enabled);
+    bool fastResendEnabled() const;
+
     void setSendBufferLimit(quint64 bytes);
     quint64 sendBufferLimit() const;
     void setPacketSize(quint32 packetSize);

@@ -3932,6 +3932,10 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
   预算（256 段），而不是已经塌缩的 BDP。为 false 时丢包不收缩预算，只有持续的
   排队时延才会收缩。SLOW 将其设为 false：多路径丢包不是拥塞。``accept()`` 得到的
   slave 在创建时快照该标志，与 MTU 相同。
+* ``setFastResendEnabled`` / ``fastResendEnabled`` — 为 true（默认）时，Tuner
+  按测到的乱序调整 ikcp ``fastresend``（初值 16）。为 false 时阈值保持 0，
+  Tuner 不再上调：乱序不触发快重传。SLOW 将其设为 false，因为多路径乱序是常态。
+  ``accept()`` 得到的 slave 在创建时快照该标志。
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU。
   ``accept()`` 得到的 slave 在**创建时**快照 master 的 MTU；之后在 master 上
   ``setPacketSize()`` 不会回灌到已有 slave。``waitsnd()>0`` 时拒绝修改。

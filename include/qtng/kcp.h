@@ -65,6 +65,13 @@ public:
     void setLossBasedBudget(bool enabled);
     bool lossBasedBudget() const;
 
+    // When true (default), Tuner adapts ikcp fastresend from measured reorder.
+    // When false, fastresend stays 0 so reordering is not a fast retransmit.
+    // SLOW turns this off: multipath reorder is normal, not loss. Accept()-ed
+    // slaves snapshot the flag at construction, like setLossBasedBudget.
+    void setFastResendEnabled(bool enabled);
+    bool fastResendEnabled() const;
+
     // Memory budget for the send path (bytes). Converted to segments via
     // (mss + 72). Effective snd_wnd is min(BDP budget, this limit, rmt_wnd).
     void setSendBufferLimit(std::uint64_t bytes);

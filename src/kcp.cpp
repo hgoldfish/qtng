@@ -172,6 +172,7 @@ public:
     uint32_t sessionId;
     uint8_t protocolVersion;
     bool lossBasedBudget;
+    bool fastResendEnabled;
     KcpTuner tuner;
 
     DatagramPath remotePath;
@@ -282,6 +283,7 @@ KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId, uint32_t mt
     , sessionId(sessionId)
     , protocolVersion(KcpStream::Version1)
     , lossBasedBudget(true)
+    , fastResendEnabled(true)
 {
     kcp = ikcp_create(0, this);
     ikcp_setoutput(kcp, kcp_callback);
@@ -308,7 +310,13 @@ void KcpStreamPrivate::applyFixedPolicy(uint32_t mtu)
     // treated as loss, cwnd collapses to 1, and dead_link can tear down a
     // healthy connection.
     const uint32_t clampedMtu = max(mtu, 50u);
-    ikcp_nodelay(kcp, /*nodelay=*/1, /*interval=*/10, /*resend=*/16, /*nc=*/1);
+    // resend=0 disables fast retransmit. Single-path KcpSocket keeps the
+    // default (16, then Tuner). SLOW calls setFastResendEnabled(false).
+    const int resend = fastResendEnabled ? 16 : 0;
+    ikcp_nodelay(kcp, /*nodelay=*/1, /*interval=*/10, /*resend=*/resend, /*nc=*/1);
+    if (!fastResendEnabled) {
+        tuner.lastFastResend = 0;
+    }
     ikcp_setmtu(kcp, static_cast<int>(clampedMtu));
     ikcp_wndsize(kcp, 1024, 1024);
     kcp->rx_minrto = 30;
@@ -449,7 +457,8 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     // stepping at most ±2 toward the P95-derived target. Gating on the
     // cumulative ring (reorderCount>0) used to keep walking toward a stale
     // near-zero P95 long after reorder stopped.
-    if (haveNewReorder) {
+    // Multipath (SLOW) leaves fastresend at 0: reorder is not loss.
+    if (fastResendEnabled && haveNewReorder) {
         const uint32_t reorderMs = reorderP95Us(tuner) / 1000u;
         const uint32_t interval = max(kcp->interval, 1u);
         const uint32_t target = min(32u, max(1u, reorderMs / interval + 1u));
@@ -1280,6 +1289,11 @@ SlaveKcpStreamPrivate::SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, con
         // Snapshot, same as MTU: later setLossBasedBudget() on the master
         // does not reach slaves already accepted.
         lossBasedBudget = parent->lossBasedBudget;
+        fastResendEnabled = parent->fastResendEnabled;
+        if (!fastResendEnabled && kcp) {
+            ikcp_nodelay(kcp, -1, -1, 0, -1);
+            tuner.lastFastResend = 0;
+        }
     }
 }
 
@@ -1647,6 +1661,30 @@ bool KcpStream::lossBasedBudget() const
     NG_D(const KcpStream);
     ScopedLock<RLock> l(d->kcpLock);
     return d->lossBasedBudget;
+}
+
+void KcpStream::setFastResendEnabled(bool enabled)
+{
+    NG_D(KcpStream);
+    ScopedLock<RLock> l(d->kcpLock);
+    d->fastResendEnabled = enabled;
+    if (!d->kcp) {
+        return;
+    }
+    if (enabled) {
+        ikcp_nodelay(d->kcp, -1, -1, 16, -1);
+        d->tuner.lastFastResend = 16;
+    } else {
+        ikcp_nodelay(d->kcp, -1, -1, 0, -1);
+        d->tuner.lastFastResend = 0;
+    }
+}
+
+bool KcpStream::fastResendEnabled() const
+{
+    NG_D(const KcpStream);
+    ScopedLock<RLock> l(d->kcpLock);
+    return d->fastResendEnabled;
 }
 
 bool KcpStream::plaintextLooksCritical(const char *data, int32_t size)

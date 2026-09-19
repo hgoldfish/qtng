@@ -4298,6 +4298,11 @@ Public knobs:
   When false, loss does not shrink the budget; only sustained queuing delay
   does. SLOW sets this to false because multipath loss is not congestion.
   ``accept()`` slaves snapshot the flag at construction, like MTU.
+* ``setFastResendEnabled`` / ``fastResendEnabled`` — when true (default),
+  Tuner adapts ikcp ``fastresend`` from measured reorder (initial threshold
+  16). When false, ``fastresend`` stays 0 and Tuner does not raise it:
+  reordering is not a fast retransmit. SLOW sets this to false because
+  multipath reorder is normal. ``accept()`` slaves snapshot the flag.
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU.
   Accept()-ed slaves **snapshot** the master's MTU at construction; later
   ``setPacketSize()`` on the master does not propagate to existing slaves.

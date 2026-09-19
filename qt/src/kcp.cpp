@@ -102,6 +102,16 @@ bool KcpStream::lossBasedBudget() const
     return d_ptr->core->lossBasedBudget();
 }
 
+void KcpStream::setFastResendEnabled(bool enabled)
+{
+    d_ptr->core->setFastResendEnabled(enabled);
+}
+
+bool KcpStream::fastResendEnabled() const
+{
+    return d_ptr->core->fastResendEnabled();
+}
+
 void KcpStream::setSendBufferLimit(quint64 bytes)
 {
     d_ptr->core->setSendBufferLimit(bytes);
