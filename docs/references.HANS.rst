@@ -3954,6 +3954,11 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 以 ``SocketTimeoutError``（``"KcpStream dead link."``）关闭。``ikcp_wndsize``
 将窗口钳制到 ``0xFFFF``；段/ACK 分配失败返回错误而不再 ``abort``。
 
+``DatagramLink::sendto`` 的返回值约定：等于 ``size`` 表示已发出，或按 UDP 语义
+主动丢弃。``KcpStream`` 把其它返回值——``0``、短写或负数——一律当成硬失败并
+关闭会话。眼下发不出去、但仍希望段留在 ``snd_buf`` 等下次 RTO 的调用方，必须
+仍然返回 ``size``。
+
 优雅 ``close()`` 最多等待 3 秒排空发送队列。``CLOSE`` 控制包仅在源 ``DatagramPath`` 与已记录
 对端路径一致时生效；其它路径发来的伪造关闭会被忽略。
 

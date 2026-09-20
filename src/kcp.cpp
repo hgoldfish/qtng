@@ -172,6 +172,7 @@ public:
     uint32_t sessionId;
     uint8_t protocolVersion;
     bool tunerEnabled;
+    bool pendingForceClose = false;
     KcpTuner tuner;
 
     DatagramPath remotePath;
@@ -253,7 +254,9 @@ int kcp_callback(const char *buf, int len, ikcpcb *, void *user)
     }
     const string &packet = p->makeDataPacket(buf, len);
     int32_t sentBytes = p->rawSend(packet.data(), packet.size());
-    if (sentBytes != packet.size()) {  // but why this happens?
+    // Incomplete send (0 / -1 / short write) = link dead. Callers that want
+    // UDP-style drop-on-full must still return `size` so we do not tear down.
+    if (sentBytes != packet.size()) {
         if (p->error == Socket::NoError) {
             p->error = Socket::SocketAccessError;
             p->errorString = "can not send udp packet";
@@ -261,7 +264,10 @@ int kcp_callback(const char *buf, int len, ikcpcb *, void *user)
 #ifdef DEBUG_PROTOCOL
         ngWarning() << "can not send packet.";
 #endif
-        p->close(true);
+        // Do not close() here: ikcp_update holds kcpLock. close() → killall can
+        // switch to waiters that need the same lock (e.g. MultiStream::doSend),
+        // and link send paths must not run teardown under that lock.
+        p->pendingForceClose = true;
         return -1;
     }
     return sentBytes;
@@ -767,18 +773,26 @@ void KcpStreamPrivate::doUpdate()
             return;
         }
         uint32_t current = static_cast<uint32_t>(now - zeroTimestamp);  // impossible to overflow.
+        bool needForceClose = false;
         {
             ScopedLock<RLock> l(kcpLock);
 
-            ikcp_update(kcp,
-                        current);  // ikcp_update() call ikcp_flush() and then kcp_callback(), and maybe close(true)
+            ikcp_update(kcp, current);  // flush → kcp_callback (must not close under lock)
+            needForceClose = pendingForceClose;
+            pendingForceClose = false;
             if (kcp->state != 0) {
                 error = Socket::SocketTimeoutError;
                 errorString = "KcpStream dead link.";
-                close(true);
-                return;
+                needForceClose = true;
+            } else if (!needForceClose) {
+                runTuner(now);
             }
-            runTuner(now);
+        }
+        // close() outside kcpLock: teardown killall/abort must not run while send()
+        // waiters are blocked on the same lock.
+        if (needForceClose) {
+            close(true);
+            return;
         }
         if (!(state == Socket::ConnectedState || (state == Socket::UnconnectedState && error == Socket::NoError))) {
             return;

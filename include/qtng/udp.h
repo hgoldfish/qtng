@@ -31,6 +31,9 @@ class DatagramLink
 public:
     virtual ~DatagramLink();
     virtual std::int32_t recvfrom(char *data, std::int32_t size, DatagramPath *who) = 0;
+    // Return size if the datagram was queued or intentionally dropped.
+    // 0, a short write, or a negative value is a hard failure: KcpStream
+    // closes the session. UDP-style drop-on-full must still return size.
     virtual std::int32_t sendto(const char *data, std::int32_t size, const DatagramPath &who) = 0;
     virtual void close() = 0;
     virtual void abort() = 0;

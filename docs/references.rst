@@ -4327,6 +4327,12 @@ When a segment hits ``dead_link`` retransmits, ``kcp->state`` becomes ``-1`` and
 ``ikcp_wndsize`` clamps windows to ``0xFFFF``; OOM on segment/ACK allocation
 returns an error instead of aborting.
 
+``DatagramLink::sendto`` return values: ``size`` means the datagram was queued
+or intentionally dropped (UDP-style). ``KcpStream`` treats any other return —
+``0``, a short write, or negative — as a hard failure and closes the session.
+Callers that cannot send now, but still want the segment kept in ``snd_buf``
+for a later RTO, must return ``size``.
+
 Graceful ``close()`` waits up to 3 seconds for the send queue to drain. A ``CLOSE`` control
 packet is accepted only when its source ``DatagramPath`` matches the recorded peer path;
 spoofed closes from other paths are ignored.
