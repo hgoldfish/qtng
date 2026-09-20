@@ -55,7 +55,8 @@ public:
     bool tunerEnabled() const;
 
     // Write sendBudgetSegs and applySendWindow(). Only succeeds when the
-    // Tuner is disabled; otherwise returns false.
+    // Tuner is disabled; otherwise returns false. 0 is allowed (external
+    // multipath backpressure → snd_wnd=0).
     bool setSendBudgetSegs(quint32 segs);
 
     void setSendBufferLimit(quint64 bytes);

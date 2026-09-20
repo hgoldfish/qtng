@@ -353,7 +353,14 @@ void KcpStreamPrivate::applySendWindow()
     // Must re-run whenever rmt_wnd moves — otherwise a peer window open stays
     // invisible until the next Tuner period (up to ~1s).
     const uint32_t sndTarget = min({0xFFFFu, sendBudgetSegs, memoryCapSegs, max(kcp->rmt_wnd, 8u)});
-    if (kcp->snd_wnd != sndTarget) {
+    if (kcp->snd_wnd == sndTarget) {
+        return;
+    }
+    // ikcp_wndsize treats sndwnd==0 as "leave unchanged" (same as rcvwnd).
+    // External multipath backpressure needs a real zero so queue→buf stops.
+    if (sndTarget == 0) {
+        kcp->snd_wnd = 0;
+    } else {
         ikcp_wndsize(kcp, static_cast<int>(sndTarget), 0);
     }
 }
@@ -555,15 +562,22 @@ int32_t KcpStreamPrivate::send(const char *data, int32_t size, bool all)
         {
             ScopedLock<RLock> l(kcpLock);
             applySendWindow();
-            const uint32_t sndWnd = kcp->snd_wnd ? kcp->snd_wnd : 8;
-            const uint32_t busyThreshold = sndWnd + max(8u, sndWnd / 5u);
+            // snd_wnd==0 is intentional path backpressure: stop accepting app
+            // data so undrainable snd_queue does not accumulate (close() waits
+            // on sendingQueueEmpty; queue never moves to buf while wnd is 0).
+            const uint32_t sndWnd = kcp->snd_wnd;
             const int waiting = ikcp_waitsnd(kcp);
             mss = kcp->mss;
-            // updateStatus() only clears sendingQueueNotFull once waitsnd is
-            // *past* busyThreshold. Stopping at == leaves the event set, and
-            // tryWait returns immediately — sendall then spins until tearDown.
-            if (waiting >= 0 && static_cast<uint32_t>(waiting) <= busyThreshold) {
-                room = busyThreshold - static_cast<uint32_t>(waiting) + 1u;
+            if (sndWnd == 0) {
+                room = 0;
+            } else {
+                const uint32_t busyThreshold = sndWnd + max(8u, sndWnd / 5u);
+                // updateStatus() only clears sendingQueueNotFull once waitsnd is
+                // *past* busyThreshold. Stopping at == leaves the event set, and
+                // tryWait returns immediately — sendall then spins until tearDown.
+                if (waiting >= 0 && static_cast<uint32_t>(waiting) <= busyThreshold) {
+                    room = busyThreshold - static_cast<uint32_t>(waiting) + 1u;
+                }
             }
         }
         if (room == 0) {
@@ -844,28 +858,39 @@ void KcpStreamPrivate::updateStatus()
         ScopedLock<RLock> l(kcpLock);
         applySendWindow();
         sendingQueueSize = ikcp_waitsnd(kcp);
-        sndWnd = kcp->snd_wnd ? kcp->snd_wnd : 8;
+        sndWnd = kcp->snd_wnd;
+    }
+    if (sendingQueueSize <= 0) {
+        sendingQueueEmpty.set();
+    } else {
+        sendingQueueEmpty.clear();
+    }
+    // snd_wnd==0: never advertise room — even with an empty queue — or send()
+    // will see notFull set + room==0 and spin on tryWait.
+    if (sndWnd == 0) {
+        sendingQueueNotFull.clear();
+        q_ptr->busy.set();
+        q_ptr->notBusy.clear();
+        return;
     }
     if (sendingQueueSize <= 0) {
         sendingQueueNotFull.set();
-        sendingQueueEmpty.set();
         q_ptr->busy.clear();
         q_ptr->notBusy.set();
+        return;
+    }
+    const uint32_t busyThreshold = sndWnd + max(8u, sndWnd / 5u);
+    if (static_cast<uint32_t>(sendingQueueSize) > busyThreshold) {
+        sendingQueueNotFull.clear();
+        q_ptr->busy.set();
+        q_ptr->notBusy.clear();
+    } else if (static_cast<uint32_t>(sendingQueueSize) > sndWnd) {
+        q_ptr->busy.set();
+        q_ptr->notBusy.clear();
     } else {
-        sendingQueueEmpty.clear();
-        const uint32_t busyThreshold = sndWnd + max(8u, sndWnd / 5u);
-        if (static_cast<uint32_t>(sendingQueueSize) > busyThreshold) {
-            sendingQueueNotFull.clear();
-            q_ptr->busy.set();
-            q_ptr->notBusy.clear();
-        } else if (static_cast<uint32_t>(sendingQueueSize) > sndWnd) {
-            q_ptr->busy.set();
-            q_ptr->notBusy.clear();
-        } else {
-            sendingQueueNotFull.set();
-            q_ptr->busy.clear();
-            q_ptr->notBusy.set();
-        }
+        sendingQueueNotFull.set();
+        q_ptr->busy.clear();
+        q_ptr->notBusy.set();
     }
 }
 
@@ -1741,18 +1766,23 @@ bool KcpStream::tunerEnabled() const
 bool KcpStream::setSendBudgetSegs(uint32_t segs)
 {
     NG_D(KcpStream);
-    ScopedLock<RLock> l(d->kcpLock);
-    if (d->tunerEnabled) {
-        return false;
+    {
+        ScopedLock<RLock> l(d->kcpLock);
+        if (d->tunerEnabled) {
+            return false;
+        }
+        // 0 is allowed: external budget exhausted → snd_wnd=0, stop pulling new
+        // segments into snd_buf. Do not floor to 8 — that keeps emitting while the
+        // path is full.
+        if (segs > 0xFFFFu) {
+            segs = 0xFFFFu;
+        }
+        d->sendBudgetSegs = segs;
+        d->applySendWindow();
     }
-    if (segs < 8) {
-        segs = 8;
-    }
-    if (segs > 0xFFFFu) {
-        segs = 0xFFFFu;
-    }
-    d->sendBudgetSegs = segs;
-    d->applySendWindow();
+    // Wake / block send() waiters: applySendWindow alone does not touch
+    // sendingQueueNotFull (0 → clear; >0 → maybe set).
+    d->updateStatus();
     return true;
 }
 

@@ -3937,7 +3937,8 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
   在创建时快照该标志，与 MTU 相同。
 * ``setSendBudgetSegs`` — 写入 ``sendBudgetSegs`` 并 ``applySendWindow()``。仅当
   Tuner 已关闭时返回 true；否则返回 false，避免外部预算被下一拍 Tuner 覆盖。
-  低于 8 的值会钳到 8。SLOW 传入 ``Σ 路径 sendCwndBytes / packetSize``。
+  允许 ``0``（路径 cwnd 耗尽 → ``snd_wnd=0``）。SLOW 传入
+  ``Σ 路径 availableSendBytes / wireSeg``。
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU。
   ``accept()`` 得到的 slave 在**创建时**快照 master 的 MTU；之后在 master 上
   ``setPacketSize()`` 不会回灌到已有 slave。``waitsnd()>0`` 时拒绝修改。

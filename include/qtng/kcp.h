@@ -74,8 +74,9 @@ public:
 
     // Write sendBudgetSegs and applySendWindow(). Only succeeds when the
     // Tuner is disabled; otherwise returns false so an external budget is
-    // not overwritten by the next Tuner period. Used by SLOW after summing
-    // per-path cwnd into segments.
+    // not overwritten by the next Tuner period. 0 is allowed (external
+    // multipath backpressure → snd_wnd=0). Used by SLOW after summing
+    // per-path availableSendBytes into segments.
     bool setSendBudgetSegs(std::uint32_t segs);
 
     // Memory budget for the send path (bytes). Converted to segments via

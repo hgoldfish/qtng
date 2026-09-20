@@ -4307,8 +4307,9 @@ Public knobs:
   outside. ``accept()`` slaves snapshot the flag at construction, like MTU.
 * ``setSendBudgetSegs`` — write ``sendBudgetSegs`` and ``applySendWindow()``.
   Returns true only when the Tuner is disabled; otherwise returns false so an
-  external budget is not overwritten by the next Tuner period. Values below
-  8 are clamped to 8. SLOW passes ``Σ path sendCwndBytes / packetSize``.
+  external budget is not overwritten by the next Tuner period. ``0`` is allowed
+  (path cwnd exhausted → ``snd_wnd=0``). SLOW passes
+  ``Σ path availableSendBytes / wireSeg``.
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU.
   Accept()-ed slaves **snapshot** the master's MTU at construction; later
   ``setPacketSize()`` on the master does not propagate to existing slaves.
