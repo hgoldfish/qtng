@@ -4293,28 +4293,22 @@ Public knobs:
   (converted to segments via ``mss+72``); effective send window is
   ``min(BDP budget, this limit, rmt_wnd)``. Cold-start budget is 256 segments.
   With no loss and no queuing-delay evidence, the send budget stays at least
-  ``max(cold-start budget, activePathCount × 32)``. Only loss or sustained
-  queuing delay may push it below that floor. An app-limited period
-  (``waitsnd == 0``, or this period sent far less than the window) does not
-  update ``deliveryBps`` and never shrinks the window.
-* ``setActivePathCount`` — number of paths that can carry data. 0 or 1 keeps
-  the single-path floor. SLOW updates this as paths come and go so the window
-  grows with the path count. A lone ``KcpSocket`` leaves it at 1.
-* ``setCapacityHintBps`` — external capacity estimate in bits/s. 0 falls back
-  to the Tuner's own delivered rate. A positive value is used for the BDP
-  instead of the rate the window itself just achieved. SLOW passes the sum of
-  active-path ``bwEstimate`` values.
-* ``setLossBasedBudget`` / ``lossBasedBudget`` — when true (default, used by
-  ``KcpSocket``), a Tuner loss rate above 5% shrinks the send budget, but the
-  loss-only floor is the cold-start budget (256 segments), not a collapsed BDP.
-  When false, loss does not shrink the budget; only sustained queuing delay
-  does. SLOW sets this to false because multipath loss is not congestion.
-  ``accept()`` slaves snapshot the flag at construction, like MTU.
-* ``setFastResendEnabled`` / ``fastResendEnabled`` — when true (default),
-  Tuner adapts ikcp ``fastresend`` from measured reorder (initial threshold
-  16). When false, ``fastresend`` stays 0 and Tuner does not raise it:
-  reordering is not a fast retransmit. SLOW sets this to false because
-  multipath reorder is normal. ``accept()`` slaves snapshot the flag.
+  the cold-start floor. Only loss or sustained queuing delay may push it
+  below that floor. An app-limited period (``waitsnd == 0``, or this period
+  sent far less than the window) does not update ``deliveryBps`` and never
+  shrinks the window.
+* ``setTunerEnabled`` / ``tunerEnabled`` — when true (default, used by
+  ``KcpSocket``), the send-budget Tuner runs each period and ikcp
+  ``fastresend`` starts at 16 (Tuner may adapt it from reorder). A Tuner
+  loss rate above 5% shrinks the send budget, but the loss-only floor is the
+  cold-start budget (256 segments). When false, the Tuner does not rewrite
+  ``sendBudgetSegs`` and ``fastresend`` stays 0: reordering is not a fast
+  retransmit. SLOW multipath sets this to false and drives the budget from
+  outside. ``accept()`` slaves snapshot the flag at construction, like MTU.
+* ``setSendBudgetSegs`` — write ``sendBudgetSegs`` and ``applySendWindow()``.
+  Returns true only when the Tuner is disabled; otherwise returns false so an
+  external budget is not overwritten by the next Tuner period. Values below
+  8 are clamped to 8. SLOW passes ``Σ path sendCwndBytes / packetSize``.
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU.
   Accept()-ed slaves **snapshot** the master's MTU at construction; later
   ``setPacketSize()`` on the master does not propagate to existing slaves.

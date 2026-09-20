@@ -100,34 +100,19 @@ quint8 KcpStream::protocolVersion() const
     return d_ptr->core->protocolVersion();
 }
 
-void KcpStream::setLossBasedBudget(bool enabled)
+void KcpStream::setTunerEnabled(bool enabled)
 {
-    d_ptr->core->setLossBasedBudget(enabled);
+    d_ptr->core->setTunerEnabled(enabled);
 }
 
-bool KcpStream::lossBasedBudget() const
+bool KcpStream::tunerEnabled() const
 {
-    return d_ptr->core->lossBasedBudget();
+    return d_ptr->core->tunerEnabled();
 }
 
-void KcpStream::setFastResendEnabled(bool enabled)
+bool KcpStream::setSendBudgetSegs(quint32 segs)
 {
-    d_ptr->core->setFastResendEnabled(enabled);
-}
-
-bool KcpStream::fastResendEnabled() const
-{
-    return d_ptr->core->fastResendEnabled();
-}
-
-void KcpStream::setActivePathCount(quint32 n)
-{
-    d_ptr->core->setActivePathCount(n);
-}
-
-void KcpStream::setCapacityHintBps(double bitsPerSec)
-{
-    d_ptr->core->setCapacityHintBps(bitsPerSec);
+    return d_ptr->core->setSendBudgetSegs(segs);
 }
 
 void KcpStream::setSendBufferLimit(quint64 bytes)

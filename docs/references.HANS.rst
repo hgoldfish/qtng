@@ -3926,24 +3926,18 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — 以**字节**计的内存预算
   （经 ``mss+72`` 换算为段数）；生效发送窗口为 ``min(BDP 额度, 该上限, rmt_wnd)``。
-  冷启动预算为 256 段。没有任何丢包或排队时延证据时，发送预算不低于
-  ``max(冷启动预算, setActivePathCount 给出的路径数 × 32)``；只有丢包或持续排队
-  时延才能把它压到这个下限以下。应用未填满窗口（``waitsnd == 0``，或本拍发送量
-  远小于窗口）时不更新 ``deliveryBps``，也不收缩窗口。
-* ``setActivePathCount`` — 活跃路径数。0 或 1 保持单路径下限。SLOW 在路径增删时
-  调用，使总窗口随路径数放大。单条 ``KcpSocket`` 保持默认 1。
-* ``setCapacityHintBps`` — 外部容量估计，单位 bit/s。为 0 时 BDP 退回 Tuner 自己的
-  达成速率；大于 0 时用它代替「被窗口夹住的达成速率」计算 BDP。SLOW 传入各活跃
-  路径 ``bwEstimate`` 之和。
-* ``setLossBasedBudget`` / ``lossBasedBudget`` — 为 true（默认，``KcpSocket``
-  使用）时，Tuner 丢包率超过 5% 会收缩发送预算，但只因丢包收缩时的下限是冷启动
-  预算（256 段），而不是已经塌缩的 BDP。为 false 时丢包不收缩预算，只有持续的
-  排队时延才会收缩。SLOW 将其设为 false：多路径丢包不是拥塞。``accept()`` 得到的
-  slave 在创建时快照该标志，与 MTU 相同。
-* ``setFastResendEnabled`` / ``fastResendEnabled`` — 为 true（默认）时，Tuner
-  按测到的乱序调整 ikcp ``fastresend``（初值 16）。为 false 时阈值保持 0，
-  Tuner 不再上调：乱序不触发快重传。SLOW 将其设为 false，因为多路径乱序是常态。
-  ``accept()`` 得到的 slave 在创建时快照该标志。
+  冷启动预算为 256 段。没有任何丢包或排队时延证据时，发送预算不低于冷启动下限；
+  只有丢包或持续排队时延才能把它压到这个下限以下。应用未填满窗口（``waitsnd == 0``，
+  或本拍发送量远小于窗口）时不更新 ``deliveryBps``，也不收缩窗口。
+* ``setTunerEnabled`` / ``tunerEnabled`` — 为 true（默认，``KcpSocket`` 使用）时，
+  每拍运行发送预算 Tuner，且 ikcp ``fastresend`` 初值为 16（Tuner 可按乱序调整）。
+  Tuner 丢包率超过 5% 会收缩发送预算，但只因丢包收缩时的下限是冷启动预算（256 段）。
+  为 false 时 Tuner 不再改写 ``sendBudgetSegs``，``fastresend`` 保持 0：乱序不触发
+  快重传。SLOW 多路径将其设为 false，并由外部写入预算。``accept()`` 得到的 slave
+  在创建时快照该标志，与 MTU 相同。
+* ``setSendBudgetSegs`` — 写入 ``sendBudgetSegs`` 并 ``applySendWindow()``。仅当
+  Tuner 已关闭时返回 true；否则返回 false，避免外部预算被下一拍 Tuner 覆盖。
+  低于 8 的值会钳到 8。SLOW 传入 ``Σ 路径 sendCwndBytes / packetSize``。
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU。
   ``accept()`` 得到的 slave 在**创建时**快照 master 的 MTU；之后在 master 上
   ``setPacketSize()`` 不会回灌到已有 slave。``waitsnd()>0`` 时拒绝修改。

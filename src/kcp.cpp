@@ -81,7 +81,6 @@ class SlaveKcpStreamPrivate;
 static constexpr uint32_t kDefaultMtu = 1400;
 static constexpr uint64_t kDefaultSendBufferLimit = 16ull * 1024ull * 1024ull;  // 16 MiB
 static constexpr uint32_t kInitialSendBudgetSegs = 256;                          // former Internet waterLine
-static constexpr uint32_t kBaseWindowSegs = 32;                                  // per active path
 static constexpr uint32_t kSegOverheadBytes = 72;                                // ikcp overhead + path framing budget
 static constexpr size_t kReorderSampleCap = 32;
 
@@ -172,10 +171,7 @@ public:
     uint32_t sendBudgetSegs;
     uint32_t sessionId;
     uint8_t protocolVersion;
-    bool lossBasedBudget;
-    bool fastResendEnabled;
-    uint32_t activePathCount = 1;
-    double capacityHintBps = 0;  // bits/s; 0 = unset, Tuner uses deliveryBps
+    bool tunerEnabled;
     KcpTuner tuner;
 
     DatagramPath remotePath;
@@ -285,8 +281,7 @@ KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId, uint32_t mt
     , sendBudgetSegs(kInitialSendBudgetSegs)
     , sessionId(sessionId)
     , protocolVersion(KcpStream::Version1)
-    , lossBasedBudget(true)
-    , fastResendEnabled(true)
+    , tunerEnabled(true)
 {
     kcp = ikcp_create(0, this);
     ikcp_setoutput(kcp, kcp_callback);
@@ -313,11 +308,11 @@ void KcpStreamPrivate::applyFixedPolicy(uint32_t mtu)
     // treated as loss, cwnd collapses to 1, and dead_link can tear down a
     // healthy connection.
     const uint32_t clampedMtu = max(mtu, 50u);
-    // resend=0 disables fast retransmit. Single-path KcpSocket keeps the
-    // default (16, then Tuner). SLOW calls setFastResendEnabled(false).
-    const int resend = fastResendEnabled ? 16 : 0;
+    // resend=0 disables fast retransmit. Tuner-on keeps the default (16, then
+    // Tuner adapts). Tuner-off (SLOW multipath) forces 0: reorder is not loss.
+    const int resend = tunerEnabled ? 16 : 0;
     ikcp_nodelay(kcp, /*nodelay=*/1, /*interval=*/10, /*resend=*/resend, /*nc=*/1);
-    if (!fastResendEnabled) {
+    if (!tunerEnabled) {
         tuner.lastFastResend = 0;
     }
     ikcp_setmtu(kcp, static_cast<int>(clampedMtu));
@@ -374,6 +369,9 @@ static uint32_t reorderP95Us(KcpTuner &t)
 
 void KcpStreamPrivate::runTuner(uint64_t now)
 {
+    if (!tunerEnabled) {
+        return;
+    }
     const uint32_t srtt = kcp->rx_srtt > 0 ? static_cast<uint32_t>(kcp->rx_srtt) : 200u;
     const uint32_t period = max(200u, min(1000u, srtt));
     // wall-clock can step backwards; same guard as tearDown/keepalive below.
@@ -433,9 +431,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     }
 
     const uint32_t srttForBdp = tuner.srttMin > 0 ? tuner.srttMin : max(srtt, 1u);
-    // Prefer an external capacity hint (SLOW's sum of path bwEstimate) so the
-    // BDP is not computed from a rate the window itself just clamped.
-    const double rateBps = capacityHintBps > 0 ? capacityHintBps : tuner.deliveryBps;
+    const double rateBps = tuner.deliveryBps;
     uint32_t bdpSegs = 8;
     if (rateBps > 0 && segBytes > 0) {
         const double bdpBytes = rateBps * static_cast<double>(srttForBdp) / 8000.0;
@@ -460,11 +456,10 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     } else {
         tuner.inflateStreak = 0;
     }
-    const uint32_t pathFloor = kBaseWindowSegs * max(1u, activePathCount);
-    const uint32_t minBudget = max(kInitialSendBudgetSegs, pathFloor);
+    const uint32_t minBudget = kInitialSendBudgetSegs;
     const KcpBudgetStep stepped = stepKcpSendBudget(
             sendBudgetSegs, bdpSegs, memoryCapSegs, kInitialSendBudgetSegs, targetBudget, tuner.lossRate,
-            delayReduce, lossBasedBudget, tuner.coldStartTicks, now, tuner.freezeGrowthUntil, period,
+            delayReduce, /*lossBasedBudget=*/true, tuner.coldStartTicks, now, tuner.freezeGrowthUntil, period,
             minBudget, appLimited);
     sendBudgetSegs = stepped.sendBudgetSegs;
     tuner.coldStartTicks = stepped.coldStartTicks;
@@ -474,8 +469,9 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     // stepping at most ±2 toward the P95-derived target. Gating on the
     // cumulative ring (reorderCount>0) used to keep walking toward a stale
     // near-zero P95 long after reorder stopped.
-    // Multipath (SLOW) leaves fastresend at 0: reorder is not loss.
-    if (fastResendEnabled && haveNewReorder) {
+    // Multipath (tuner off) never reaches here. Single-path adapts fastresend
+    // when this period produced new reorder evidence.
+    if (haveNewReorder) {
         const uint32_t reorderMs = reorderP95Us(tuner) / 1000u;
         const uint32_t interval = max(kcp->interval, 1u);
         const uint32_t target = min(32u, max(1u, reorderMs / interval + 1u));
@@ -1342,13 +1338,10 @@ SlaveKcpStreamPrivate::SlaveKcpStreamPrivate(MasterKcpStreamPrivate *parent, con
     state = Socket::ConnectedState;
     if (parent) {
         protocolVersion = parent->protocolVersion;
-        // Snapshot, same as MTU: later setLossBasedBudget() on the master
+        // Snapshot, same as MTU: later setTunerEnabled() on the master
         // does not reach slaves already accepted.
-        lossBasedBudget = parent->lossBasedBudget;
-        fastResendEnabled = parent->fastResendEnabled;
-        activePathCount = parent->activePathCount;
-        capacityHintBps = parent->capacityHintBps;
-        if (!fastResendEnabled && kcp) {
+        tunerEnabled = parent->tunerEnabled;
+        if (!tunerEnabled && kcp) {
             ikcp_nodelay(kcp, -1, -1, 0, -1);
             tuner.lastFastResend = 0;
         }
@@ -1707,25 +1700,11 @@ uint8_t KcpStream::protocolVersion() const
     return d->protocolVersion;
 }
 
-void KcpStream::setLossBasedBudget(bool enabled)
+void KcpStream::setTunerEnabled(bool enabled)
 {
     NG_D(KcpStream);
     ScopedLock<RLock> l(d->kcpLock);
-    d->lossBasedBudget = enabled;
-}
-
-bool KcpStream::lossBasedBudget() const
-{
-    NG_D(const KcpStream);
-    ScopedLock<RLock> l(d->kcpLock);
-    return d->lossBasedBudget;
-}
-
-void KcpStream::setFastResendEnabled(bool enabled)
-{
-    NG_D(KcpStream);
-    ScopedLock<RLock> l(d->kcpLock);
-    d->fastResendEnabled = enabled;
+    d->tunerEnabled = enabled;
     if (!d->kcp) {
         return;
     }
@@ -1738,25 +1717,29 @@ void KcpStream::setFastResendEnabled(bool enabled)
     }
 }
 
-bool KcpStream::fastResendEnabled() const
+bool KcpStream::tunerEnabled() const
 {
     NG_D(const KcpStream);
     ScopedLock<RLock> l(d->kcpLock);
-    return d->fastResendEnabled;
+    return d->tunerEnabled;
 }
 
-void KcpStream::setActivePathCount(uint32_t n)
+bool KcpStream::setSendBudgetSegs(uint32_t segs)
 {
     NG_D(KcpStream);
     ScopedLock<RLock> l(d->kcpLock);
-    d->activePathCount = n == 0 ? 1u : n;
-}
-
-void KcpStream::setCapacityHintBps(double bitsPerSec)
-{
-    NG_D(KcpStream);
-    ScopedLock<RLock> l(d->kcpLock);
-    d->capacityHintBps = bitsPerSec > 0.0 ? bitsPerSec : 0.0;
+    if (d->tunerEnabled) {
+        return false;
+    }
+    if (segs < 8) {
+        segs = 8;
+    }
+    if (segs > 0xFFFFu) {
+        segs = 0xFFFFu;
+    }
+    d->sendBudgetSegs = segs;
+    d->applySendWindow();
+    return true;
 }
 
 bool KcpStream::plaintextLooksCritical(const char *data, int32_t size)

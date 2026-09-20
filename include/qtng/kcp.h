@@ -65,29 +65,18 @@ public:
     void setProtocolVersion(std::uint8_t version);
     std::uint8_t protocolVersion() const;
 
-    // When true (default), Tuner loss above 5% shrinks the send budget, but
-    // the loss-only floor is the cold-start budget (256 segments), not a
-    // collapsed BDP. When false, loss does not shrink the budget; only
-    // sustained queuing delay does. SLOW turns this off: multipath loss is
-    // not congestion. Accept()-ed slaves snapshot the flag at construction.
-    void setLossBasedBudget(bool enabled);
-    bool lossBasedBudget() const;
+    // When true (default), the send-budget Tuner runs and ikcp fastresend is
+    // enabled (single-path KcpSocket). When false, the Tuner does not rewrite
+    // sendBudgetSegs and fastresend stays 0 (multipath: reorder is not loss).
+    // Accept()-ed slaves snapshot the flag at construction.
+    void setTunerEnabled(bool enabled);
+    bool tunerEnabled() const;
 
-    // When true (default), Tuner adapts ikcp fastresend from measured reorder.
-    // When false, fastresend stays 0 so reordering is not a fast retransmit.
-    // SLOW turns this off: multipath reorder is normal, not loss. Accept()-ed
-    // slaves snapshot the flag at construction, like setLossBasedBudget.
-    void setFastResendEnabled(bool enabled);
-    bool fastResendEnabled() const;
-
-    // Multiplies the send-budget floor by the number of paths that can carry
-    // data. 0 or 1 keeps the single-path floor (the cold-start budget).
-    // SLOW calls this as paths come and go; a single KcpSocket leaves it at 1.
-    void setActivePathCount(std::uint32_t n);
-    // External capacity estimate in bits/s. 0 clears it, and the Tuner falls
-    // back to its own delivered-rate estimate. When set, BDP uses this instead
-    // of the rate the window itself just achieved.
-    void setCapacityHintBps(double bitsPerSec);
+    // Write sendBudgetSegs and applySendWindow(). Only succeeds when the
+    // Tuner is disabled; otherwise returns false so an external budget is
+    // not overwritten by the next Tuner period. Used by SLOW after summing
+    // per-path cwnd into segments.
+    bool setSendBudgetSegs(std::uint32_t segs);
 
     // Memory budget for the send path (bytes). Converted to segments via
     // (mss + 72). Effective snd_wnd is min(BDP budget, this limit, rmt_wnd).

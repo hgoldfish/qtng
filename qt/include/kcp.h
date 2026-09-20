@@ -48,14 +48,15 @@ public:
     void setProtocolVersion(quint8 version);
     quint8 protocolVersion() const;
 
-    void setLossBasedBudget(bool enabled);
-    bool lossBasedBudget() const;
+    // When true (default), the send-budget Tuner runs and ikcp fastresend is
+    // enabled. When false, the Tuner does not rewrite sendBudgetSegs and
+    // fastresend stays 0 (multipath). Accept()-ed slaves snapshot the flag.
+    void setTunerEnabled(bool enabled);
+    bool tunerEnabled() const;
 
-    void setFastResendEnabled(bool enabled);
-    bool fastResendEnabled() const;
-
-    void setActivePathCount(quint32 n);
-    void setCapacityHintBps(double bitsPerSec);
+    // Write sendBudgetSegs and applySendWindow(). Only succeeds when the
+    // Tuner is disabled; otherwise returns false.
+    bool setSendBudgetSegs(quint32 segs);
 
     void setSendBufferLimit(quint64 bytes);
     quint64 sendBufferLimit() const;
