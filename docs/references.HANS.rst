@@ -350,7 +350,7 @@ qtng 参考文档
 
 .. method:: std::shared_ptr<Coroutine> spawnWithName(const std::string &name, const std::function<void()> &func, bool replace = false)
 
-    启动名为 ``name`` 的协程执行 ``func``。``replace=false`` 时同名协程存在则不操作，返回旧协程；``replace=true`` 返回新协程
+    启动名为 ``name`` 的协程执行 ``func``。``replace=false`` 时若同名协程已存在则返回旧协程；``replace=true`` 时先 ``kill`` 旧协程，并在**新协程内部** ``join`` 旧协程后再跑 ``func``（避免调用方嵌套事件循环，以及持有 ``CoroutineGroup`` 的对象在 ``join`` 期间析构导致的 use-after-free）。返回新协程。
 
 .. method:: std::shared_ptr<Coroutine> spawn(const std::function<void()> &func)
 

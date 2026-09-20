@@ -840,12 +840,10 @@ shared_ptr<SocketLike> ConnectionPool::oldConnectionForUrl(const string &url)
         }
 
         char tbuf;
-        // should i use `peek()`?
-        if (connection->peekRaw(&tbuf, 1) >= 0) {
-            // ngDebug() << "reuse connect" << connection->localPort();
+        // Clean connection only: peekRaw == 0 means no buffered bytes.
+        // > 0 is leftover payload (or an SSL close notify); < 0 is a dead peer.
+        if (connection->peekRaw(&tbuf, 1) == 0) {
             return connection;
-            //} else {
-            //    ngDebug() << "abandon connect" << connection->localPort();
         }
     }
     return shared_ptr<SocketLike>();

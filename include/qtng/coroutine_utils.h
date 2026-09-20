@@ -273,16 +273,23 @@ std::shared_ptr<Coroutine> CoroutineGroup::spawnWithName(const std::string &name
                                                         bool replace)
 {
     std::shared_ptr<Coroutine> old = get(name);
-    if (old) {
-        if (replace) {
-            old->kill();
-            coroutines.erase(old);
-            old->join();
-        } else {
-            return old;
-        }
+    if (old && !replace) {
+        return old;
     }
-    std::shared_ptr<Coroutine> coroutine(Coroutine::spawn(func));
+    // Join any replaced coroutine inside the new one. Joining on the caller can
+    // nest the event loop (e.g. from a Qt slot) and use-after-free this
+    // CoroutineGroup if the owner is destroyed during join.
+    std::shared_ptr<Coroutine> coroutine;
+    if (old) {
+        old->kill();
+        coroutines.erase(old);
+        coroutine.reset(Coroutine::spawn([old, func] {
+            old->join();
+            func();
+        }));
+    } else {
+        coroutine.reset(Coroutine::spawn(func));
+    }
     add(coroutine, name);
     return coroutine;
 }

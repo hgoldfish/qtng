@@ -343,16 +343,23 @@ QSharedPointer<Coroutine> CoroutineGroup::spawnWithName(const QString &name, con
                                                         bool replace)
 {
     QSharedPointer<Coroutine> old = get(name);
-    if (!old.isNull()) {
-        if (replace || old->isFinished()) {
-            old->kill();
-            coroutines.remove(old);
-            old->join();
-        } else {
-            return old;
-        }
+    if (!old.isNull() && !(replace || old->isFinished())) {
+        return old;
     }
-    QSharedPointer<Coroutine> coroutine(Coroutine::spawn(func));
+    // Join any replaced coroutine inside the new one. Joining on the caller can
+    // nest QEventLoop::exec() without a bound and use-after-free this
+    // CoroutineGroup if the owner is destroyed during join.
+    QSharedPointer<Coroutine> coroutine;
+    if (!old.isNull()) {
+        old->kill();
+        coroutines.remove(old);
+        coroutine.reset(Coroutine::spawn([old, func] {
+            old->join();
+            func();
+        }));
+    } else {
+        coroutine.reset(Coroutine::spawn(func));
+    }
     add(coroutine, name);
     return coroutine;
 }

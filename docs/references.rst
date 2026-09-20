@@ -347,9 +347,9 @@ Functions in ``CorotuineGroup``.
 
     Return whether there is any coroutine in the group.
 
-.. method:: std::shared_ptr<Coroutine> spawnWithName(const std::string &name, const std::function<void()> &func, bool replace = false)`
+.. method:: std::shared_ptr<Coroutine> spawnWithName(const std::string &name, const std::function<void()> &func, bool replace = false)
 
-    Start a new coroutine to run ``func``, and add it to group with ``name``. If the parameter ``replace`` is false, and there is already a coroutine with the same name exists, no action is taken. Otherwise, if there is already a coroutine with the same name exists, the old one is returned. This function returns the new coroutine.
+    Start a new coroutine to run ``func``, and add it to the group with ``name``. If ``replace`` is false and a coroutine with the same name already exists, that old coroutine is returned and no new one is started. If ``replace`` is true, the old coroutine is killed and the new coroutine joins it **internally** before running ``func`` (so the caller does not nest the event loop, and destroying the ``CoroutineGroup`` owner during join cannot use-after-free the group). Returns the new coroutine.
 
 .. method:: std::shared_ptr<Coroutine> spawn(const std::function<void()> &func)
 

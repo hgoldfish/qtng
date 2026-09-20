@@ -311,6 +311,9 @@ public:
 public:
     bool readMore(QByteArray &localBuffer, int &offset);
     qint32 takeBytes(QByteArray &localBuffer, int &offset, char *data, qint32 size, bool force);
+    // Drop every unread byte (reader-local remainder + queue), mark the pipe
+    // closed, and emit bytesWritten when the writer asked for signals.
+    qint64 discardUnread(QByteArray &localBuffer, int &offset);
     qint32 flushThreshold() const
     {
         // accumulate writes until a reasonable chunk forms. the original qtnetworkng
@@ -387,6 +390,24 @@ qint32 PipePrivate::takeBytes(QByteArray &localBuffer, int &offset, char *data, 
     return 0;
 }
 
+qint64 PipePrivate::discardUnread(QByteArray &localBuffer, int &offset)
+{
+    qint64 discarded = 0;
+    if (offset < localBuffer.size()) {
+        discarded += localBuffer.size() - offset;
+    }
+    while (!queue.isEmpty()) {
+        discarded += queue.get().size();
+    }
+    closed = true;
+    localBuffer.clear();
+    offset = 0;
+    if (shouldEmitBytesWritten && discarded > 0) {
+        QMetaObject::invokeMethod(q_ptr, "bytesWritten", Qt::AutoConnection, Q_ARG(qint64, discarded));
+    }
+    return discarded;
+}
+
 Pipe::Pipe(qint32 maxBufferSize)
     : d(QSharedPointer<PipePrivate>::create(this, maxBufferSize))
 {
@@ -454,19 +475,8 @@ public:
         if (pp.isNull()) {
             return;
         }
-        // drain the unread queue and report it as written. the writer may still be
-        // waiting on bytesWritten() to confirm its data was consumed; discarding the
-        // bytes silently would leave it hanging. this matches qtnetworkng 1.0.
-        qint64 bytesWritten = 0;
-        while (!pp->queue.isEmpty()) {
-            bytesWritten += pp->queue.get().size();
-        }
-        pp->queue.clear();
-        pp->closed = true;
-        localBuffer.clear();
-        if (pp->shouldEmitBytesWritten && bytesWritten > 0) {
-            QMetaObject::invokeMethod(pp->q_ptr, "bytesWritten", Qt::AutoConnection, Q_ARG(qint64, bytesWritten));
-        }
+        // Writer may wait on bytesWritten(); discardUnread notifies it.
+        pp->discardUnread(localBuffer, offset);
     }
     virtual qint64 size() override { return -1; }
 public:
@@ -620,10 +630,7 @@ public:
         }
         // to emit aboutToClose()
         QIODevice::close();
-        pp->queue.clear();
-        pp->closed = true;
-        localBuffer.clear();
-        // no need to emit bytesWritten() as the bytes is discarded.
+        pp->discardUnread(localBuffer, offset);
     }
 
     virtual qint64 readData(char *data, qint64 size) override

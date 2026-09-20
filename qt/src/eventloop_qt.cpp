@@ -332,7 +332,11 @@ bool QtEventLoopCoroutinePrivate::runUntil(BaseCoroutine *coroutine)
             }
         };
         const int callbackId = coroutine->finished.addCallback(returnHere);
-        loopCoroutine->yield();
+        if (!loopCoroutine->yield()) {
+            qWarning("runUntil: yield to loop coroutine failed.");
+            coroutine->finished.remove(callbackId);
+            return false;
+        }
         coroutine->finished.remove(callbackId);
     } else {
         BaseCoroutine *old = loopCoroutine;
