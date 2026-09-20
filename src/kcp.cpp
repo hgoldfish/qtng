@@ -176,7 +176,6 @@ public:
     bool fastResendEnabled;
     uint32_t activePathCount = 1;
     double capacityHintBps = 0;  // bits/s; 0 = unset, Tuner uses deliveryBps
-    bool updateLoopAlive = false;
     KcpTuner tuner;
 
     DatagramPath remotePath;
@@ -820,26 +819,9 @@ void KcpStreamPrivate::doUpdate()
 
 void KcpStreamPrivate::updateKcp()
 {
-    // doUpdate parks on forceToUpdate. Waking it is enough while it is alive;
-    // spawning a new coroutine per send just to find the old one is the hot path.
-    if (!updateLoopAlive) {
-        updateLoopAlive = true;
-        operations->spawnWithName(
-                "update_kcp",
-                [this] {
-                    try {
-                        doUpdate();
-                    } catch (const CoroutineExitException &) {
-                        updateLoopAlive = false;
-                        throw;
-                    } catch (...) {
-                        updateLoopAlive = false;
-                        throw;
-                    }
-                    updateLoopAlive = false;
-                },
-                false);
-    }
+    // replace=false: CoroutineGroup already keeps one "update_kcp". A second
+    // call just returns that coroutine; waking forceToUpdate is enough.
+    operations->spawnWithName("update_kcp", [this] { doUpdate(); }, false);
     kcp->updated = 0;
     forceToUpdate.open();
 }
