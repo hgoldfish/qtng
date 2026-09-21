@@ -6,7 +6,13 @@
 #include <memory>
 #include <utility>
 
-#if __cplusplus < 201402L
+// MSVC's <memory> always provides std::make_unique (since VS 2015) regardless
+// of the C++ language version (it does not gate the stdlib on /std:), and
+// MSVC reports __cplusplus as 199711L unless /Zc:__cplusplus is passed. The
+// shim below would therefore collide with the stdlib's own definition on
+// MSVC, producing ambiguous-call errors. Only enable the shim on non-MSVC
+// compilers in pre-C++14 mode.
+#if !defined(_MSC_VER) && (__cplusplus < 201402L)
 
 namespace std {
 
@@ -78,8 +84,17 @@ typedef unsigned long ulong;
     inline Flags &operator&=(Flags &f1, Flags f2) noexcept { return f1 = (f1 & f2); } \
     inline Flags &operator^=(Flags &f1, Flags f2) noexcept { return f1 = (f1 ^ f2); }
 
-#define NG_UNLIKELY(x) __builtin_expect(!!(x), 0)
-#define NG_UNREACHABLE() __builtin_unreachable()
+#if defined(_MSC_VER)
+// MSVC has no __builtin_unreachable; __assume(0) is the documented equivalent
+// (tells the optimizer the branch is unreachable). NG_UNLIKELY degrades to a
+// no-op since MSVC's __builtin_expect (available since 17.2) is best left to
+// the optimizer's own branch prediction anyway.
+#  define NG_UNLIKELY(x) (x)
+#  define NG_UNREACHABLE() __assume(0)
+#else
+#  define NG_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#  define NG_UNREACHABLE() __builtin_unreachable()
+#endif
 
 
 template<typename T>
