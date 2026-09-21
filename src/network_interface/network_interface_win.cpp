@@ -2,6 +2,7 @@
 
 #ifdef NG_OS_WIN
 
+#include <cassert>
 #include <functional>
 #include <memory>
 #include <string>

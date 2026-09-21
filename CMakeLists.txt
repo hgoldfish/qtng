@@ -512,6 +512,10 @@ endif()
 # Platform-specific compile definitions
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
     target_compile_definitions(qtng PRIVATE QTNG_USE_WIN=1)
+    # Suppress windows.h min/max macros so std::min/std::max in headers (this
+    # target and downstream consumers via the PUBLIC propagation below) keep
+    # parsing correctly. PUBLIC so aceproxy et al. inherit it through qtng.
+    target_compile_definitions(qtng PUBLIC NOMINMAX)
     target_sources(qtng PRIVATE src/eventloop_win.cpp)
 elseif(UNIX)
     target_compile_definitions(qtng PRIVATE QTNG_USE_EV=1)

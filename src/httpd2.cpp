@@ -36,7 +36,7 @@ void BaseHttpProxyRequestHandler::doCONNECT()
     bool ok = false;
     int portValue = utils::parseInt(l[1], &ok);
     if (!ok || portValue <= 0 || portValue > 65535) {
-        logProxy(host, port, HostAddress(), false);
+        logProxy(host, 0, HostAddress(), false);
         sendError(HttpStatus::BadRequest, "Invalid port.");
         return;
     }

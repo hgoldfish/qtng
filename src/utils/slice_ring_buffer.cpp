@@ -354,15 +354,6 @@ private:
         return -1;
     }
 
-    int anonymousFlag() const
-    {
-#ifdef MAP_ANONYMOUS
-        return MAP_ANONYMOUS;
-#else
-        return MAP_ANON;
-#endif
-    }
-
     size_t m_capacity = 0;
 #ifdef NG_OS_WIN
     HANDLE m_section = nullptr;
@@ -371,6 +362,15 @@ private:
     void *m_view2 = nullptr;
 #else
     int m_backingFd = -1;
+
+    int anonymousFlag() const
+    {
+#ifdef MAP_ANONYMOUS
+        return MAP_ANONYMOUS;
+#else
+        return MAP_ANON;
+#endif
+    }
 #endif
     char *base = nullptr;
     char *head = nullptr;

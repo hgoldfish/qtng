@@ -3,8 +3,6 @@
 #include <mutex>
 #include <vector>
 
-#include <unistd.h>
-
 #include "qtng/utils/platform.h"
 #include "stack_pool.h"
 
@@ -12,7 +10,8 @@
     #include <windows.h>
     #include <memoryapi.h>
 #else
-    #include <sys/mman.h>
+    #  include <unistd.h>
+    #  include <sys/mman.h>
 #endif
 
 using namespace std;
