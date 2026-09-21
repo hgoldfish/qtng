@@ -352,7 +352,8 @@ void KcpStreamPrivate::applySendWindow()
     // snd_wnd = min(BDP budget, memory cap, peer rmt_wnd). rcv_wnd is independent.
     // Must re-run whenever rmt_wnd moves — otherwise a peer window open stays
     // invisible until the next Tuner period (up to ~1s).
-    const uint32_t sndTarget = min({0xFFFFu, sendBudgetSegs, memoryCapSegs, max(kcp->rmt_wnd, 8u)});
+    const uint32_t sndTarget = min<uint32_t>({0xFFFFu, sendBudgetSegs, memoryCapSegs,
+                                              max<uint32_t>(static_cast<uint32_t>(kcp->rmt_wnd), 8u)});
     if (kcp->snd_wnd == sndTarget) {
         return;
     }
@@ -486,7 +487,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     // when this period produced new reorder evidence.
     if (haveNewReorder) {
         const uint32_t reorderMs = reorderP95Us(tuner) / 1000u;
-        const uint32_t interval = max(kcp->interval, 1u);
+        const uint32_t interval = max<uint32_t>(static_cast<uint32_t>(kcp->interval), 1u);
         const uint32_t target = min(32u, max(1u, reorderMs / interval + 1u));
         uint32_t applied = tuner.lastFastResend;
         if (target > tuner.lastFastResend) {
