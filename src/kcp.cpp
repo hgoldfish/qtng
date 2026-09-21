@@ -580,6 +580,14 @@ int32_t KcpStreamPrivate::send(const char *data, int32_t size, bool all)
                     room = busyThreshold - static_cast<uint32_t>(waiting) + 1u;
                 }
             }
+            if (room == 0) {
+                // Level-triggered: a set() from when the window was open stays
+                // latched after snd_wnd drops to 0. tryWait() would then return
+                // without yielding and this coroutine would pin the thread
+                // (SIGINT shutdown never runs). Clear under the same lock that
+                // observed no room; nothing runs before tryWait() below.
+                sendingQueueNotFull.clear();
+            }
         }
         if (room == 0) {
             const uint32_t pollMs = max(200u, min(1000u, static_cast<uint32_t>(tearDownTime / 10)));

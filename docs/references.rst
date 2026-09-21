@@ -4308,7 +4308,9 @@ Public knobs:
 * ``setSendBudgetSegs`` — write ``sendBudgetSegs`` and ``applySendWindow()``.
   Returns true only when the Tuner is disabled; otherwise returns false so an
   external budget is not overwritten by the next Tuner period. ``0`` is allowed
-  (path cwnd exhausted → ``snd_wnd=0``). SLOW passes
+  (path cwnd exhausted → ``snd_wnd=0``). ``send`` / ``sendall`` then yield until
+  the window reopens, the connection closes, or ``tearDownTime`` elapses;
+  a latched not-full event does not busy-spin the thread. SLOW passes
   ``Σ path availableSendBytes / wireSeg``.
 * ``setPacketSize`` / ``packetSize`` / ``payloadSizeHint`` — ikcp MTU.
   Accept()-ed slaves **snapshot** the master's MTU at construction; later
