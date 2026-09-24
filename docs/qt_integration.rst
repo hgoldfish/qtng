@@ -83,7 +83,9 @@ binding; no ``startQtLoop()`` call is needed for coroutines to run. Calling
     int main(int argc, char **argv)
     {
         QCoreApplication app(argc, argv);
-        qtng::Coroutine::spawn([]() { /* coroutine work, driven by the Qt event loop */ });
+        // Own spawn via CoroutineGroup (or shared_ptr); do not discard the raw pointer.
+        CoroutineGroup jobs;
+        jobs.spawn([]() { /* coroutine work, driven by the Qt event loop */ });
         return qtng::startQtLoop();
     }
 

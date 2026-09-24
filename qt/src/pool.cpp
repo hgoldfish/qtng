@@ -100,7 +100,8 @@ void EventLoopThread::run()
     if (!eventLoop) {
         return;
     }
-    Coroutine *runner = Coroutine::spawn([this]() { eventLoop->run(); });
+    // QSharedPointer 接管 spawn 返回值：裸指针在 join 后不 delete 会泄漏协程栈。
+    QSharedPointer<Coroutine> runner(Coroutine::spawn([this]() { eventLoop->run(); }));
     if (runner) {
         runner->join();
     }

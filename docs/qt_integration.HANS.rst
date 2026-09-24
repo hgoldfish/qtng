@@ -80,7 +80,9 @@ Qt 后端事件循环由 binding 注册的工厂在首次使用协程时懒创�
     int main(int argc, char **argv)
     {
         QCoreApplication app(argc, argv);
-        qtng::Coroutine::spawn([]() { /* 协程工作，由 Qt 事件循环驱动 */ });
+        // 用 CoroutineGroup（或 shared_ptr）托管 spawn，勿丢弃裸指针。
+        CoroutineGroup jobs;
+        jobs.spawn([]() { /* 协程工作，由 Qt 事件循环驱动 */ });
         return qtng::startQtLoop();
     }
 

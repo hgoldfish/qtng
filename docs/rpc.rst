@@ -117,7 +117,8 @@ They are passed as ordinary arguments/results:
     std::shared_ptr<rpc::RpcFile> download()
     {
         std::shared_ptr<rpc::RpcFile> f = rpc::RpcFile::prepareToSend(size);
-        Coroutine::spawn([f] { f->sendall(content); });   // stream in another coroutine
+        // ``operations`` is a CoroutineGroup member on the service; do not discard spawn's raw pointer.
+        operations.spawn([f] { f->sendall(content); });
         return f;
     }
 

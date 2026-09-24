@@ -151,9 +151,11 @@ There are many ways to start new coroutine.
     :caption: Example 5: the third method to start coroutine
 
     std::shared_ptr<Event> event = std::make_shared<Event>();
-    Coroutine *coroutine = Coroutine::spawn([event]{
+    std::shared_ptr<Coroutine> coroutine(Coroutine::spawn([event]{
         // run in the new coroutine.
-    });
+    }));
+    // Must own via shared_ptr / CoroutineGroup; discarding the raw pointer leaks the stack.
+    coroutine->join();
 
 .. note::
 

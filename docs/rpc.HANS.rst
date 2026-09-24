@@ -105,7 +105,8 @@ std 版没有基于反射的分派（QObject slots）。用 ``rpc::bindMethod(ob
     std::shared_ptr<rpc::RpcFile> download()
     {
         std::shared_ptr<rpc::RpcFile> f = rpc::RpcFile::prepareToSend(size);
-        Coroutine::spawn([f] { f->sendall(content); });   // 在另一个协程里流式发送
+        // operations 是服务对象上的 CoroutineGroup 成员；勿丢弃 spawn 裸指针。
+        operations.spawn([f] { f->sendall(content); });
         return f;
     }
 

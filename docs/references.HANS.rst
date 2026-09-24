@@ -147,9 +147,11 @@ qtng 参考文档
     :caption: 示例5: 启动协程的第三种方法
     
     std::shared_ptr<Event> event = std::make_shared<Event>();
-    Coroutine *coroutine = Coroutine::spawn([event]{
+    std::shared_ptr<Coroutine> coroutine(Coroutine::spawn([event]{
         // 在新协程中运行
-    });
+    }));
+    // 必须用 shared_ptr / CoroutineGroup 托管；丢弃裸指针会泄漏协程栈。
+    coroutine->join();
     
 .. note::
 
