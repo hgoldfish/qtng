@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <utility>
 #include <vector>
 
@@ -103,8 +104,8 @@ public:
     virtual int exitCode() override;
     virtual bool runUntil(BaseCoroutine *coroutine) override;
     void doCallLater();
-    // 延后到 prepare 再 delete。必须 noexcept：~ScopedIoWatcher 会走这里。
-    // 满队列时泄漏而不扩容/delete，避免 terminate 或回调栈 UAF。
+    // Deferred delete in prepare. noexcept: called from ~ScopedIoWatcher.
+    // On allocation failure, leak (cannot throw; cannot delete on a live callback stack).
     void deferUselessWatcher(EvWatcher *watcher) noexcept;
 public:
     struct ev_loop *loop;
@@ -125,7 +126,7 @@ EvEventLoopCoroutinePrivate::EvEventLoopCoroutinePrivate(EventLoopCoroutine *par
     , nextWatcherId(1)
 {
     // prepare 每轮排空；预留后常见路径 push_back 不分配。
-    uselessWatchers.reserve(1024);
+    uselessWatchers.reserve(64);
     unsigned int flags = EVFLAG_NOENV;
     loop = ev_loop_new(flags);
     ev_async_init(&asyncContext, qtng__ev_async_callback);
@@ -213,14 +214,13 @@ void EvEventLoopCoroutinePrivate::deferUselessWatcher(EvWatcher *watcher) noexce
     if (!watcher) {
         return;
     }
-    // size < capacity 时 vector<T*>::push_back 不分配、不抛。
-    // 满了不扩容：扩容要 new，失败会从 noexcept 析构路径 terminate；
-    // 也不能 delete（ScopedIoWatcher 析构常落在 YieldCurrentFunctor::yield
-    // 期间，对象仍挂在 libev 回调栈上）。只能泄漏，等进程扛过 OOM。
-    if (uselessWatchers.size() >= uselessWatchers.capacity()) {
-        return;
+    // May reallocate when capacity is full. bad_alloc must not escape noexcept
+    // (~ScopedIoWatcher); deleting here can UAF a yield still on the libev stack.
+    // Leak on OOM instead of terminate.
+    try {
+        uselessWatchers.push_back(watcher);
+    } catch (const bad_alloc &) {
     }
-    uselessWatchers.push_back(watcher);
 }
 
 void EvEventLoopCoroutinePrivate::run()

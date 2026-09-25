@@ -933,8 +933,8 @@ Types of I/O operations
 RAII wrapper for IO event watcher that automatically manages resources.
 The destructor must not throw (C++11 destructors are ``noexcept``). The libev
 backend queues freed watchers into a pre-reserved vector and deletes them in
-the prepare callback; if that queue is full it leaks instead of allocating or
-deleting on a live libev callback stack.
+the prepare callback; if growing that vector fails, it leaks rather than
+throwing or deleting on a live libev callback stack.
 
 .. method:: ScopedIoWatcher(EventType event, std::intptr_t fd)
 
