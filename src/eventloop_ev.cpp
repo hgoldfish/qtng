@@ -2,11 +2,11 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
-#include <list>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <utility>
+#include <vector>
 
 #include "qtng/eventloop.h"
 #include "ev/ev.h"
@@ -103,10 +103,13 @@ public:
     virtual int exitCode() override;
     virtual bool runUntil(BaseCoroutine *coroutine) override;
     void doCallLater();
+    // 延后到 prepare 再 delete。必须 noexcept：~ScopedIoWatcher 会走这里。
+    // 满队列时泄漏而不扩容/delete，避免 terminate 或回调栈 UAF。
+    void deferUselessWatcher(EvWatcher *watcher) noexcept;
 public:
     struct ev_loop *loop;
     map<int, EvWatcher *> watchers;
-    list<EvWatcher *> uselessWatchers;
+    vector<EvWatcher *> uselessWatchers;
     mutex mqMutex;
     deque<pair<uint32_t, Functor *>> callLaterQueue;
     ev_async asyncContext;
@@ -121,6 +124,8 @@ EvEventLoopCoroutinePrivate::EvEventLoopCoroutinePrivate(EventLoopCoroutine *par
     , loop(nullptr)
     , nextWatcherId(1)
 {
+    // prepare 每轮排空；预留后常见路径 push_back 不分配。
+    uselessWatchers.reserve(1024);
     unsigned int flags = EVFLAG_NOENV;
     loop = ev_loop_new(flags);
     ev_async_init(&asyncContext, qtng__ev_async_callback);
@@ -174,7 +179,7 @@ extern "C" void qtng__ev_timer_callback(struct ev_loop *loop, ev_timer *w, int)
     }
     (*watcher->callback)();
     if (w->repeat == 0.f) {
-        parent->uselessWatchers.push_back(watcher);
+        parent->deferUselessWatcher(watcher);
     }
 }
 
@@ -190,17 +195,32 @@ extern "C" void qtng__ev_async_callback(struct ev_loop *, ev_async *w, int)
 extern "C" void qtng__ev_prepare_callback(struct ev_loop *, ev_prepare *w, int)
 {
     EvEventLoopCoroutinePrivate *p = static_cast<EvEventLoopCoroutinePrivate *>(w->data);
-    while (!p->uselessWatchers.empty()) {
-        EvWatcher *watcher = p->uselessWatchers.front();
-        p->uselessWatchers.pop_front();
+    // clear() 保留 capacity，下一轮 defer 通常不再分配。
+    for (EvWatcher *watcher : p->uselessWatchers) {
         delete watcher;
     }
+    p->uselessWatchers.clear();
 }
 
 extern "C" void qtng__ev_un_loop(struct ev_loop *loop, ev_timer *w, int)
 {
     ev_break(loop, EVBREAK_ONE);
     delete w;
+}
+
+void EvEventLoopCoroutinePrivate::deferUselessWatcher(EvWatcher *watcher) noexcept
+{
+    if (!watcher) {
+        return;
+    }
+    // size < capacity 时 vector<T*>::push_back 不分配、不抛。
+    // 满了不扩容：扩容要 new，失败会从 noexcept 析构路径 terminate；
+    // 也不能 delete（ScopedIoWatcher 析构常落在 YieldCurrentFunctor::yield
+    // 期间，对象仍挂在 libev 回调栈上）。只能泄漏，等进程扛过 OOM。
+    if (uselessWatchers.size() >= uselessWatchers.capacity()) {
+        return;
+    }
+    uselessWatchers.push_back(watcher);
 }
 
 void EvEventLoopCoroutinePrivate::run()
@@ -256,7 +276,7 @@ void EvEventLoopCoroutinePrivate::removeWatcher(int watcherId)
     if (watcher) {
         ev_io_stop(loop, &watcher->w);
         watcher->w.data = nullptr;
-        uselessWatchers.push_back(watcher);
+        deferUselessWatcher(watcher);
     }
 }
 
@@ -348,7 +368,7 @@ void EvEventLoopCoroutinePrivate::cancelCall(int callbackId)
     if (watcher) {
         ev_timer_stop(loop, &watcher->w);
         watcher->w.data = nullptr;
-        uselessWatchers.push_back(watcher);
+        deferUselessWatcher(watcher);
     }
 }
 
