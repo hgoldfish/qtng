@@ -669,8 +669,8 @@ bool MsgPackStreamPrivate::unpackBin(string &s)
 
 bool MsgPackStreamPrivate::readPayload(uint32_t len, string &s)
 {
-    // Must reject before resize(): a length past remaining bytes or past int max
-    // would allocate first and only fail later in readBytes.
+    // Reject before resize(): length past remaining bytes would allocate first and
+    // only fail later in readBytes. std::string takes size_t; do not narrow through int.
     if (!lengthFitsRemaining(len, pos, limit)) {
         ngDebug() << "read length is too large.";
         status = MsgPackStream::ReadCorruptData;
@@ -678,7 +678,7 @@ bool MsgPackStreamPrivate::readPayload(uint32_t len, string &s)
     }
     string buf;
     if (len > 0) {
-        buf.resize(static_cast<int>(len));
+        buf.resize(len);
         if (!readBytes(&buf[0], len)) {
             return false;
         }
@@ -1147,20 +1147,15 @@ MsgPackStream &MsgPackStream::operator>>(utils::Date &date)
 MsgPackStream &MsgPackStream::operator>>(MsgPackExtData &ext)
 {
     NG_D(MsgPackStream);
-    uint32_t len;
+    uint32_t len = 0;
     uint8_t msgpackType = 0;
-    bool success = d->readExtHeader(len, msgpackType);
-    if (!success) {
-        return *this;
-    }
-    if (static_cast<int>(len) < 0) {
-        d->status = ReadCorruptData;
+    if (!d->readExtHeader(len, msgpackType)) {
         return *this;
     }
     ext.setType(msgpackType);
     string payload;
     if (len > 0) {
-        payload.resize(static_cast<int>(len));
+        payload.resize(len);
         if (!d->readBytes(&payload[0], len)) {
             return *this;
         }
@@ -1193,7 +1188,7 @@ bool MsgPackStream::readMapHeader(uint32_t &len)
     return d->readMapHeader(len);
 }
 
-bool MsgPackStream::readExtHeader(uint32_t &len, uint8_t msgpackType)
+bool MsgPackStream::readExtHeader(uint32_t &len, uint8_t &msgpackType)
 {
     NG_D(MsgPackStream);
     return d->readExtHeader(len, msgpackType);

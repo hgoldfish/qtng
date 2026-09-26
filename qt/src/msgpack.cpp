@@ -154,6 +154,17 @@ QDateTime unpackDatetime(const QByteArray &bs)
     return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(seconds * 1000 + nanoseconds / 1000000));
 }
 
+bool takeQtLen(qtng_core::MsgPackStream &core, uint32_t coreLen, qint32 &out)
+{
+    // Qt containers use int sizes; reject values that would truncate to negative.
+    if (coreLen > static_cast<uint32_t>(std::numeric_limits<qint32>::max())) {
+        core.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+        return false;
+    }
+    out = static_cast<qint32>(coreLen);
+    return true;
+}
+
 }  // namespace
 
 MsgPackExtData::MsgPackExtData()
@@ -769,46 +780,24 @@ bool MsgPackStream::readArrayHeader(qint32 &len)
 {
     Q_D(MsgPackStream);
     uint32_t l = 0;
-    if (!d->core.readArrayHeader(l)) {
-        return false;
-    }
-    // Qt containers take int sizes; reject lengths that would truncate to negative.
-    if (l > static_cast<uint32_t>(std::numeric_limits<qint32>::max())) {
-        d->core.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
-        return false;
-    }
-    len = static_cast<qint32>(l);
-    return true;
+    return d->core.readArrayHeader(l) && takeQtLen(d->core, l, len);
 }
 
 bool MsgPackStream::readMapHeader(qint32 &len)
 {
     Q_D(MsgPackStream);
     uint32_t l = 0;
-    if (!d->core.readMapHeader(l)) {
-        return false;
-    }
-    if (l > static_cast<uint32_t>(std::numeric_limits<qint32>::max())) {
-        d->core.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
-        return false;
-    }
-    len = static_cast<qint32>(l);
-    return true;
+    return d->core.readMapHeader(l) && takeQtLen(d->core, l, len);
 }
 
-bool MsgPackStream::readExtHeader(qint32 &len, quint8 msgpackType)
+bool MsgPackStream::readExtHeader(qint32 &len, quint8 &msgpackType)
 {
     Q_D(MsgPackStream);
     uint32_t l = 0;
     uint8_t t = 0;
-    if (!d->core.readExtHeader(l, t)) {
+    if (!d->core.readExtHeader(l, t) || !takeQtLen(d->core, l, len)) {
         return false;
     }
-    if (l > static_cast<uint32_t>(std::numeric_limits<qint32>::max())) {
-        d->core.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
-        return false;
-    }
-    len = static_cast<qint32>(l);
     msgpackType = t;
     return true;
 }

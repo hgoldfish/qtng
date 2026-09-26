@@ -88,7 +88,7 @@ public:
     bool readBytes(QByteArray &array);
     bool readArrayHeader(qint32 &len);
     bool readMapHeader(qint32 &len);
-    bool readExtHeader(qint32 &len, quint8 msgpackType);
+    bool readExtHeader(qint32 &len, quint8 &msgpackType);
 
     MsgPackStream &operator<<(bool b);
     MsgPackStream &operator<<(quint8 u8);

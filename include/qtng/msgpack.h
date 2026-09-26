@@ -99,7 +99,7 @@ public:
     bool peekByte(std::uint8_t *b) const;
     bool readArrayHeader(std::uint32_t &len);
     bool readMapHeader(std::uint32_t &len);
-    bool readExtHeader(std::uint32_t &len, std::uint8_t msgpackType);
+    bool readExtHeader(std::uint32_t &len, std::uint8_t &msgpackType);
 
     MsgPackStream &operator<<(bool b);
     MsgPackStream &operator<<(std::uint8_t u8);
