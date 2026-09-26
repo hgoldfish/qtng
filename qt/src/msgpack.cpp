@@ -765,33 +765,52 @@ bool MsgPackStream::readBytes(char *data, qint64 len)
     return d->core.readBytes(data, len);
 }
 
-bool MsgPackStream::readArrayHeader(quint32 &len)
+bool MsgPackStream::readArrayHeader(qint32 &len)
 {
     Q_D(MsgPackStream);
     uint32_t l = 0;
-    const bool ok = d->core.readArrayHeader(l);
-    len = l;
-    return ok;
+    if (!d->core.readArrayHeader(l)) {
+        return false;
+    }
+    // Qt containers take int sizes; reject lengths that would truncate to negative.
+    if (l > static_cast<uint32_t>(std::numeric_limits<qint32>::max())) {
+        d->core.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+        return false;
+    }
+    len = static_cast<qint32>(l);
+    return true;
 }
 
-bool MsgPackStream::readMapHeader(quint32 &len)
+bool MsgPackStream::readMapHeader(qint32 &len)
 {
     Q_D(MsgPackStream);
     uint32_t l = 0;
-    const bool ok = d->core.readMapHeader(l);
-    len = l;
-    return ok;
+    if (!d->core.readMapHeader(l)) {
+        return false;
+    }
+    if (l > static_cast<uint32_t>(std::numeric_limits<qint32>::max())) {
+        d->core.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+        return false;
+    }
+    len = static_cast<qint32>(l);
+    return true;
 }
 
-bool MsgPackStream::readExtHeader(quint32 &len, quint8 msgpackType)
+bool MsgPackStream::readExtHeader(qint32 &len, quint8 msgpackType)
 {
     Q_D(MsgPackStream);
     uint32_t l = 0;
     uint8_t t = 0;
-    const bool ok = d->core.readExtHeader(l, t);
-    len = l;
+    if (!d->core.readExtHeader(l, t)) {
+        return false;
+    }
+    if (l > static_cast<uint32_t>(std::numeric_limits<qint32>::max())) {
+        d->core.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+        return false;
+    }
+    len = static_cast<qint32>(l);
     msgpackType = t;
-    return ok;
+    return true;
 }
 
 bool MsgPackStream::writeBytes(const char *data, qint64 len)

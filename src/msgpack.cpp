@@ -340,18 +340,13 @@ bool MsgPackStreamPrivate::peekByte(uint8_t *c) const
     return true;
 }
 
-static bool containerLenFitsRemaining(uint32_t len, uint32_t pos, uint32_t limit)
+static bool lengthFitsRemaining(uint32_t len, uint32_t pos, uint32_t limit)
 {
-    // Reject lengths that do not fit in a signed 32-bit count: callers (and typical
-    // allocators) treat container sizes as int/size_t with that practical ceiling.
-    if (static_cast<int>(len) < 0) {
-        return false;
-    }
-    // Every element costs at least one byte on the wire.
-    if (pos > limit || len > limit - pos) {
-        return false;
-    }
-    return true;
+    // For array/map counts: each element costs >= 1 byte. For str/bin/ext payloads:
+    // `len` is the exact byte count still to read.
+    // Qt bindings that feed QVector/QList (int sizes) must additionally reject
+    // len > INT_MAX at the Qt layer; STL size_t callers do not need that here.
+    return pos <= limit && len <= limit - pos;
 }
 
 bool MsgPackStreamPrivate::readArrayHeader(uint32_t &len)
@@ -376,7 +371,7 @@ bool MsgPackStreamPrivate::readArrayHeader(uint32_t &len)
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
-    if (!containerLenFitsRemaining(len, pos, limit)) {
+    if (!lengthFitsRemaining(len, pos, limit)) {
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
@@ -406,7 +401,7 @@ bool MsgPackStreamPrivate::readMapHeader(uint32_t &len)
         return false;
     }
     // Map entries are (key, value); still at least one byte per entry count unit.
-    if (!containerLenFitsRemaining(len, pos, limit)) {
+    if (!lengthFitsRemaining(len, pos, limit)) {
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
@@ -458,8 +453,8 @@ bool MsgPackStreamPrivate::readExtHeader(uint32_t &len, uint8_t &msgpackType)
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
-    if (len > limit) {
-        ngDebug() << "read length is too large.";
+    if (!lengthFitsRemaining(len, pos, limit)) {
+        ngDebug() << "read ext length is too large.";
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
@@ -674,14 +669,9 @@ bool MsgPackStreamPrivate::unpackBin(string &s)
 
 bool MsgPackStreamPrivate::readPayload(uint32_t len, string &s)
 {
-    // Reject lengths with the high bit set: static_cast<int>(len) would turn
-    // negative and then widen back to a huge size_t in buf.resize() below,
-    // throwing length_error instead of failing cleanly.
-    if (static_cast<int>(len) < 0) {
-        status = MsgPackStream::ReadCorruptData;
-        return false;
-    }
-    if (len > limit) {
+    // Must reject before resize(): a length past remaining bytes or past int max
+    // would allocate first and only fail later in readBytes.
+    if (!lengthFitsRemaining(len, pos, limit)) {
         ngDebug() << "read length is too large.";
         status = MsgPackStream::ReadCorruptData;
         return false;
