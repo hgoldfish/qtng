@@ -340,6 +340,20 @@ bool MsgPackStreamPrivate::peekByte(uint8_t *c) const
     return true;
 }
 
+static bool containerLenFitsRemaining(uint32_t len, uint32_t pos, uint32_t limit)
+{
+    // Reject lengths that do not fit in a signed 32-bit count: callers (and typical
+    // allocators) treat container sizes as int/size_t with that practical ceiling.
+    if (static_cast<int>(len) < 0) {
+        return false;
+    }
+    // Every element costs at least one byte on the wire.
+    if (pos > limit || len > limit - pos) {
+        return false;
+    }
+    return true;
+}
+
 bool MsgPackStreamPrivate::readArrayHeader(uint32_t &len)
 {
     uint8_t p[5];
@@ -349,12 +363,20 @@ bool MsgPackStreamPrivate::readArrayHeader(uint32_t &len)
     if (p[0] >= FirstByte::FIXARRAY && p[0] <= (FirstByte::FIXARRAY + 0xf)) {
         len = p[0] & 0xf;
     } else if (p[0] == FirstByte::ARRAY16) {
-        readBytes((char *) p + 1, 2);
+        if (!readBytes((char *) p + 1, 2)) {
+            return false;
+        }
         len = _msgpack_load16(p + 1);
     } else if (p[0] == FirstByte::ARRAY32) {
-        readBytes((char *) p + 1, 4);
+        if (!readBytes((char *) p + 1, 4)) {
+            return false;
+        }
         len = _msgpack_load32(p + 1);
     } else {
+        status = MsgPackStream::ReadCorruptData;
+        return false;
+    }
+    if (!containerLenFitsRemaining(len, pos, limit)) {
         status = MsgPackStream::ReadCorruptData;
         return false;
     }
@@ -370,12 +392,21 @@ bool MsgPackStreamPrivate::readMapHeader(uint32_t &len)
     if (p[0] >= FirstByte::FIXMAP && p[0] <= (FirstByte::FIXMAP + 0xf)) {
         len = p[0] & 0xf;
     } else if (p[0] == FirstByte::MAP16) {
-        readBytes((char *) p + 1, 2);
+        if (!readBytes((char *) p + 1, 2)) {
+            return false;
+        }
         len = _msgpack_load16(p + 1);
     } else if (p[0] == FirstByte::MAP32) {
-        readBytes((char *) p + 1, 4);
+        if (!readBytes((char *) p + 1, 4)) {
+            return false;
+        }
         len = _msgpack_load32(p + 1);
     } else {
+        status = MsgPackStream::ReadCorruptData;
+        return false;
+    }
+    // Map entries are (key, value); still at least one byte per entry count unit.
+    if (!containerLenFitsRemaining(len, pos, limit)) {
         status = MsgPackStream::ReadCorruptData;
         return false;
     }

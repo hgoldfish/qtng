@@ -187,18 +187,50 @@ void MsgPackExtData::setPayload(const QByteArray &payload)
     payload_ = payload;
 }
 
+// `core` holds a raw FileLike* (owndev=false) into ioAdapter/bytesBackend; declare it
+// last so it is destroyed while those adapters are still alive.
 class MsgPackStreamPrivate
 {
 public:
-    qtng_core::MsgPackStream core;
+    MsgPackStreamPrivate()
+        : device(nullptr)
+        , byteArray(nullptr)
+    {
+    }
+
     QIODevice *device;
     QByteArray *byteArray;
     QSharedPointer<QIODeviceFileLike> ioAdapter;
     QSharedPointer<QBuffer> buffer;
     QSharedPointer<qtng_core::BytesIO> bytesBackend;
+    qtng_core::MsgPackStream core;
 };
 
 MsgPackExtUserData::~MsgPackExtUserData() { }
+
+static void bindDevice(MsgPackStreamPrivate *d, QIODevice *device)
+{
+    d->device = device;
+    // Always reset; otherwise switching from a sized file to a sequential device
+    // keeps the old lengthLimit and silently accepts impossible counts.
+    d->core.setLengthLimit(std::numeric_limits<uint32_t>::max());
+    if (!device) {
+        return;
+    }
+    d->ioAdapter = QSharedPointer<QIODeviceFileLike>(new QIODeviceFileLike(device));
+    d->core.setDevice(ioAdapterFileLike(d->ioAdapter));
+    // Seekable devices: bound reads to remaining bytes (matches QByteArray* ReadOnly).
+    // Without this, a corrupt ARRAY32 length can exceed the file yet pass when limit is
+    // uint32 max; callers then QVector::resize(uint32→int) and smash the heap.
+    const qint64 sz = device->size();
+    if (sz > 0) {
+        const qint64 at = device->pos();
+        const qint64 remain = (at >= 0 && at < sz) ? (sz - at) : sz;
+        if (remain > 0 && remain <= static_cast<qint64>(std::numeric_limits<quint32>::max())) {
+            d->core.setLengthLimit(static_cast<uint32_t>(remain));
+        }
+    }
+}
 
 MsgPackStream::MsgPackStream()
     : d_ptr(new MsgPackStreamPrivate)
@@ -209,9 +241,7 @@ MsgPackStream::MsgPackStream(QIODevice *device)
     : d_ptr(new MsgPackStreamPrivate)
 {
     Q_D(MsgPackStream);
-    d->device = device;
-    d->ioAdapter = QSharedPointer<QIODeviceFileLike>(new QIODeviceFileLike(device));
-    d->core.setDevice(ioAdapterFileLike(d->ioAdapter));
+    bindDevice(d, device);
 }
 
 MsgPackStream::MsgPackStream(QByteArray *a, QIODevice::OpenMode mode)
@@ -221,16 +251,21 @@ MsgPackStream::MsgPackStream(QByteArray *a, QIODevice::OpenMode mode)
     d->byteArray = a;
     d->buffer = QSharedPointer<QBuffer>(new QBuffer(a));
     d->buffer->open(mode);
-    d->device = d->buffer.data();
-    d->ioAdapter = QSharedPointer<QIODeviceFileLike>(new QIODeviceFileLike(d->device));
-    d->core.setDevice(ioAdapterFileLike(d->ioAdapter));
+    bindDevice(d, d->buffer.data());
+    if (!(mode & QIODevice::WriteOnly) && a) {
+        d->core.setLengthLimit(static_cast<uint32_t>(a->size()));
+    }
 }
 
 MsgPackStream::MsgPackStream(const QByteArray &a)
     : d_ptr(new MsgPackStreamPrivate)
 {
-    d_ptr->core.~MsgPackStream();
-    new (&d_ptr->core) qtng_core::MsgPackStream(toStdString(a));
+    Q_D(MsgPackStream);
+    // Match former core MsgPackStream(string) semantics: own the bytes and cap length.
+    // Do not placement-new over default-constructed core (that path owned a BytesIO).
+    d->bytesBackend = QSharedPointer<qtng_core::BytesIO>(new qtng_core::BytesIO(toStdString(a)));
+    d->core.setDevice(d->bytesBackend.data());
+    d->core.setLengthLimit(static_cast<uint32_t>(d->bytesBackend->size()));
 }
 
 MsgPackStream::~MsgPackStream()
@@ -241,9 +276,14 @@ MsgPackStream::~MsgPackStream()
 void MsgPackStream::setDevice(QIODevice *device)
 {
     Q_D(MsgPackStream);
-    d->device = device;
-    d->ioAdapter = QSharedPointer<QIODeviceFileLike>(new QIODeviceFileLike(device));
-    d->core.setDevice(ioAdapterFileLike(d->ioAdapter));
+    // Detach core before releasing adapters; otherwise QSharedPointer assignment
+    // destroys the old FileLike while core still holds the raw pointer.
+    d->core.setDevice(nullptr);
+    d->ioAdapter.clear();
+    d->buffer.clear();
+    d->bytesBackend.clear();
+    d->byteArray = nullptr;
+    bindDevice(d, device);
 }
 
 QIODevice *MsgPackStream::device() const
@@ -522,8 +562,12 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
         if (!s.readArrayHeader(len)) {
             return *this;
         }
+        if (len > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+            s.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+            return *this;
+        }
         QVariantList list;
-        list.reserve(len);
+        list.reserve(static_cast<int>(len));
         for (uint32_t i = 0; i < len; ++i) {
             QVariant item;
             *this >> item;

@@ -373,7 +373,8 @@ MsgPackStream &operator>>(MsgPackStream &s, QList<T> &list)
         return s;
     }
     list.clear();
-    list.reserve(len);
+    // readArrayHeader already rejected lengths that do not fit in int.
+    list.reserve(static_cast<int>(len));
     for (quint32 i = 0; i < len; ++i) {
         T t = s_allocate<T>();
         s >> t;
@@ -395,7 +396,7 @@ MsgPackStream &operator>>(MsgPackStream &s, QSet<T> &set)
         return s;
     }
     set.clear();
-    set.reserve(len);
+    set.reserve(static_cast<int>(len));
     for (quint32 i = 0; i < len; ++i) {
         T t = s_allocate<T>();
         s >> t;
@@ -419,7 +420,7 @@ MsgPackStream &operator>>(MsgPackStream &s, QVector<T> &list)
         return s;
     }
     list.clear();
-    list.reserve(len);
+    list.reserve(static_cast<int>(len));
     for (quint32 i = 0; i < len; ++i) {
         T t = s_allocate<T>();
         s >> t;
