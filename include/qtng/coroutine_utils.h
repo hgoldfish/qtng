@@ -365,6 +365,11 @@ private:
     NG_DISABLE_COPY_MOVE(ThreadPool)
 };
 
+// Process-wide worker thread pool used by spawnInThread / callInThread.
+// Prefer ThreadPool::map / each / call / spawn over the free helpers when the
+// caller needs to batch work or keep an explicit pool handle.
+ThreadPool &sharedThreadPool();
+
 template<typename T, typename S>
 std::vector<T> ThreadPool::map(std::function<T(S)> func, const std::vector<S> &l, int chunk)
 {

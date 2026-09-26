@@ -120,8 +120,6 @@ bool MarkDoneFunctor::operator()()
     return true;
 }
 
-namespace {
-
 ThreadPool &sharedThreadPool()
 {
     // Process-lifetime pool: never destroyed, so workers are not joined during
@@ -129,8 +127,6 @@ ThreadPool &sharedThreadPool()
     static ThreadPool *const pool = new ThreadPool;
     return *pool;
 }
-
-}  // namespace
 
 shared_ptr<Event> spawnInThread(const function<void()> &func)
 {
