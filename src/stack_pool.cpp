@@ -146,12 +146,30 @@ void pushToGlobal(Stack stack)
     }
 }
 
+// Set once this thread's pool has been destroyed. It is deliberately a trivial
+// type: a constant-initialized thread_local with a trivial destructor is never
+// registered for TLS teardown, so it stays readable after every other TLS
+// object on this thread is gone.
+//
+// That matters because a pooled coroutine stack can outlive the pool. The
+// thread's event loop is owned by ThreadLocal<shared_ptr<EventLoopCoroutine>>
+// (CurrentLoopStorage::storage) and a loop is created lazily, so its TLS is
+// registered after this pool's; TLS teardown is LIFO, so the pool dies first
+// and releasing the loop's stack from ~BaseCoroutinePrivate would then insert
+// into an already destroyed freeList. Reproduced by calling spawnInThread()
+// inside a callInThread() worker: release() -> _M_lower_bound on a free'd
+// _Rb_tree_node -> "tcache_thread_shutdown(): unaligned tcache chunk detected".
+thread_local bool threadPoolRetired = false;
+
 // Per-thread fast path: no locking. Coroutines are created and destroyed on the
 // same event-loop thread, so this path serves almost every release/acquire.
 struct ThreadLocalPool
 {
     ~ThreadLocalPool()
     {
+        // Retire before unmapping, so that anything releasing a stack later in
+        // this thread's TLS teardown bypasses the map destroyed below.
+        threadPoolRetired = true;
         // Unmap locally. Do not touch globalPool(); see GlobalPool comment.
         for (pair<const size_t, vector<Stack>> &entry : entries.freeList) {
             for (Stack &stack : entry.second) {
@@ -217,6 +235,12 @@ void *acquire(size_t size)
     }
     const size_t usable = roundUpToPage(size);
 
+    if (threadPoolRetired) {
+        // This thread's pool is already gone (see threadPoolRetired): bypass it
+        // entirely. The matching release() will munmap() the stack directly.
+        return allocateStack(usable);
+    }
+
     ThreadLocalPool &local = threadLocalPool();
     if (void *stack = popFrom(local.entries, usable)) {
         return stack;
@@ -240,8 +264,15 @@ void release(void *stack, size_t size)
     s.mapping = static_cast<char *>(stack) - pageSize();
     s.usableSize = roundUpToPage(size);
     s.idleSince = chrono::steady_clock::now();
-    discardPages(&s);
 
+    if (threadPoolRetired) {
+        // The pool is already destroyed (see threadPoolRetired); hand the
+        // mapping straight back to the kernel instead of caching it.
+        freeStack(&s);
+        return;
+    }
+
+    discardPages(&s);
     ThreadLocalPool &local = threadLocalPool();
     PoolEntries &entries = local.entries;
     if (entries.totalStacks < kThreadLocalMaxStacks && entries.totalBytes + s.usableSize <= kThreadLocalMaxBytes) {
@@ -258,8 +289,10 @@ void sweep()
     const chrono::steady_clock::time_point now = chrono::steady_clock::now();
     const chrono::milliseconds timeout(static_cast<long long>(kStackIdleTimeoutMs));
 
-    ThreadLocalPool &local = threadLocalPool();
-    sweepBucket(local.entries, now, timeout);
+    if (!threadPoolRetired) {
+        ThreadLocalPool &local = threadLocalPool();
+        sweepBucket(local.entries, now, timeout);
+    }
 
     GlobalPool &global = globalPool();
     lock_guard<mutex> lock(global.poolMutex);
