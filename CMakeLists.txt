@@ -89,7 +89,40 @@ endif()
 message(STATUS "qtng features: CRYPTO=${QTNG_HAVE_CRYPTO} HTTP2=${QTNG_WITH_HTTP2} "
                "QUIC=${QTNG_WITH_QUIC} HTTP3=${QTNG_WITH_HTTP3} BT=${QTNG_WITH_BT} SSH=${QTNG_WITH_SSH}")
 
-find_package(ZLIB REQUIRED)
+# ---------------------------------------------------------------------------
+# zlib (required: gzip support, see src/gzip.cpp).
+#
+# FindZLIB knows the usual locations and honours -DZLIB_INCLUDE_DIR/-DZLIB_LIBRARY,
+# but not the layouts where a toolchain keeps its own zlib: openSUSE's mingw64
+# (<sysroot>/mingw) and Qt's bundled mingw64 (<toolchain>/x86_64-w64-mingw32).
+# Ask the compiler where it looks for headers instead of guessing paths: if zlib.h
+# sits in one of its implicit include dirs, ZLIB_ROOT is that directory's parent.
+# ---------------------------------------------------------------------------
+find_package(ZLIB QUIET)
+
+if(NOT ZLIB_FOUND)
+    # No break(): it needs CMake 3.17, this project supports 3.14.
+    foreach(_qtng_include_dir IN LISTS CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES
+                                     CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
+        if(NOT ZLIB_ROOT AND EXISTS "${_qtng_include_dir}/zlib.h")
+            get_filename_component(ZLIB_ROOT "${_qtng_include_dir}" DIRECTORY)
+        endif()
+    endforeach()
+    if(ZLIB_ROOT)
+        find_package(ZLIB QUIET)
+    endif()
+endif()
+
+if(NOT ZLIB_FOUND)
+    message(FATAL_ERROR
+        "zlib not found. qtng needs zlib for gzip support (src/gzip.cpp).\n"
+        "Install the zlib development package for the target platform, e.g.:\n"
+        "  openSUSE cross mingw64 : zypper install mingw64-zlib-devel\n"
+        "  Debian/Ubuntu mingw-w64: apt install libz-mingw-w64-dev\n"
+        "  MSYS2                  : pacman -S mingw-w64-x86_64-zlib\n"
+        "  Fedora mingw           : dnf install mingw64-zlib\n"
+        "or pass -DZLIB_ROOT=<prefix> (or -DZLIB_INCLUDE_DIR=<dir> -DZLIB_LIBRARY=<libz>).")
+endif()
 
 set(UTILS_SRC
     src/utils/logging.cpp
