@@ -1249,7 +1249,17 @@ void MultiStreamMaster::setPayloadSizeHint(uint32_t payloadSizeHint)
 uint32_t MultiStreamMaster::payloadSizeHint() const
 {
     NG_D(const MultiStreamMaster);
-    return d->_payloadSizeHint;
+    // The stored hint is the transport datagram payload budget: it is what
+    // setMaxPacketSize clamps against and what bounds one multi-stream frame
+    // on the wire (header included). What a caller of sendPacket() can
+    // actually put into one frame is that budget minus this frame's own
+    // header, so report the usable application payload here. Callers that use
+    // the getter to size their own read/write blocks then land exactly on one
+    // datagram instead of overshooting into the framing overhead.
+    if (d->_payloadSizeHint <= FrameHeaderSize) {
+        return 0;
+    }
+    return d->_payloadSizeHint - FrameHeaderSize;
 }
 
 void MultiStreamMaster::setSlaveReceivingCapacity(uint32_t bytes)

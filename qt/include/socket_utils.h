@@ -67,7 +67,10 @@ class ExchangerPrivate;
 class Exchanger
 {
 public:
-    Exchanger(QSharedPointer<SocketLike> request, QSharedPointer<SocketLike> forward, quint32 maxBufferSize = 1024 * 8);
+    // suitableBlockSize is the chunk copied per read/write by the pump (passed
+    // straight to sendfile), not a hard cap.
+    Exchanger(QSharedPointer<SocketLike> request, QSharedPointer<SocketLike> forward,
+              quint32 suitableBlockSize = 1024 * 8);
     ~Exchanger();
 public:
     void exchange();

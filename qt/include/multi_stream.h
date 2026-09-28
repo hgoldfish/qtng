@@ -70,7 +70,10 @@ public:
     void setMaxPacketSize(quint32 size);
     quint32 maxPacketSize() const;
     quint32 maxPayloadSize() const;
+    // Transport datagram payload budget, header included. Pass 0 for the
+    // default (1400).
     void setPayloadSizeHint(quint32 payloadSizeHint);
+    // Usable application payload of a single frame (budget minus frame header).
     quint32 payloadSizeHint() const;
 
     void setSlaveReceivingCapacity(quint32 bytes);
@@ -116,6 +119,7 @@ public:
 
     quint32 maxPacketSize() const;
     quint32 maxPayloadSize() const;
+    // Usable application payload of a single frame.
     quint32 payloadSizeHint() const;
     void setReceivingCapacity(quint32 bytes);
     quint32 receivingCapacity() const;

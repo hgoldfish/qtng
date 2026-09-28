@@ -71,7 +71,12 @@ class ExchangerPrivate;
 class Exchanger
 {
 public:
-    Exchanger(std::shared_ptr<SocketLike> request, std::shared_ptr<SocketLike> forward, std::uint32_t maxBufferSize = 1024 * 8);
+    // suitableBlockSize is the chunk copied per read/write by the pump (it is
+    // passed straight to sendfile's suitableBlockSize), not a hard cap. Callers
+    // typically pass the smaller of their configured buffer and the transport's
+    // payload size hint so each block lands on one datagram.
+    Exchanger(std::shared_ptr<SocketLike> request, std::shared_ptr<SocketLike> forward,
+              std::uint32_t suitableBlockSize = 1024 * 8);
     ~Exchanger();
 public:
     void exchange();

@@ -3855,6 +3855,11 @@ HTTP/2 的多流是为 Web 设计的：由客户端发起、一次请求一条�
     配置分帧、新建 Slave 的默认收发队列容量，以及保活参数。保活仅在 Master 连接上运行。
     容量变更只影响之后新建的 Slave。``slaveReceivingCapacity`` 同时作为 ``MAKE``/``SLAVE_MADE`` 通告的初始窗口。
 
+    ``setPayloadSizeHint`` 设置传输层单个数据报的载荷预算（例如一个 KCP 段载荷）：它会被夹到
+    ``maxPayloadSize()``，并约束线上单个帧的大小（含帧头）。``payloadSizeHint()`` 返回单帧可用的
+    应用净载荷——即该预算减去本流自己的帧头——调用方据此决定读写块大小，正好落在一个数据报上。
+    setter 传 ``0`` 表示使用默认值 1400 字节。
+
 .. method:: void MultiStreamMaster::abort()
 
     关闭 Master。所有 Slave 变为 broken，正在等待的 ``takeSlave()`` 会以空指针唤醒。
@@ -3914,6 +3919,22 @@ HTTP/2 的多流是为 Web 设计的：由客户端发起、一次请求一条�
 .. function:: std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<MultiStreamSlave> slave)
 
     将 Slave 适配为 ``SocketLike`` 字节流（发送按 ``maxPayloadSize`` 自动分包；接收将多个包拼接）。
+
+8.1.1 Exchanger
++++++++++++++++
+
+``Exchanger``（头文件 ``qtng/socket_utils.h``）在两个 ``SocketLike`` 之间双向搬运字节，
+每个方向一个协程，直到某一侧关闭或出错（出错时两侧都 abort）。它是 ``DataChannel::exchange()``
+在字节流上的对应物。
+
+.. class:: Exchanger
+
+.. method:: Exchanger(std::shared_ptr<SocketLike> request, std::shared_ptr<SocketLike> forward, std::uint32_t suitableBlockSize = 1024 * 8)
+
+    ``suitableBlockSize`` **不是**上限：它是每轮 read/write 拷贝的分块大小，会原样传给
+    ``sendfile()``。应当按传输层单个数据报的载荷来取（例如
+    ``MultiStreamMaster::payloadSizeHint()``；没有有意义的值时用这里的默认 8 KiB），
+    让每轮正好搬走一个数据报而不是拆成多个；取太小只会增加每轮开销。
 
 8.2 KcpStream 与 DatagramLink
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

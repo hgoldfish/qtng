@@ -4216,6 +4216,12 @@ recommended above.
     Keepalive runs only on the master connection. Capacity changes apply to slaves created afterward.
     ``slaveReceivingCapacity`` is also the initial receive window advertised in ``MAKE``/``SLAVE_MADE``.
 
+    ``setPayloadSizeHint`` sets the transport datagram payload budget (for example a KCP segment
+    payload): it is clamped to ``maxPayloadSize()`` and bounds a single frame on the wire, frame
+    header included. ``payloadSizeHint()`` reports the usable application payload of one frame --
+    that budget minus this stream's own frame header -- so callers can size read/write blocks to
+    land exactly on one datagram. Pass ``0`` to the setter for the default of 1400 bytes.
+
 .. method:: void MultiStreamMaster::abort()
 
     Shut down the master. All slaves become broken and pending ``takeSlave()`` waiters wake with null.
@@ -4281,7 +4287,24 @@ recommended above.
 
     Adapt a slave to ``SocketLike`` byte-stream semantics (auto-split on ``maxPayloadSize`` for send; concatenate packets for recv).
 
-8.2 KcpStream and DatagramLink
+8.1.1 Exchanger
++++++++++++++++
+
+``Exchanger`` (header ``qtng/socket_utils.h``) pumps bytes in both directions between two
+``SocketLike`` peers, one coroutine per direction, until either side closes or fails (in which
+case both are aborted). It is the byte-stream twin of ``DataChannel::exchange()``.
+
+.. class:: Exchanger
+
+.. method:: Exchanger(std::shared_ptr<SocketLike> request, std::shared_ptr<SocketLike> forward, std::uint32_t suitableBlockSize = 1024 * 8)
+
+    ``suitableBlockSize`` is **not** an upper bound: it is the chunk size copied per read/write
+    iteration, passed straight to ``sendfile()``. Size it to the transport's single-datagram
+    payload (for example ``MultiStreamMaster::payloadSizeHint()``, falling back to this default of
+    8 KiB when there is no meaningful hint) so each iteration moves exactly one datagram instead of
+    splitting into several; too small a value just adds per-iteration overhead.
+
+  4294|8.2 KcpStream and DatagramLink
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ``KcpStream`` (header ``qtng/kcp.h``) is the transport-agnostic KCP session core:

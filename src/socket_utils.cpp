@@ -284,7 +284,7 @@ shared_ptr<Socket> convertSocketLikeToSocket(shared_ptr<SocketLike> socket)
 class ExchangerPrivate
 {
 public:
-    ExchangerPrivate(shared_ptr<SocketLike> request, shared_ptr<SocketLike> forward, uint32_t maxBufferSize);
+    ExchangerPrivate(shared_ptr<SocketLike> request, shared_ptr<SocketLike> forward, uint32_t suitableBlockSize);
     ~ExchangerPrivate();
 public:
     void in2out();
@@ -293,15 +293,17 @@ public:
     shared_ptr<SocketLike> request;
     shared_ptr<SocketLike> forward;
     CoroutineGroup *operations;
-    uint32_t maxBufferSize;
+    // Block size for each read/write of the pump (sendfile's suitableBlockSize),
+    // i.e. the chunk copied per iteration -- not an upper bound.
+    uint32_t suitableBlockSize;
 };
 
 ExchangerPrivate::ExchangerPrivate(shared_ptr<SocketLike> request, shared_ptr<SocketLike> forward,
-                                   uint32_t maxBufferSize)
+                                   uint32_t suitableBlockSize)
     : request(request)
     , forward(forward)
     , operations(new CoroutineGroup)
-    , maxBufferSize(maxBufferSize)
+    , suitableBlockSize(suitableBlockSize)
 {
 }
 
@@ -312,7 +314,7 @@ ExchangerPrivate::~ExchangerPrivate()
 
 void ExchangerPrivate::in2out()
 {
-    if (!sendfile(request, forward, -1, maxBufferSize)) {
+    if (!sendfile(request, forward, -1, suitableBlockSize)) {
         request->abort();
         forward->abort();
     } else {
@@ -323,7 +325,7 @@ void ExchangerPrivate::in2out()
 
 void ExchangerPrivate::out2in()
 {
-    if (!sendfile(forward, request, -1, maxBufferSize)) {
+    if (!sendfile(forward, request, -1, suitableBlockSize)) {
         request->abort();
         forward->abort();
     } else {
@@ -332,8 +334,8 @@ void ExchangerPrivate::out2in()
     }
 }
 
-Exchanger::Exchanger(shared_ptr<SocketLike> request, shared_ptr<SocketLike> forward, uint32_t maxBufferSize)
-    : d_ptr(new ExchangerPrivate(request, forward, maxBufferSize))
+Exchanger::Exchanger(shared_ptr<SocketLike> request, shared_ptr<SocketLike> forward, uint32_t suitableBlockSize)
+    : d_ptr(new ExchangerPrivate(request, forward, suitableBlockSize))
 {
 }
 

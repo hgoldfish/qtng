@@ -101,20 +101,22 @@ qint64 SocketLike::size()
 class ExchangerPrivate
 {
 public:
-    ExchangerPrivate(QSharedPointer<SocketLike> request, QSharedPointer<SocketLike> forward, quint32 maxBufferSize)
+    ExchangerPrivate(QSharedPointer<SocketLike> request, QSharedPointer<SocketLike> forward,
+                     quint32 suitableBlockSize)
         : request(std::move(request))
         , forward(std::move(forward))
-        , maxBufferSize(maxBufferSize)
+        , suitableBlockSize(suitableBlockSize)
     {
     }
 
     QSharedPointer<SocketLike> request;
     QSharedPointer<SocketLike> forward;
-    quint32 maxBufferSize;
+    quint32 suitableBlockSize;
 };
 
-Exchanger::Exchanger(QSharedPointer<SocketLike> request, QSharedPointer<SocketLike> forward, quint32 maxBufferSize)
-    : d_ptr(new ExchangerPrivate(std::move(request), std::move(forward), maxBufferSize))
+Exchanger::Exchanger(QSharedPointer<SocketLike> request, QSharedPointer<SocketLike> forward,
+                     quint32 suitableBlockSize)
+    : d_ptr(new ExchangerPrivate(std::move(request), std::move(forward), suitableBlockSize))
 {
 }
 
@@ -126,7 +128,7 @@ Exchanger::~Exchanger()
 void Exchanger::exchange()
 {
     Q_D(Exchanger);
-    qtng_core::Exchanger exch(toCoreSocketLike(d->request), toCoreSocketLike(d->forward), d->maxBufferSize);
+    qtng_core::Exchanger exch(toCoreSocketLike(d->request), toCoreSocketLike(d->forward), d->suitableBlockSize);
     exch.exchange();
 }
 

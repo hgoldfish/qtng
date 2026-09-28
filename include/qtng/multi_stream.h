@@ -73,7 +73,13 @@ public:
     void setMaxPacketSize(std::uint32_t size);
     std::uint32_t maxPacketSize() const;
     std::uint32_t maxPayloadSize() const;
+    // Transport datagram payload budget (for example a KCP segment payload).
+    // It is clamped to maxPayloadSize and bounds one frame on the wire, header
+    // included. Pass 0 for the default (1400).
     void setPayloadSizeHint(std::uint32_t payloadSizeHint);
+    // Usable application payload of a single frame: the transport payload
+    // budget above minus this stream's own frame header. Callers size their
+    // read/write blocks with this so one block becomes exactly one datagram.
     std::uint32_t payloadSizeHint() const;
 
     void setSlaveReceivingCapacity(std::uint32_t bytes);
@@ -124,6 +130,8 @@ public:
 
     std::uint32_t maxPacketSize() const;
     std::uint32_t maxPayloadSize() const;
+    // Usable application payload of a single frame (see
+    // MultiStreamMaster::payloadSizeHint()).
     std::uint32_t payloadSizeHint() const;
     void setReceivingCapacity(std::uint32_t bytes);
     std::uint32_t receivingCapacity() const;
