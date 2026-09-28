@@ -3920,7 +3920,7 @@ HTTP/2 的多流是为 Web 设计的：由客户端发起、一次请求一条�
 
     将 Slave 适配为 ``SocketLike`` 字节流（发送按 ``maxPayloadSize`` 自动分包；接收将多个包拼接）。
 
-8.1.1 Exchanger
+8.1.2 Exchanger
 +++++++++++++++
 
 ``Exchanger``（头文件 ``qtng/socket_utils.h``）在两个 ``SocketLike`` 之间双向搬运字节，

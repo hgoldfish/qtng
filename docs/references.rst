@@ -4287,7 +4287,7 @@ recommended above.
 
     Adapt a slave to ``SocketLike`` byte-stream semantics (auto-split on ``maxPayloadSize`` for send; concatenate packets for recv).
 
-8.1.1 Exchanger
+8.1.2 Exchanger
 +++++++++++++++
 
 ``Exchanger`` (header ``qtng/socket_utils.h``) pumps bytes in both directions between two
