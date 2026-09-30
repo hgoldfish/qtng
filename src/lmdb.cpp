@@ -837,7 +837,11 @@ static TransactionPrivate *makePrivateToWrite(MDB_env * const env)
 
 shared_ptr<Transaction> Transaction::fork()
 {
-    return shared_ptr<Transaction>(new Transaction(makePrivateToWrite(d_ptr->env)));
+    TransactionPrivate *d = makePrivateToWrite(d_ptr->env);
+    if (!d) {
+        return shared_ptr<Transaction>();
+    }
+    return shared_ptr<Transaction>(new Transaction(d));
 }
 
 static TransactionPrivate *makePrivateToRead(MDB_env * const env)
@@ -857,7 +861,11 @@ static TransactionPrivate *makePrivateToRead(MDB_env * const env)
 
 shared_ptr<const Transaction> Transaction::fork() const
 {
-    return shared_ptr<const Transaction>(new Transaction(makePrivateToRead(d_ptr->env)));
+    TransactionPrivate *d = makePrivateToRead(d_ptr->env);
+    if (!d) {
+        return shared_ptr<const Transaction>();
+    }
+    return shared_ptr<const Transaction>(new Transaction(d));
 }
 
 bool Transaction::commit()
