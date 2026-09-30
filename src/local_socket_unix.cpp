@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/un.h>
 
@@ -104,9 +105,10 @@ static bool fillSockAddr(const string &fullName, sockaddr_un *addr, socklen_t *a
 // misjudged as stale.
 //
 // Only ECONNREFUSED is proof that nothing is bound to the name, and only then
-// is the file removed (the same rule Qt's QLocalServer applies to its stream
-// probe). Every other outcome - success, EPROTOTYPE, EACCES, or any unexpected
-// error - is treated as "in use", so the file is never unlinked by mistake.
+// is the file removed. Every other outcome - success, EPROTOTYPE, EACCES, or
+// any unexpected error - is treated as "in use", so the file is never unlinked
+// by mistake. The caller has already established that the path is a socket
+// file; see removeStaleSocketFile().
 static bool isServerListening(const string &fullName)
 {
     sockaddr_un addr;
@@ -131,6 +133,21 @@ static bool isServerListening(const string &fullName)
 
 static void removeStaleSocketFile(const string &fullName)
 {
+    // Only a socket file may be reclaimed. Without this test, bind() on a name
+    // that happens to be an existing regular file - a typo, a wrong TMPDIR, a
+    // path that is not ours - would unlink that file and then quietly succeed
+    // on top of the hole. Leave anything that is not a socket alone instead:
+    // the conflict surfaces as EADDRINUSE, which bind() reports as
+    // AddressInUseError.
+    //
+    // lstat(), not stat(): a symlink is not a socket file even when it points
+    // at one, and unlinking it would throw away the only thing that symlink
+    // said - which is somebody's deliberate redirection, not a leftover of
+    // ours.
+    struct stat st;
+    if (::lstat(fullName.c_str(), &st) != 0 || !S_ISSOCK(st.st_mode)) {
+        return;
+    }
     if (isServerListening(fullName)) {
         // Someone is still serving this name; leave it alone so that ::bind()
         // reports AddressInUseError instead of us stealing the name.

@@ -45,9 +45,11 @@ public:
     // By default a socket file that nothing serves anymore - the leftover of a
     // crashed server - is reclaimed, so restarting a server on the same name
     // just works. DontShareAddress opts out: the leftover is left alone and
-    // bind() fails with AddressInUseError. Windows has nothing to reclaim, and
-    // a named pipe never shares its name in the first place, so mode is
-    // ignored there.
+    // bind() fails with AddressInUseError. Only a socket file is ever
+    // reclaimed; anything else at that path is somebody else's data and stays
+    // put, so bind() fails with AddressInUseError there too. Windows has
+    // nothing to reclaim, and a named pipe never shares its name in the first
+    // place, so mode is ignored there.
     bool bind(const QString &name, Socket::BindMode mode = Socket::DefaultForPlatform);
     bool connect(const QString &name);
     void close();

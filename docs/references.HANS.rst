@@ -1063,7 +1063,7 @@ DNS相关
 
 .. method:: bool bind(const std::string &name, Socket::BindMode mode = Socket::DefaultForPlatform)
 
-    绑定到本地名字 ``name``。Unix 上，默认会回收已停止运行的服务器遗留的套接字文件，因此同名重启服务器可直接成功；传入 ``Socket::DontShareAddress`` 则不回收该遗留文件，``bind()`` 会以 ``Socket::AddressInUseError`` 失败。Windows 命名管道本身不存在名字共享问题，``mode`` 被忽略。
+    绑定到本地名字 ``name``。Unix 上，默认会回收已停止运行的服务器遗留的套接字文件，因此同名重启服务器可直接成功；传入 ``Socket::DontShareAddress`` 则不回收该遗留文件，``bind()`` 会以 ``Socket::AddressInUseError`` 失败。回收只针对套接字文件：若该名字指向的是普通文件等其它东西，文件原样保留，``bind()`` 同样以 ``Socket::AddressInUseError`` 失败。Windows 命名管道本身不存在名字共享问题，``mode`` 被忽略。
 
 .. method:: bool connect(const std::string &name)
 
@@ -1097,7 +1097,7 @@ DNS相关
 
     返回描述对端的 URI（与 ``localAddressURI()`` 相同）。
 
-其余方法——``isValid()``、``state()``、``error()``、``errorString()``、``fileno()``、``close()``、``abort()``、``peek()``、``peekRaw()``、``recv()``、``recvall()``、``send()``、``sendall()``、``setOption()``、``option()``——行为与 ``Socket`` 对应方法一致。``localPort()`` 和 ``peerPort()`` 返回 ``0``。
+其余方法——``isValid()``、``state()``、``error()``、``errorString()``、``fileno()``、``close()``、``abort()``、``peek()``、``peekRaw()``、``recv()``、``recvall()``、``send()``、``sendall()``——行为与 ``Socket`` 对应方法一致。``localPort()`` 和 ``peerPort()`` 返回 ``0``。本地套接字没有套接字选项，``setOption()`` 始终返回 ``false``，``option()`` 始终返回 ``-1``。
 
 .. function:: std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<LocalSocket> s)
 

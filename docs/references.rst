@@ -1290,7 +1290,7 @@ A name is interpreted as follows:
 
 .. method:: bool bind(const std::string &name, Socket::BindMode mode = Socket::DefaultForPlatform)
 
-    Bind to the local name ``name``. On Unix, a socket file left behind by a server that is no longer running is reclaimed by default, so restarting a server on the same name just works; pass ``Socket::DontShareAddress`` to leave that leftover alone and make ``bind()`` fail with ``Socket::AddressInUseError``. Windows named pipes never share their name, so ``mode`` is ignored there.
+    Bind to the local name ``name``. On Unix, a socket file left behind by a server that is no longer running is reclaimed by default, so restarting a server on the same name just works; pass ``Socket::DontShareAddress`` to leave that leftover alone and make ``bind()`` fail with ``Socket::AddressInUseError``. Only a socket file is ever reclaimed: when the name resolves to something else, such as a regular file, it is left untouched and ``bind()`` fails with ``Socket::AddressInUseError`` as well. Windows named pipes never share their name, so ``mode`` is ignored there.
 
 .. method:: bool connect(const std::string &name)
 
@@ -1324,7 +1324,7 @@ A name is interpreted as follows:
 
     Return a descriptive URI for the peer end (the same as ``localAddressURI()``).
 
-The remaining methods -- ``isValid()``, ``state()``, ``error()``, ``errorString()``, ``fileno()``, ``close()``, ``abort()``, ``peek()``, ``peekRaw()``, ``recv()``, ``recvall()``, ``send()``, ``sendall()``, ``setOption()`` and ``option()`` -- behave like their ``Socket`` counterparts. ``localPort()`` and ``peerPort()`` return ``0``.
+The remaining methods -- ``isValid()``, ``state()``, ``error()``, ``errorString()``, ``fileno()``, ``close()``, ``abort()``, ``peek()``, ``peekRaw()``, ``recv()``, ``recvall()``, ``send()`` and ``sendall()`` -- behave like their ``Socket`` counterparts. ``localPort()`` and ``peerPort()`` return ``0``. A local socket carries no socket options, so ``setOption()`` always returns ``false`` and ``option()`` always returns ``-1``.
 
 .. function:: std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<LocalSocket> s)
 
