@@ -29,6 +29,13 @@ qtng/rpc 子库
 连接如何建立、监听如何启动，完全由应用负责。rpc 层只在 socket 上使用 lafrpc 的
 MessagePack 分帧协议。
 
+raw socket（``UseStream::preferRawSocket``）是唯一的例外：``Rpc`` 会拿 peer name
+调用 ``connectionFactory`` 取得一条新连接。``Rpc`` 创建时默认装上
+``rpc::defaultConnectionFactory``，它把参数当作 URL 解析，支持
+``tcp://host:port`` 与 ``kcp://host:port``；``ssl://``、``kcp+ssl://`` 及 HTTP 系列
+一律返回 ``nullptr``，因为 TLS 与 HTTP 归应用负责。需要这些时用
+``Rpc::setConnectionFactory()`` / ``RpcBuilder::connectionFactory()`` 换成自定义工厂。
+
 TCP 连接上的最小服务端/客户端对：
 
 .. code-block:: c++

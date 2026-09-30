@@ -1,3 +1,4 @@
+#include <cctype>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -7,7 +8,11 @@
 
 #include "qtng/coroutine_utils.h"
 #include "qtng/data_channel.h"
+#include "qtng/kcp.h"
 #include "qtng/random.h"
+#include "qtng/socket.h"
+#include "qtng/socket_utils.h"
+#include "qtng/utils/url.h"
 
 #include "qtng/rpc/registration.h"
 #include "qtng/rpc/rpc.h"
@@ -20,6 +25,48 @@ using namespace std;
 namespace qtng {
 namespace rpc {
 
+shared_ptr<qtng::SocketLike> defaultConnectionFactory(const string &peerNameOrAddress)
+{
+    string scheme;
+    string host;
+    int port = -1;
+    try {
+        utils::Url url(peerNameOrAddress);
+        if (!url.isValid()) {
+            return shared_ptr<qtng::SocketLike>();
+        }
+        scheme = url.scheme();
+        host = url.host();
+        port = url.port();
+    } catch (...) {
+        // Url::parse() uses std::stoi() for the port and throws on garbage.
+        return shared_ptr<qtng::SocketLike>();
+    }
+    for (char &ch : scheme) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    if (host.empty() || port <= 0 || port > 65535) {
+        return shared_ptr<qtng::SocketLike>();
+    }
+    const std::uint16_t port16 = static_cast<std::uint16_t>(port);
+
+    if (scheme == "tcp") {
+        shared_ptr<qtng::Socket> socket(qtng::Socket::createConnection(host, port16));
+        if (!socket) {
+            return shared_ptr<qtng::SocketLike>();
+        }
+        return qtng::asSocketLike(socket);
+    }
+    if (scheme == "kcp") {
+        shared_ptr<qtng::KcpSocket> socket(qtng::KcpSocket::createConnection(host, port16));
+        if (!socket) {
+            return shared_ptr<qtng::SocketLike>();
+        }
+        return qtng::asSocketLike(socket);
+    }
+    return shared_ptr<qtng::SocketLike>();
+}
+
 RpcPrivate::RpcPrivate(Rpc *q)
     : myPeerName(qtng::randomBytes(16))
     , maxPacketSize(0)
@@ -27,6 +74,7 @@ RpcPrivate::RpcPrivate(Rpc *q)
     , keepaliveTimeout(-1.0f)
     , q_ptr(q)
 {
+    connectionFactory = &defaultConnectionFactory;
     detail::registerClass<RpcRemoteException>();
     detail::registerClass<RpcFile>();
     detail::registerClass<RpcDir>();

@@ -34,6 +34,14 @@ How connections are made and how listeners are run is entirely up to the
 application. The rpc layer only speaks the lafrpc MessagePack frame protocol
 over the socket.
 
+Raw sockets (``UseStream::preferRawSocket``) are the one exception: ``Rpc``
+obtains a fresh connection by calling its ``connectionFactory`` with the peer
+name. An ``Rpc`` starts out with ``rpc::defaultConnectionFactory``, which parses
+that argument as a URL and supports ``tcp://host:port`` and ``kcp://host:port``;
+``ssl://``, ``kcp+ssl://`` and the HTTP schemes return ``nullptr`` because TLS
+and HTTP stay in the application. Install a custom factory with
+``Rpc::setConnectionFactory()`` / ``RpcBuilder::connectionFactory()`` for those.
+
 A minimal server/client pair over a TCP connection:
 
 .. code-block:: c++

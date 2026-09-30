@@ -17,6 +17,21 @@ BEGIN_QTNG_RPC_NAMESPACE
 class RpcPrivate;
 class RpcBuilder;
 
+// The default connection factory.  `peerNameOrAddress` is interpreted as a URL
+// and the matching socket is connected and returned:
+//
+//   tcp://host:port   plain TCP
+//   kcp://host:port   KCP over UDP
+//
+// Anything else (ssl://, kcp+ssl://, http://, https://, a bare peer name, a
+// malformed URL, a missing port or a failed connect) yields nullptr.  TLS and
+// custom transports stay in the application: install a factory through
+// Rpc::setConnectionFactory() / RpcBuilder::connectionFactory().
+//
+// Rpc installs this as the initial connectionFactory, so a peer named by its
+// URL (e.g. "tcp://127.0.0.1:8002") can hand out raw sockets out of the box.
+std::shared_ptr<qtng::SocketLike> defaultConnectionFactory(const std::string &peerNameOrAddress);
+
 // The rpc hub. It does not connect to or listen on anything by itself: the
 // application hands it established socketlikes via handleRequest()/connect().
 class Rpc : public std::enable_shared_from_this<Rpc>
