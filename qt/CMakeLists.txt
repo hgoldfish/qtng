@@ -76,6 +76,7 @@ set(QTNG_QT_PUBLIC_HEADERS
     ${QTNG_QT_DIR}/include/hostaddress.h
     ${QTNG_QT_DIR}/include/network_interface.h
     ${QTNG_QT_DIR}/include/socket.h
+    ${QTNG_QT_DIR}/include/local_socket.h
     ${QTNG_QT_DIR}/include/socket_utils.h
     ${QTNG_QT_DIR}/include/io_utils.h
     ${QTNG_QT_DIR}/include/http_utils.h
@@ -119,6 +120,7 @@ set(QTNG_QT_SOURCES
     ${QTNG_QT_DIR}/src/hostaddress.cpp
     ${QTNG_QT_DIR}/src/network_interface.cpp
     ${QTNG_QT_DIR}/src/socket.cpp
+    ${QTNG_QT_DIR}/src/local_socket.cpp
     ${QTNG_QT_DIR}/src/socket_utils.cpp
     ${QTNG_QT_DIR}/src/io_utils.cpp
     ${QTNG_QT_DIR}/src/coroutine_utils.cpp

@@ -17,6 +17,7 @@
 #include "qtng/hostaddress.h"
 #include "qtng/network_interface.h"
 #include "qtng/socket.h"
+#include "qtng/local_socket.h"
 #include "qtng/socket_utils.h"
 #include "qtng/io_utils.h"
 #include "qtng/http.h"
@@ -86,6 +87,7 @@ public:
 #undef QTNG_NETWORK_INTERFACE_H
 #undef QTNG_NETWORK_INTERFACE_P_H
 #undef QTNG_SOCKET_H
+#undef QTNG_LOCAL_SOCKET_H
 #undef QTNG_SOCKET_P_H
 #undef QTNG_SOCKET_UTILS_H
 #undef QTNG_IO_UTILS_H

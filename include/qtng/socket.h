@@ -30,7 +30,7 @@ public:
         // SctpSocket = QAbstractSocket::SctpSocket,
         // define for other XXXSocket types. not used here.
         KcpSocket = 3,
-        // LocalSocket removed (unused placeholder), value 4 reserved.
+        LocalSocket = 4,
         UtpSocket = 5,
         UnknownSocketType = -1
     };

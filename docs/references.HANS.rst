@@ -1035,6 +1035,90 @@ DNS相关
 
     设置DNS缓存
 
+2.1.1 LocalSocket
++++++++++++++++++
+
+``LocalSocket`` 是以本地名字寻址的流式套接字：Unix 上是 ``AF_UNIX`` 套接字文件，Windows 上是命名管道。它镜像 ``Socket`` 的字节流部分（``connect()``、``accept()``、``recv()``、``send()`` 等），但没有 ``recvfrom()``/``sendto()``。``type()`` 返回 ``Socket::LocalSocket``，``protocol()`` 返回 ``UnknownNetworkLayerProtocol``，``localAddress()``/``peerAddress()`` 为空——本地套接字没有 IP 地址。
+
+名字的解析规则：
+
+- Unix：含 ``/`` 的名字按原样当作文件系统路径；不含 ``/`` 的裸名字放在系统临时目录（``$TMPDIR``，未设置时用 ``/tmp``）下，形如 ``<name>.sock``。
+- Windows：含 ``/`` 或 ``\`` 的名字按原样当作管道路径；裸名字变成 ``\\.\pipe\<name>``。
+
+.. method:: LocalSocket::LocalSocket()
+
+    创建一个未连接的本地套接字。
+
+.. method:: LocalSocket::LocalSocket(std::intptr_t socketDescriptor)
+
+    接管一个已连接的平台句柄：Unix 上是已连接的 ``AF_UNIX`` 套接字 fd，Windows 上是管道句柄。
+
+.. method:: static LocalSocket *createConnection(const std::string &name, Socket::SocketError *error = nullptr)
+
+    连接到名为 ``name`` 的服务器。阻塞当前协程，直到连接成功或失败。失败返回 ``nullptr``，并在 ``error`` 非空时把原因写入 ``*error``。返回的套接字由调用方拥有。
+
+.. method:: static LocalSocket *createServer(const std::string &name, int backlog = 50)
+
+    一步完成创建、绑定并监听 ``name``。``backlog`` 为 ``0`` 时只创建并绑定，不调用 ``listen()``。失败返回 ``nullptr``。返回的套接字由调用方拥有。
+
+.. method:: bool bind(const std::string &name, Socket::BindMode mode = Socket::DefaultForPlatform)
+
+    绑定到本地名字 ``name``。Unix 上，默认会回收已停止运行的服务器遗留的套接字文件，因此同名重启服务器可直接成功；传入 ``Socket::DontShareAddress`` 则不回收该遗留文件，``bind()`` 会以 ``Socket::AddressInUseError`` 失败。Windows 命名管道本身不存在名字共享问题，``mode`` 被忽略。
+
+.. method:: bool connect(const std::string &name)
+
+    连接到名为 ``name`` 的服务器。
+
+.. method:: bool listen(int backlog = 50)
+
+    开始接受连接。``backlog`` 在 Unix 上会传给 ``::listen()``；Windows 命名管道没有 accept 队列，该参数无效。
+
+.. method:: LocalSocket *accept()
+
+    阻塞当前协程直到有客户端连接，返回新建立的、已连接的 ``LocalSocket``。若套接字已被其他协程关闭则返回 ``nullptr``。返回的套接字由调用方拥有。
+
+.. method:: std::string serverName() const
+
+    返回传给 ``bind()`` 或 ``connect()`` 的名字。
+
+.. method:: std::string fullServerName() const
+
+    返回解析后的平台名字：Unix 上是套接字文件路径，Windows 上是管道路径。
+
+.. method:: std::string peerName() const
+
+    返回对端的名字：本套接字所连接的服务器名，或本服务套接字所绑定的名字。本地连接两端的会合点是同一个，所以这里返回 ``serverName()``。
+
+.. method:: std::string localAddressURI() const
+
+    返回描述本地端的 URI，例如 Unix 上的 ``unix:///tmp/echo.sock`` 或 Windows 上的 ``pipe://echo``。
+
+.. method:: std::string peerAddressURI() const
+
+    返回描述对端的 URI（与 ``localAddressURI()`` 相同）。
+
+其余方法——``isValid()``、``state()``、``error()``、``errorString()``、``fileno()``、``close()``、``abort()``、``peek()``、``peekRaw()``、``recv()``、``recvall()``、``send()``、``sendall()``、``setOption()``、``option()``——行为与 ``Socket`` 对应方法一致。``localPort()`` 和 ``peerPort()`` 返回 ``0``。
+
+.. function:: std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<LocalSocket> s)
+
+    把 ``s`` 包装成 ``SocketLike``，以便用于任何接受 ``SocketLike`` 的地方（httpd、``Exchanger`` 等）。``s`` 为空时返回空指针。
+
+.. function:: std::shared_ptr<SocketLike> asSocketLike(LocalSocket *s)
+
+    同上，接管 ``s`` 的所有权。
+
+.. function:: std::shared_ptr<LocalSocket> convertSocketLikeToLocalSocket(std::shared_ptr<SocketLike> socket)
+
+    取回 ``socket`` 背后的 ``LocalSocket``。若 ``socket`` 并非由 ``LocalSocket`` 支撑则返回空指针。
+
+.. code-block:: c++
+    :caption: 示例：LocalSocket 客户端
+
+    #include "qtng.h"
+    using namespace qtng;
+
+    std::shared_ptr<SocketLike> client = asSocketLike(LocalSocket::createConnection("echo"));
+
 2.2 SslSocket
 ^^^^^^^^^^^^^
 

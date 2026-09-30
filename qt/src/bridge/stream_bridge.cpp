@@ -209,6 +209,9 @@ std::shared_ptr<qtng_core::SocketLike> toCoreSocketLike(const QSharedPointer<QTN
     if (std::shared_ptr<qtng_core::SocketLike> special = kcpOrUtpToCoreSocketLike(socket)) {
         return special;
     }
+    if (std::shared_ptr<qtng_core::SocketLike> local = localSocketToCoreSocketLike(socket)) {
+        return local;
+    }
     if (QSharedPointer<QTNETWORKNG_NAMESPACE::Socket> asSocket =
                 qSharedPointerDynamicCast<QTNETWORKNG_NAMESPACE::Socket>(socket)) {
         std::shared_ptr<qtng_core::Socket> coreSocket = ::qtng_bridge::socketCoreOf(asSocket.data());
@@ -226,6 +229,9 @@ QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> toQtSocketLike(const shared_pt
     }
     if (shared_ptr<QtBackedCoreSocketLike> backed = dynamic_pointer_cast<QtBackedCoreSocketLike>(core)) {
         return backed->qtSocket();
+    }
+    if (QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> local = localSocketFromCoreSocketLike(core)) {
+        return local;
     }
     return QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike>(new CoreSocketLikeAdapter(core));
 }

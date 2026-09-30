@@ -198,6 +198,13 @@ control and reliability follow LEDBAT rather than KCP. Protocol parameters use
 (``qtng/utp.h``), also built on ``DatagramLink``. Runtime does not link libutp; libutp is only
 an optional test peer.
 
+``LocalSocket`` is the IPC counterpart for processes on the same machine. It is a stream socket
+addressed by a plain ``std::string`` name instead of a ``HostAddress`` and a port: an ``AF_UNIX``
+socket file on Unix, a named pipe on Windows. There is no DNS, no port and no datagram support,
+so the name is the whole address. ``asSocketLike()`` turns it into a ``SocketLike`` so it can be
+used wherever a ``SocketLike`` is expected. Wiring it into a server is left to the application:
+bind and accept the ``LocalSocket`` yourself, then hand the accepted connection to the consumer.
+
 Create Socket client
 ^^^^^^^^^^^^^^^^^^^^
 

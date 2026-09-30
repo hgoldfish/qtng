@@ -1262,6 +1262,90 @@ These are the member functions of ``Socket`` type.
 
     Set a ``SocketDnsCache`` to ``Socket`` object. Every call to ``connect(hostName, port)`` will check the cache first.
 
+2.1.1 LocalSocket
++++++++++++++++++
+
+``LocalSocket`` is a stream socket addressed by a local name instead of a host and port: an ``AF_UNIX`` socket file on Unix, a named pipe on Windows. It mirrors the byte-stream part of ``Socket`` (``connect()``, ``accept()``, ``recv()``, ``send()``, ...) but has no ``recvfrom()``/``sendto()``. ``type()`` returns ``Socket::LocalSocket``, ``protocol()`` returns ``UnknownNetworkLayerProtocol``, and ``localAddress()``/``peerAddress()`` are empty, because a local socket has no IP address.
+
+A name is interpreted as follows:
+
+- On Unix, a name containing ``/`` is used as a filesystem path as is. A bare name is placed in the system temporary directory (``$TMPDIR``, or ``/tmp`` when unset) as ``<name>.sock``.
+- On Windows, a name containing ``/`` or ``\`` is used as a pipe path as is. A bare name becomes ``\\.\pipe\<name>``.
+
+.. method:: LocalSocket::LocalSocket()
+
+    Create an unconnected local socket.
+
+.. method:: LocalSocket::LocalSocket(std::intptr_t socketDescriptor)
+
+    Adopt an already connected platform handle: a connected ``AF_UNIX`` socket fd on Unix, a pipe handle on Windows.
+
+.. method:: static LocalSocket *createConnection(const std::string &name, Socket::SocketError *error = nullptr)
+
+    Connect to the server named ``name``. Blocks the current coroutine until the connection is made or fails. Return ``nullptr`` on failure, and store the reason in ``*error`` when ``error`` is not null. The caller owns the returned socket.
+
+.. method:: static LocalSocket *createServer(const std::string &name, int backlog = 50)
+
+    Create, bind and listen on ``name`` in one step. When ``backlog`` is ``0``, the socket is only created and bound, without ``listen()``. Return ``nullptr`` on failure. The caller owns the returned socket.
+
+.. method:: bool bind(const std::string &name, Socket::BindMode mode = Socket::DefaultForPlatform)
+
+    Bind to the local name ``name``. On Unix, a socket file left behind by a server that is no longer running is reclaimed by default, so restarting a server on the same name just works; pass ``Socket::DontShareAddress`` to leave that leftover alone and make ``bind()`` fail with ``Socket::AddressInUseError``. Windows named pipes never share their name, so ``mode`` is ignored there.
+
+.. method:: bool connect(const std::string &name)
+
+    Connect to the server named ``name``.
+
+.. method:: bool listen(int backlog = 50)
+
+    Start accepting connections. ``backlog`` reaches ``::listen()`` on Unix; Windows named pipes have no accept queue, so it has no effect there.
+
+.. method:: LocalSocket *accept()
+
+    Block the current coroutine until a client connects, then return the new connected ``LocalSocket``. Return ``nullptr`` when the socket is closed by another coroutine. The caller owns the returned socket.
+
+.. method:: std::string serverName() const
+
+    Return the name passed to ``bind()`` or ``connect()``.
+
+.. method:: std::string fullServerName() const
+
+    Return the resolved platform name: the socket file path on Unix, the pipe path on Windows.
+
+.. method:: std::string peerName() const
+
+    Return the name of the peer: the name this socket connected to, or the name the serving socket was bound to. A local connection has the same rendezvous point on both ends, so this is ``serverName()``.
+
+.. method:: std::string localAddressURI() const
+
+    Return a descriptive URI for the local end, e.g. ``unix:///tmp/echo.sock`` on Unix or ``pipe://echo`` on Windows.
+
+.. method:: std::string peerAddressURI() const
+
+    Return a descriptive URI for the peer end (the same as ``localAddressURI()``).
+
+The remaining methods -- ``isValid()``, ``state()``, ``error()``, ``errorString()``, ``fileno()``, ``close()``, ``abort()``, ``peek()``, ``peekRaw()``, ``recv()``, ``recvall()``, ``send()``, ``sendall()``, ``setOption()`` and ``option()`` -- behave like their ``Socket`` counterparts. ``localPort()`` and ``peerPort()`` return ``0``.
+
+.. function:: std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<LocalSocket> s)
+
+    Wrap ``s`` into a ``SocketLike`` so that it can be used wherever a ``SocketLike`` is expected (httpd, ``Exchanger``, ...). Return a null pointer when ``s`` is null.
+
+.. function:: std::shared_ptr<SocketLike> asSocketLike(LocalSocket *s)
+
+    The same as above, taking ownership of ``s``.
+
+.. function:: std::shared_ptr<LocalSocket> convertSocketLikeToLocalSocket(std::shared_ptr<SocketLike> socket)
+
+    Recover the ``LocalSocket`` behind ``socket``. Return a null pointer when ``socket`` is not backed by a ``LocalSocket``.
+
+.. code-block:: c++
+    :caption: Example: a LocalSocket client
+
+    #include "qtng.h"
+    using namespace qtng;
+
+    std::shared_ptr<SocketLike> client = asSocketLike(LocalSocket::createConnection("echo"));
+
 2.2 SslSocket
 ^^^^^^^^^^^^^
 

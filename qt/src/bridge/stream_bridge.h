@@ -19,6 +19,13 @@ class QtBackedCoreSocketLike;
 
 std::shared_ptr<qtng_core::SocketLike> kcpOrUtpToCoreSocketLike(
         const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socket);
+// Unwraps a Qt LocalSocket-backed SocketLike into the core LocalSocket's
+// SocketLike, and wraps a core LocalSocket-like back into Qt. Both return null
+// when the argument is not a local socket, so callers can chain them.
+std::shared_ptr<qtng_core::SocketLike> localSocketToCoreSocketLike(
+        const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socket);
+QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike>
+localSocketFromCoreSocketLike(const std::shared_ptr<qtng_core::SocketLike> &core);
 
 std::shared_ptr<qtng_core::SocketLike> toCoreSocketLike(const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socket);
 QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike>

@@ -6,6 +6,7 @@
 #include "eventloop.h"
 #include "socket.h"
 #include "socket_utils.h"
+#include "local_socket.h"
 #include "http.h"
 #include "http_proxy.h"
 #include "http_utils.h"
