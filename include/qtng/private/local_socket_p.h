@@ -42,7 +42,6 @@ public:
 public:
     void setError(Socket::SocketError error, const std::string &errorString);
     void setError(Socket::SocketError error, ErrorString errorString);
-    std::string getErrorString() const;
     bool isValid() const;
     bool checkState() const;
 

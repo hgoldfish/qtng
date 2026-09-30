@@ -101,11 +101,6 @@ void LocalSocketPrivate::setError(Socket::SocketError error, ErrorString errorSt
     }
 }
 
-string LocalSocketPrivate::getErrorString() const
-{
-    return errorString;
-}
-
 bool LocalSocketPrivate::isValid() const
 {
     return checkState();

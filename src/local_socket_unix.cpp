@@ -227,9 +227,6 @@ bool LocalSocketPrivate::listen(int backlog)
         setError(Socket::UnsupportedSocketOperationError, OperationUnsupportedErrorString);
         return false;
     }
-    if (backlog <= 0) {
-        backlog = 50;
-    }
     if (::listen(fd, backlog) < 0) {
         setError(Socket::UnknownSocketError, UnknownSocketErrorString);
         return false;
