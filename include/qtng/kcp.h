@@ -13,6 +13,9 @@
 
 namespace qtng {
 
+// Mirrored field-for-field by the Qt binding in qt/include/kcp.h and copied one
+// by one in toQtStats() (qt/src/kcp.cpp). Adding a field here without adding it
+// there drops it silently.
 struct KcpStreamStats {
     std::uint32_t sndWnd;          // effective send window = min(BDP, mem, rmt) (segments)
     std::uint32_t sendBudgetSegs;  // Tuner BDP budget (segments)
@@ -27,6 +30,7 @@ struct KcpStreamStats {
     std::uint32_t sndNxt;          // next segment number to send
     std::uint32_t sentSegs;        // cumulative first-sends
     std::uint32_t rmtWnd;          // peer advertised window (segments)
+    std::uint32_t rcvWnd;          // this end's receive window (segments)
     std::uint32_t rxSrtt;          // smoothed RTT (ms)
     std::uint32_t srttMin;         // Tuner's decaying minimum srtt (ms)
     std::uint32_t mss;             // ikcp mss (bytes)

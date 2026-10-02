@@ -9,6 +9,8 @@
 
 QTNETWORKNG_NAMESPACE_BEGIN
 
+// Mirror of qtng_core::KcpStreamStats (include/qtng/kcp.h); toQtStats()
+// (qt/src/kcp.cpp) copies it one by one, so add fields on both sides.
 struct KcpStreamStats {
     quint32 sndWnd;
     quint32 sendBudgetSegs;
@@ -23,6 +25,7 @@ struct KcpStreamStats {
     quint32 sndNxt;
     quint32 sentSegs;
     quint32 rmtWnd;
+    quint32 rcvWnd;
     quint32 rxSrtt;
     quint32 srttMin;
     quint32 mss;

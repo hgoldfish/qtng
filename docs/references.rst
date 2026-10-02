@@ -4431,8 +4431,8 @@ Public knobs:
   Refused while ``waitsnd()>0``.
 * ``setTearDownTime`` / ``tearDownTime`` — idle / drain timeout.
 * ``stats()`` — read-only ``KcpStreamStats`` (sndWnd, sendBudgetSegs,
-  memoryCapSegs, waitsnd, sndUna, sndNxt, sentSegs, rmtWnd, rxSrtt, srttMin,
-  mss, resend counters, lossRate, deliveryBps).
+  memoryCapSegs, waitsnd, sndUna, sndNxt, sentSegs, rmtWnd, rcvWnd, rxSrtt,
+  srttMin, mss, resend counters, lossRate, deliveryBps).
 * ``plaintextLooksCritical(data, size)`` — static helper for multipath /
   redundant-send layers: true when the DatagramLink plaintext is CLOSE,
   KEEPALIVE, native ikcp ACK (``0x52``), compact ACKN (``0x55``), or a legacy

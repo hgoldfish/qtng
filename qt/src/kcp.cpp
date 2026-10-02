@@ -29,6 +29,13 @@ public:
     shared_ptr<qtng_core::KcpStream> core;
 };
 
+// KcpStreamStats is declared twice on purpose: qtng_core::KcpStreamStats is the
+// engine's, qtng::KcpStreamStats is the Qt-facing API. This maps the two by hand,
+// so a field added on one side only is dropped in silence.
+//
+// A sizeof comparison cannot guard that: the core layout's 15 uint32 fields leave
+// 4 bytes of tail padding, exactly enough for one extra uint32 on the Qt side.
+// Both stay 80 bytes and the drift would go unnoticed.
 static KcpStreamStats toQtStats(const qtng_core::KcpStreamStats &s)
 {
     KcpStreamStats out;
@@ -45,6 +52,7 @@ static KcpStreamStats toQtStats(const qtng_core::KcpStreamStats &s)
     out.sndNxt = s.sndNxt;
     out.sentSegs = s.sentSegs;
     out.rmtWnd = s.rmtWnd;
+    out.rcvWnd = s.rcvWnd;
     out.rxSrtt = s.rxSrtt;
     out.srttMin = s.srttMin;
     out.mss = s.mss;

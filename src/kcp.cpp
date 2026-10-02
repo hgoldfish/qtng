@@ -99,6 +99,10 @@ struct KcpTuner {
     uint32_t reorderUs[kReorderSampleCap] = {};
     size_t reorderCount = 0;
     size_t reorderNext = 0;
+    // Receive direction. Kept apart from deliveryBps: that one sizes the send
+    // budget, and a bulk downlink must not inflate it.
+    uint32_t lastRcvNxt = 0;
+    double rcvDeliveryBps = 0;
 };
 
 class KcpStreamPrivate
@@ -395,6 +399,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
         tuner.lastSndUna = kcp->snd_una;
         tuner.lastLossRto = kcp->loss_rto;
         tuner.lastSentSegs = kcp->sent_segs;
+        tuner.lastRcvNxt = kcp->rcv_nxt;
         return;
     }
     if (tuner.lastSampleTs != 0 && (now - tuner.lastSampleTs) < period) {
@@ -423,6 +428,26 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     if (deltaSent > 0) {
         const double sampleLoss = static_cast<double>(deltaLoss) / static_cast<double>(deltaSent);
         tuner.lossRate = tuner.lastSampleTs == 0 ? sampleLoss : (tuner.lossRate * 7.0 + sampleLoss) / 8.0;
+    }
+    // Receive-rate evidence. A download-only stream never fills its send queue,
+    // so every period looks app-limited and deliveryBps stays 0; the receive
+    // window then has no way to grow (see the rcv_wnd block below). rcv_nxt only
+    // advances on in-order new data, so this is goodput, not wire rate.
+    //
+    // Rise to a higher sample at once, decay towards a lower one. A low-biased
+    // receive estimate is self-reinforcing: too small a window caps the achieved
+    // rate, which in turn keeps the estimate small. Overshooting only costs
+    // receive buffer, and that stays capped by memoryCapSegs.
+    const uint32_t rcvNxt = kcp->rcv_nxt;
+    const uint32_t deltaRcv = tuner.lastSampleTs == 0 ? 0 : (rcvNxt - tuner.lastRcvNxt);
+    if (deltaRcv > 0 && dtMs > 0) {
+        const double sampleRcvBps = (static_cast<double>(deltaRcv) * segBytes * 8.0 * 1000.0)
+                / static_cast<double>(dtMs);
+        if (sampleRcvBps >= tuner.rcvDeliveryBps) {
+            tuner.rcvDeliveryBps = sampleRcvBps;
+        } else {
+            tuner.rcvDeliveryBps = (tuner.rcvDeliveryBps * 7.0 + sampleRcvBps) / 8.0;
+        }
     }
     if (kcp->rx_srtt > 0) {
         const uint32_t cur = static_cast<uint32_t>(kcp->rx_srtt);
@@ -501,13 +526,27 @@ void KcpStreamPrivate::runTuner(uint64_t now)
         }
     }
 
-    // Grow rcv_wnd with BDP; never shrink. Shrinking below in-flight capacity
-    // deadlocks sequential sendall→recvall once the peer advertises wnd=0.
-    if (rateBps > 0) {
-        uint32_t rcvTarget = kcp->rcv_wnd;
-        uint32_t computed = max(128u /* IKCP_WND_RCV */, min(memoryCapSegs, (bdpSegs * 3) / 2));
-        computed = min(computed, 0xFFFFu);
-        if (computed > rcvTarget && (computed - rcvTarget) * 5 >= rcvTarget) {
+    // Grow rcv_wnd with the receive-direction BDP; never shrink. Shrinking below
+    // in-flight capacity deadlocks sequential sendall→recvall once the peer
+    // advertises wnd=0.
+    //
+    // rcv_wnd starts at the fixed 1024 segments from applyFixedPolicy. Sizing it
+    // from the send direction alone pinned every download-only stream at those
+    // 1024 segments (≈1.3MB at the default MTU), so downlink throughput was capped
+    // at 1024 segments / RTT no matter how fast the path was. bdpSegs above is
+    // derived from deliveryBps alone, which stays 0 for a bulk downlink (every
+    // period is app-limited, see above), so recompute only when the receive rate
+    // is the larger of the two.
+    const double rcvRateBps = max(tuner.rcvDeliveryBps, rateBps);
+    uint32_t rcvBdpSegs = bdpSegs;
+    if (rcvRateBps > rateBps && segBytes > 0) {
+        const double rcvBdpBytes = rcvRateBps * static_cast<double>(srttForBdp) / 8000.0;
+        rcvBdpSegs = max(8u, static_cast<uint32_t>(rcvBdpBytes / segBytes + 0.999));
+    }
+    if (rcvRateBps > 0) {
+        const uint32_t computed = min(0xFFFFu, max(128u /* IKCP_WND_RCV */,
+                                                  min(memoryCapSegs, (rcvBdpSegs * 3) / 2)));
+        if (computed > kcp->rcv_wnd && (computed - kcp->rcv_wnd) * 5 >= kcp->rcv_wnd) {
             ikcp_wndsize(kcp, 0, static_cast<int>(computed));
             kcp->probe |= IKCP_ASK_TELL;
         }
@@ -519,6 +558,7 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     tuner.lastSndUna = sndUna;
     tuner.lastLossRto = kcp->loss_rto;
     tuner.lastSentSegs = kcp->sent_segs;
+    tuner.lastRcvNxt = rcvNxt;
 }
 
 KcpStreamStats KcpStreamPrivate::snapshotStats() const
@@ -537,6 +577,7 @@ KcpStreamStats KcpStreamPrivate::snapshotStats() const
     s.sndNxt = kcp ? kcp->snd_nxt : 0;
     s.sentSegs = kcp ? kcp->sent_segs : 0;
     s.rmtWnd = kcp ? kcp->rmt_wnd : 0;
+    s.rcvWnd = kcp ? kcp->rcv_wnd : 0;
     s.rxSrtt = kcp && kcp->rx_srtt > 0 ? static_cast<uint32_t>(kcp->rx_srtt) : 0;
     s.srttMin = tuner.srttMin;
     s.mss = kcp ? kcp->mss : 0;

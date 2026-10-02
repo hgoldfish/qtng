@@ -4053,7 +4053,7 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
   ``setPacketSize()`` 不会回灌到已有 slave。``waitsnd()>0`` 时拒绝修改。
 * ``setTearDownTime`` / ``tearDownTime`` — 空闲 / 排空超时。
 * ``stats()`` — 只读 ``KcpStreamStats``（sndWnd、sendBudgetSegs、memoryCapSegs、
-  waitsnd、sndUna、sndNxt、sentSegs、rmtWnd、rxSrtt、srttMin、mss、重传计数、
+  waitsnd、sndUna、sndNxt、sentSegs、rmtWnd、rcvWnd、rxSrtt、srttMin、mss、重传计数、
   lossRate、deliveryBps）。
 * ``plaintextLooksCritical(data, size)`` — 静态辅助函数，供多路径/冗余发送层使用：
   当 DatagramLink 明文为 CLOSE、KEEPALIVE、原生 ikcp ACK（``0x52``）、紧凑 ACKN
