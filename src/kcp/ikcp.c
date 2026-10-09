@@ -175,14 +175,19 @@ void ikcp_allocator(void* (*new_malloc)(size_t), void (*new_free)(void*))
 // allocate a new kcp segment
 static IKCPSEG* ikcp_segment_new(ikcpcb *kcp, int size)
 {
-    (void) kcp;
+	if (kcp->seg_alloc) {
+		return (IKCPSEG*)kcp->seg_alloc(kcp->seg_alloc_user, sizeof(IKCPSEG) + (size_t)size);
+	}
 	return (IKCPSEG*)ikcp_malloc(sizeof(IKCPSEG) + size);
 }
 
 // delete a segment
 static void ikcp_segment_delete(ikcpcb *kcp, IKCPSEG *seg)
 {
-    (void) kcp;
+	if (kcp->seg_free) {
+		kcp->seg_free(kcp->seg_alloc_user, seg);
+		return;
+	}
 	ikcp_free(seg);
 }
 
@@ -306,10 +311,10 @@ ikcpcb* ikcp_create(IUINT32 conv, void *user)
 	kcp->writelog = NULL;
 
 	kcp->ackn_mode = 0;
-	kcp->ack_resendts = 0;
-	kcp->ack_resent = 0;
-	kcp->ackn_maxresend = 5;
-	kcp->ackn_interval = 0;
+
+	kcp->seg_alloc_user = NULL;
+	kcp->seg_alloc = NULL;
+	kcp->seg_free = NULL;
 
 	return kcp;
 }
@@ -1072,8 +1077,8 @@ void ikcp_flush(ikcpcb *kcp)
 	seg.ts = 0;
 
 	// flush acknowledges: one segment per ack by default, or a compact
-	// IKCP_CMD_ACKN batch with retransmission when ackn_mode is enabled
-	// (both implemented in ikcp_flush_acks, appended at the end of this file).
+	// IKCP_CMD_ACKN batch when ackn_mode is enabled (both implemented in
+	// ikcp_flush_acks, appended at the end of this file).
 	ptr = ikcp_flush_acks(kcp, buffer, ptr);
 
 	// probe window size (if remote window size equals zero)
@@ -1413,10 +1418,10 @@ IUINT32 ikcp_getconv(const void *ptr)
 // mKCP-STYLE ADDITIONS (appended after this change log)
 //=====================================================================
 //
-// CHANGE LOG — compact ACK frames + ACK retransmission
-// -----------------------------------------------------
+// CHANGE LOG — compact ACK frames
+// ---------------------------------
 // Context: this file is skywind3000's KCP. It was modified in the qtng
-// project to add two of mKCP's (V2Ray's modified-KCP) improvements:
+// project to add one of mKCP's (V2Ray's modified-KCP) improvements:
 //
 //   1. ACK compression  — the native protocol sends one IKCP_CMD_ACK
 //      segment (24-byte overhead) per acknowledged data packet, so acking
@@ -1431,17 +1436,10 @@ IUINT32 ikcp_getconv(const void *ptr)
 //      retransmission / RTT estimation keep working. 100 acks now cost
 //      13 + 800 = 813 bytes instead of 2400 (about 1/3).
 //
-//   2. ACK retransmission — the native flush clears the ack list on every
-//      flush (ackcount = 0), so a lost ack forces a full data
-//      retransmission. With ackn_mode enabled the pending batch is kept
-//      and resent on a fixed interval, capped at ackn_maxresend attempts;
-//      duplicate acks are idempotent on the peer, so nothing else is
-//      needed to stop them.
-//
 // Original-code touch points (all tiny, semantics preserved when the new
 // mode is off):
 //   - top constants: adds IKCP_CMD_ACKN = 85 next to the other IKCP_CMD_*.
-//   - ikcp_create: initializes the five new IKCPCB fields.
+//   - ikcp_create: initializes the new IKCPCB ackn_mode field.
 //   - ikcp_ack_get: a forward declaration of ikcp_flush_acks follows it,
 //                   because ikcp_flush uses it before its definition at the
 //                   end of this file.
@@ -1451,7 +1449,6 @@ IUINT32 ikcp_getconv(const void *ptr)
 //
 // New public API (declared in ikcp.h):
 //   - ikcp_ackn_mode(kcp, 1/0)  enable/disable the mKCP behaviour
-//   - ikcp_ackn_param(kcp, maxresend, interval)  tune retransmission
 //
 // Wire compatibility: the ACKN frame carries the leading conv like every
 // other segment, so the qtng KcpStream v2 outer framing (which strips the
@@ -1465,8 +1462,7 @@ IUINT32 ikcp_getconv(const void *ptr)
 //     rcv_nxt on *our* data, while the acklist tracks *our* progress on the
 //     peer's data — two unrelated sequence spaces. Under asymmetric traffic
 //     it silently deleted not-yet-confirmed acks, defeating the
-//     retransmission it was meant to protect. Removed; the batch is bounded
-//     by ackn_maxresend.
+//     retransmission it was meant to protect. Removed.
 //   - The second review found the receive side was never implemented: the
 //     original ikcp_input rejected unknown cmd 0x55 with -3 (and the loop
 //     top rejected < 24-byte datagrams), so every ACKN frame the peer sent
@@ -1476,12 +1472,22 @@ IUINT32 ikcp_getconv(const void *ptr)
 //     ACKN frame size. The two ACKN size constants live at the top of the
 //     file with the other IKCP_* constants (file-scope consts must precede
 //     their use in C; a first attempt put them here and broke ikcp_input).
+//   - The third review removed the ACK-retransmission timer (ack_resendts /
+//     ack_resent / ackn_maxresend / ackn_interval and ikcp_ackn_param). It
+//     held the *entire* pending batch — including acks for data received
+//     after the last send — until interval*3 ms elapsed, so the peer's send
+//     window could not advance and it RTO-retransmitted almost every
+//     segment. Measured on the qtng kcp-bench loopback harness this capped
+//     goodput at 9 MiB/s with 19968 spurious RTOs, versus 55 MiB/s and zero
+//     RTOs with ackn_mode off. A correct resend needs per-ack send
+//     bookkeeping (or an ack-of-ack) to stay bounded, which upstream KCP does
+//     not attempt; data RTO already recovers a lost ACKN frame, so the batch
+//     is now drained every flush, exactly like the ackn_mode == 0 path.
 //=====================================================================
 
 
 static char *ikcp_flush_acks(ikcpcb *kcp, char *buffer, char *ptr)
 {
-	IUINT32 current = kcp->current;
 	int count = (int)kcp->ackcount;
 	int i;
 
@@ -1513,14 +1519,16 @@ static char *ikcp_flush_acks(ikcpcb *kcp, char *buffer, char *ptr)
 		return ptr;
 	}
 
-	// mKCP mode: pack all pending acks into compact IKCP_CMD_ACKN frames and
-	// keep them pending until the batch has been resent ackn_maxresend
-	// times. Until then it is resent every (ackn_interval or interval*3) ms;
-	// duplicate acks are idempotent on the peer.
-	if (kcp->ack_resent > 0 && _itimediff(current, kcp->ack_resendts) < 0) {
-		return ptr;  // batch already sent, not due for a resend yet
-	}
-
+	// mKCP mode: pack the pending acks into compact IKCP_CMD_ACKN frames.
+	//
+	// New acks must go out on the flush that observes them. Holding the batch
+	// behind a resend timer starved the peer: acks for data received after the
+	// first flush sat for up to interval*3 ms, the peer's send window could not
+	// advance, and it RTO-retransmitted almost every segment -- throughput was
+	// pinned at window/(interval*3) no matter what the send-budget Tuner did.
+	// Drain every flush, exactly like the ackn_mode == 0 path, only with compact
+	// framing. A lost ACKN frame is recovered by data RTO, just as a lost plain
+	// ACK is when ackn_mode == 0.
 	i = 0;
 	while (i < count) {
 		int per = ((int)kcp->mtu - (int)IKCP_ACKN_OVERHEAD) / (int)IKCP_ACKN_ENTRY;
@@ -1550,15 +1558,7 @@ static char *ikcp_flush_acks(ikcpcb *kcp, char *buffer, char *ptr)
 		i += batch;
 	}
 
-	kcp->ack_resent++;
-	kcp->ack_resendts = current
-		+ (kcp->ackn_interval > 0 ? kcp->ackn_interval : kcp->interval * 3);
-	if (kcp->ack_resent >= kcp->ackn_maxresend) {
-		// Give up on the batch; the peer recovers via data retransmission.
-		kcp->ackcount = 0;
-		kcp->ack_resent = 0;
-		kcp->ack_resendts = 0;
-	}
+	kcp->ackcount = 0;
 	return ptr;
 }
 
@@ -1567,18 +1567,17 @@ void ikcp_ackn_mode(ikcpcb *kcp, int enable)
 {
 	if (kcp == NULL) return;
 	kcp->ackn_mode = enable ? 1 : 0;
-	if (!enable) {
-		kcp->ack_resendts = 0;
-		kcp->ack_resent = 0;
-	}
 }
 
 
-void ikcp_ackn_param(ikcpcb *kcp, int maxresend, int interval)
+void ikcp_set_segment_allocator(ikcpcb *kcp, void *user,
+	void *(*alloc_fn)(void *, size_t),
+	void (*free_fn)(void *, void *))
 {
 	if (kcp == NULL) return;
-	if (maxresend > 0) kcp->ackn_maxresend = (IUINT32)maxresend;
-	if (interval >= 0) kcp->ackn_interval = (IUINT32)interval;
+	kcp->seg_alloc_user = user;
+	kcp->seg_alloc = alloc_fn;
+	kcp->seg_free = free_fn;
 }
 
 

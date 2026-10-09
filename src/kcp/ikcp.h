@@ -322,13 +322,17 @@ struct IKCPCB
 	int (*output)(const char *buf, int len, struct IKCPCB *kcp, void *user);
 	void (*writelog)(const char *log, struct IKCPCB *kcp, void *user);
 
-	// mKCP-style additions: compact ACK frames (IKCP_CMD_ACKN) + ACK
-	// retransmission. See the block appended at the end of src/kcp/ikcp.c.
-	IUINT32 ackn_mode;			// 1 = compact ack + ack resend, 0 = original
-	IUINT32 ack_resendts;		// next timestamp (ms) to resend the ack batch
-	IUINT32 ack_resent;			// times the current ack batch has been resent
-	IUINT32 ackn_maxresend;		// give up resending after this many attempts
-	IUINT32 ackn_interval;		// resend period override (0 = interval * 3)
+	// mKCP-style additions: compact ACK frames (IKCP_CMD_ACKN). See the
+	// block appended at the end of src/kcp/ikcp.c.
+	IUINT32 ackn_mode;			// 1 = compact ack frames, 0 = original
+
+	// Per-kcp segment allocator, installed by the embedder (KcpStream) via
+	// ikcp_set_segment_allocator(). NULL falls back to the global allocator
+	// hooks / malloc. Only ikcp_segment_new/delete use it; the control block,
+	// flush buffer and acklist keep using the global allocator.
+	void *seg_alloc_user;
+	void *(*seg_alloc)(void *, size_t);
+	void (*seg_free)(void *, void *);
 };
 
 
@@ -425,10 +429,16 @@ void ikcp_allocator(void* (*new_malloc)(size_t), void (*new_free)(void*));
 // read conv
 IUINT32 ikcp_getconv(const void *ptr);
 
-// mKCP-style switches (compact ACK frames + ACK retransmission).
-// Both default to disabled so behaviour is identical to the upstream ikcp.
+// mKCP-style switch (compact ACK frames).
+// Defaults to disabled so behaviour is identical to the upstream ikcp.
 void ikcp_ackn_mode(ikcpcb *kcp, int enable);
-void ikcp_ackn_param(ikcpcb *kcp, int maxresend, int interval);
+
+// Install a per-kcp allocator for segments (ikcp_segment_new/delete). `user` is
+// passed back to the callbacks unchanged. Pass NULL allocators to fall back to
+// the global allocator hooks / malloc. Only segments use it.
+void ikcp_set_segment_allocator(ikcpcb *kcp, void *user,
+	void *(*alloc_fn)(void *, size_t),
+	void (*free_fn)(void *, void *));
 
 
 #ifdef __cplusplus

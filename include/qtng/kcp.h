@@ -17,14 +17,14 @@ namespace qtng {
 // by one in toQtStats() (qt/src/kcp.cpp). Adding a field here without adding it
 // there drops it silently.
 struct KcpStreamStats {
-    std::uint32_t sndWnd;          // effective send window = min(BDP, mem, rmt) (segments)
-    std::uint32_t sendBudgetSegs;  // Tuner BDP budget (segments)
+    std::uint32_t sndWnd;          // effective send window = min(Tuner budget, mem, rmt) (segments)
+    std::uint32_t sendBudgetSegs;  // Tuner window budget (segments)
     std::uint32_t memoryCapSegs;   // memory budget converted to segments
     std::uint32_t rtoResends;      // cumulative RTO retransmits (kcp->xmit)
     std::uint32_t fastResends;     // cumulative fast retransmits (kcp->xmit_fast)
     std::uint32_t fastresend;      // current fastresend threshold
     double lossRate;               // Tuner estimate
-    double deliveryBps;            // Tuner estimate (bits/s)
+    double deliveryBps;            // Tuner bandwidth estimate (bits/s, windowed max)
     std::uint32_t waitsnd;         // ikcp_waitsnd: queued + in flight segments
     std::uint32_t sndUna;          // oldest unacknowledged segment
     std::uint32_t sndNxt;          // next segment number to send
@@ -32,9 +32,14 @@ struct KcpStreamStats {
     std::uint32_t rmtWnd;          // peer advertised window (segments)
     std::uint32_t rcvWnd;          // this end's receive window (segments)
     std::uint32_t rxSrtt;          // smoothed RTT (ms)
-    std::uint32_t srttMin;         // Tuner's decaying minimum srtt (ms)
+    std::uint32_t srttMin;         // Tuner's 10s-window minimum srtt (ms)
     std::uint32_t mss;             // ikcp mss (bytes)
 };
+
+// Diagnostic counter: number of real heap allocations made for ikcp segments so
+// far (a miss in the per-KcpStream segment pool). Monotonic; used by benchmarks
+// to show the pool's effect. Normal applications do not need it.
+std::uint64_t kcpSegmentOsAllocationCount();
 
 class KcpStreamPrivate;
 class KcpStream

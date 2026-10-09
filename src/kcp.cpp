@@ -5,8 +5,11 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <new>
 #include <deque>
 #include <functional>
 #include <map>
@@ -69,6 +72,14 @@ const uint8_t PACKET_TYPE_KCP_ACKN = 85;  // 0x55, compact ack frame (mKCP)
 // which may write a zero conv at (buf - kIkcpConvHeadroom).
 static constexpr size_t kIkcpConvHeadroom = 4;
 
+// KcpStream convention: a datagram on the wire is capped at 64 KiB. A receive
+// slot is budgeted at exactly that, with the kIkcpConvHeadroom scratch prefix
+// reserved inside the budget, so the slot's wire capacity is
+// (kMaxDatagramSize - kIkcpConvHeadroom). That still covers the largest payload
+// a real UDP datagram can carry (65507 bytes), so nothing a link delivers is
+// truncated in practice.
+static constexpr size_t kMaxDatagramSize = 1024 * 64;
+
 static bool isIkcpCommand(uint8_t cmd)
 {
     return cmd == PACKET_TYPE_KCP_PUSH || cmd == PACKET_TYPE_KCP_ACK || cmd == PACKET_TYPE_KCP_WASK
@@ -84,25 +95,243 @@ static constexpr uint32_t kInitialSendBudgetSegs = 256;                         
 static constexpr uint32_t kSegOverheadBytes = 72;                                // ikcp overhead + path framing budget
 static constexpr size_t kReorderSampleCap = 32;
 
+// Datagrams drained per batched link->recvfrom() call. One kMaxDatagramSize
+// (64 KiB) slice per slot in a single scratch block, so a MasterKcpStreamPrivate
+// holds kRecvBatchSize * 64KiB (~2 MiB at 32) for its whole receive lifetime.
+// Larger batches cut recvmmsg syscalls on bulk transfers; smaller batches save
+// memory on connections that only trickle. Tunable here on purpose.
+static constexpr size_t kRecvBatchSize = 32;
+
+// BBRv1-flavoured send-budget controller (see KcpTuner). Capacity comes from a
+// bandwidth estimate plus a propagation-delay floor; loss is never read as a
+// capacity signal (see stepKcpSendBudgetBbr for the loss policy).
+
+// BtlBw is the maximum of the delivery-rate samples over a recent window, not
+// an average, so a single low period cannot drag the estimate under the path's
+// capacity. That is only half the story: rate = window / RTT still makes the BDP
+// a fixed point of the window, and on a low-RTT path (srttMin of a few ms) the
+// window is the binding constraint, so bdpSegs tracks whatever window is in use
+// instead of growing past it. kBwWindow bounds how many periods the maximum
+// looks back over.
+static constexpr size_t kBwWindow = 10;
+
+// Startup's ramp factor: Startup doubles toward bdpSegs * this until the
+// bandwidth estimate stops growing, and Drain then clamps back to bdpSegs
+// (kBbrDrainGain). Both read bdpSegs, and bdpSegs is derived from the achieved
+// delivery rate, which the window itself sets -- so on a low-RTT path the
+// feedback bites: srttMin of a few ms against the ~200ms sampling period implies
+// a BDP below the window in use, so the target lands under the current window and
+// the rate falls with it. ProbeBW is the state that escapes this, because its
+// window comes from a ceiling that is not derived from bdpSegs at all (see
+// stepKcpProbeCeiling); that is where the up-probe lives, and raising this
+// constant is not the way to fix a window that will not grow. BBRv1 uses 2.0
+// here too. See kcp-bench README section P5 for the measurements.
+static constexpr double kBbrCwndGain = 2.0;
+static constexpr double kBbrDrainGain = 1.0;
+
+// Startup exits when the windowed-max bandwidth fails to grow by this factor
+// for kBbrFullBwRounds periods (tcp_bbr.c bbr_check_full_bw_reached).
+static constexpr double kBbrBwGrowThresh = 1.25;
+static constexpr uint32_t kBbrFullBwRounds = 3;
+
+// Floor for the Tuner's send budget, and the window ProbeRTT drains to. There is
+// no floor inside ikcp itself: ikcp_wndsize clamps snd_wnd only from above and
+// ikcp_send never consults it. The bound comes from here -- the stepper never
+// returns less than this, and applySendWindow floors the peer's rmt_wnd term at
+// the same value. Because ProbeRTT zeroes the loss deduction and clamps the
+// budget to this, the probe's window is exactly this, which is what makes the
+// "drained" exit test in runTuner satisfiable. Loss only ever deducts the
+// segments it actually lost, so it cannot push the tracked budget below this.
+static constexpr uint32_t kBbrMinSegs = 8;
+
+// ProbeRTT drains in-flight data for kBbrProbeRttDurationMs, at most once per
+// kBbrProbeRttIntervalMs, so the propagation-delay floor is re-measured on an
+// empty queue instead of a standing one. BBRv1 computes a small probe window
+// from its own gain; here the drain target is kBbrMinSegs, the floor the rest of
+// the Tuner also bottoms out at. The same constant is the "drained" exit test,
+// so target and test cannot drift apart and leave the probe unable to exit.
+static constexpr uint64_t kBbrProbeRttDurationMs = 200;
+static constexpr uint64_t kBbrProbeRttIntervalMs = 10000;
+
+// Counts every real heap allocation made for ikcp segments. A pooled reuse does
+// not count; only a pool miss that has to call malloc does. Exposed through
+// qtng::kcpSegmentOsAllocationCount() so the benchmark can show the pool's effect.
+static std::atomic<uint64_t> g_segmentOsAllocs{0};
+
+// Per-KcpStream pool for ikcp segments.
+//
+// ikcp allocates one segment per data packet in each direction (ikcp_send and
+// ikcp_input), so a bulk transfer churns the allocator hard. KcpStream owns one
+// of these and installs it through ikcp_set_segment_allocator(), making the pool
+// strictly per-kcp: no cross-stream sharing and no lock.
+//
+// Every allocation carries a small header recording its true size, so a freed
+// block can be matched against the pooled class (the full-size mss segment) and
+// recycled; other sizes pass straight through to malloc/free. The class size is
+// set once mtu/mss are known and refreshed when mtu changes (a stale class would
+// hand out undersized buffers), which setClassSize() does by draining.
+class KcpSegmentPool
+{
+public:
+    KcpSegmentPool() = default;
+    ~KcpSegmentPool() { drain(); }
+    NG_DISABLE_COPY(KcpSegmentPool)
+
+    void setClassSize(size_t bytes)
+    {
+        if (bytes != m_classSize) {
+            drain();
+            m_classSize = bytes;
+        }
+    }
+
+    void *allocate(size_t size)
+    {
+        if (size == m_classSize && !m_free.empty()) {
+            void *base = m_free.back();
+            m_free.pop_back();
+            return static_cast<char *>(base) + sizeof(Header);
+        }
+        void *base = malloc(sizeof(Header) + size);
+        if (!base) {
+            return nullptr;
+        }
+        g_segmentOsAllocs.fetch_add(1);
+        reinterpret_cast<Header *>(base)->size = size;
+        return static_cast<char *>(base) + sizeof(Header);
+    }
+
+    void deallocate(void *ptr)
+    {
+        if (!ptr) {
+            return;
+        }
+        Header *header = reinterpret_cast<Header *>(static_cast<char *>(ptr) - sizeof(Header));
+        if (header->size == m_classSize && m_free.size() < kFreeLimit) {
+            m_free.push_back(header);
+            return;
+        }
+        free(header);
+    }
+
+    static void *allocThunk(void *user, size_t size)
+    {
+        return static_cast<KcpSegmentPool *>(user)->allocate(size);
+    }
+
+    static void freeThunk(void *user, void *ptr)
+    {
+        static_cast<KcpSegmentPool *>(user)->deallocate(ptr);
+    }
+
+private:
+    // alignas(max_align_t): the payload handed to ikcp must keep the alignment
+    // malloc guarantees, so size the header to a full alignment unit.
+    struct alignas(std::max_align_t) Header
+    {
+        size_t size;
+    };
+    static constexpr size_t kFreeLimit = 2048;
+
+    void drain()
+    {
+        for (size_t i = 0; i < m_free.size(); ++i) {
+            free(m_free[i]);
+        }
+        m_free.clear();
+    }
+
+    std::vector<void *> m_free;
+    size_t m_classSize = 0;
+};
+
+// BBRv1 controller states. Startup ramps the window multiplicatively until the
+// bandwidth estimate stops growing; Drain then pulls in-flight data back down to
+// the BDP; ProbeBW holds cwnd_gain, keeping the window above the BDP so the path
+// stays probed; ProbeRTT periodically drains the queue to re-measure the
+// propagation delay.
+enum class BbrState {
+    Startup = 0,
+    Drain,
+    ProbeBw,
+    ProbeRtt,
+};
+
+// Windowed maximum of delivery-rate samples. BBR keeps the maximum over a recent
+// window (tcp_bbr.c bbr_update_bw) instead of an average, because an average
+// sits below the path's capacity by construction and a window derived from it
+// can never reach the real BDP.
+struct BwSampler {
+    double samples[kBwWindow] = {};
+    uint64_t stamps[kBwWindow] = {};
+    size_t next = 0;
+    double maxBps = 0;
+
+    void record(double bps, uint64_t now)
+    {
+        samples[next] = bps;
+        stamps[next] = now;
+        next = (next + 1) % kBwWindow;
+    }
+
+    // Recompute the maximum over samples newer than maxAgeMs. Once every sample
+    // has aged out there is no bandwidth evidence left, so the maximum is zero
+    // and the window falls back to the floor. Periods that skip record() are the
+    // app-limited ones, where the stepper refuses to shrink, so this only bites
+    // when a non-app-limited path genuinely stops delivering.
+    void refresh(uint64_t now, uint64_t maxAgeMs)
+    {
+        double best = 0;
+        for (size_t i = 0; i < kBwWindow; ++i) {
+            if (stamps[i] == 0 || now < stamps[i] || now - stamps[i] > maxAgeMs) {
+                continue;
+            }
+            if (samples[i] > best) {
+                best = samples[i];
+            }
+        }
+        maxBps = best;
+    }
+};
+
 struct KcpTuner {
     uint64_t lastSampleTs = 0;
     uint32_t lastSndUna = 0;
     uint32_t lastLossRto = 0;
     uint32_t lastSentSegs = 0;
     uint32_t lastFastResend = 16;
-    uint32_t coldStartTicks = 0;
     uint32_t inflateStreak = 0;
-    uint64_t freezeGrowthUntil = 0;
-    double deliveryBps = 0;
     double lossRate = 0;
     uint32_t srttMin = 0;
+    // Wall-clock stamp of the newest srttMin minimum. BBR's RTprop is a minimum
+    // over a 10s window; a minimum older than that is allowed to decay.
+    uint64_t srttMinStamp = 0;
     uint32_t reorderUs[kReorderSampleCap] = {};
     size_t reorderCount = 0;
     size_t reorderNext = 0;
-    // Receive direction. Kept apart from deliveryBps: that one sizes the send
-    // budget, and a bulk downlink must not inflate it.
+    // Receive direction. Kept apart from the send sampler: that one sizes the
+    // send budget, and a bulk downlink must not inflate it.
     uint32_t lastRcvNxt = 0;
-    double rcvDeliveryBps = 0;
+
+    // BBRv1 controller state.
+    BbrState state = BbrState::Startup;
+    BwSampler sendBw;
+    BwSampler rcvBw;
+    // Startup exit bookkeeping (tcp_bbr.c bbr_check_full_bw_reached): the
+    // bandwidth the current growth round started from, and how many consecutive
+    // periods failed to beat it by kBbrBwGrowThresh.
+    double fullBwBaseline = 0;
+    uint32_t fullBwCount = 0;
+    // ProbeRTT scheduling, and the smallest RTT seen while drained (the fresh
+    // propagation-delay measurement). The budget itself needs no saving across
+    // the probe: ProbeBW recomputes it from the ceiling, and ProbeRTT always
+    // exits into ProbeBW (see runTuner).
+    uint64_t lastProbeRtt = 0;
+    uint64_t probeRttUntil = 0;
+    uint32_t probeRttMinSrtt = 0;
+    // ProbeBW's window ceiling: the only up-probe, and deliberately independent
+    // of bdpSegs. Loss never moves it (see stepKcpProbeCeiling).
+    uint32_t probeCeiling = 0;
 };
 
 class KcpStreamPrivate
@@ -177,7 +406,15 @@ public:
     uint8_t protocolVersion;
     bool tunerEnabled;
     bool pendingForceClose = false;
+    // Set while the "update_kcp" coroutine is alive. updateKcp() runs on every
+    // send and every received datagram, and CoroutineGroup::get() is a linear
+    // scan with a string compare, so short-circuit with this flag.
+    std::atomic<bool> updateRunning{false};
     KcpTuner tuner;
+
+    // Per-kcp ikcp segment pool; installed into kcp via ikcp_set_segment_allocator
+    // and re-sized whenever mtu/mss changes.
+    KcpSegmentPool segmentPool;
 
     DatagramPath remotePath;
 };
@@ -206,12 +443,20 @@ public:
     uint32_t nextSessionId();
     void doReceive();
     void doAccept();
+    // Handle one datagram whose wire payload sits at `wire` with kIkcpConvHeadroom
+    // writable bytes before it. Return false to stop the receive loop (session
+    // closed); true to continue with the next datagram.
+    bool receiveOneDatagram(char *wire, uint32_t len, const DatagramPath &who);
+    bool acceptOneDatagram(char *wire, uint32_t len, const DatagramPath &who);
     bool startReceivingCoroutine();
 public:
     map<string, SlaveKcpStreamPrivate *> receiversByHostAndPort;
     map<uint32_t, SlaveKcpStreamPrivate *> receiversBySessionId;
     shared_ptr<DatagramLink> link;
     Queue<KcpStream *> pendingSlaves;
+    // rawSend() calls startReceivingCoroutine() and CoroutineGroup::get() is a
+    // linear scan with a string compare; keep the spawn state in a flag instead.
+    std::atomic<bool> receivingStarted{false};
 };
 
 class SlaveKcpStreamPrivate : public KcpStreamPrivate
@@ -256,11 +501,25 @@ int kcp_callback(const char *buf, int len, ikcpcb *, void *user)
         ngWarning() << "kcp_callback got invalid data.";
         return -1;
     }
-    const string &packet = p->makeDataPacket(buf, len);
-    int32_t sentBytes = p->rawSend(packet.data(), packet.size());
+    int32_t sentBytes;
+    int32_t expectedBytes;
+    if (p->protocolVersion == KcpStream::Version2) {
+        // ikcp outputs [conv][cmd|...]. v2 strips the unused 4-byte conv, so the
+        // datagram is the tail of kcp->buffer; send it straight from there instead
+        // of copying it into a std::string first.
+        if (len < 5) {
+            return -1;
+        }
+        expectedBytes = len - 4;
+        sentBytes = p->rawSend(buf + 4, expectedBytes);
+    } else {
+        const string &packet = p->makeDataPacket(buf, len);
+        expectedBytes = static_cast<int32_t>(packet.size());
+        sentBytes = p->rawSend(packet.data(), packet.size());
+    }
     // Incomplete send (0 / -1 / short write) = link dead. Callers that want
     // UDP-style drop-on-full must still return `size` so we do not tear down.
-    if (sentBytes != packet.size()) {
+    if (sentBytes != expectedBytes) {
         if (p->error == Socket::NoError) {
             p->error = Socket::SocketAccessError;
             p->errorString = "can not send udp packet";
@@ -295,6 +554,7 @@ KcpStreamPrivate::KcpStreamPrivate(KcpStream *q, uint32_t sessionId, uint32_t mt
 {
     kcp = ikcp_create(0, this);
     ikcp_setoutput(kcp, kcp_callback);
+    ikcp_set_segment_allocator(kcp, &segmentPool, KcpSegmentPool::allocThunk, KcpSegmentPool::freeThunk);
     sendingQueueEmpty.set();
     sendingQueueNotFull.set();
     receivingQueueNotEmpty.clear();
@@ -327,6 +587,9 @@ void KcpStreamPrivate::applyFixedPolicy(uint32_t mtu)
     }
     ikcp_setmtu(kcp, static_cast<int>(clampedMtu));
     ikcp_wndsize(kcp, 1024, 1024);
+    // The pool class size tracks mss: full-size segments (the only pooled class)
+    // are exactly sizeof(IKCPSEG) + mss.
+    segmentPool.setClassSize(sizeof(IKCPSEG) + kcp->mss);
     kcp->rx_minrto = 30;
     kcp->dead_link = 10;
     recalculateMemoryCap();
@@ -353,9 +616,13 @@ void KcpStreamPrivate::recalculateMemoryCap()
 void KcpStreamPrivate::applySendWindow()
 {
     // App backpressure (updateStatus) and ikcp flight share the same limit:
-    // snd_wnd = min(BDP budget, memory cap, peer rmt_wnd). rcv_wnd is independent.
+    // snd_wnd = min(Tuner budget, memory cap, peer rmt_wnd). rcv_wnd is independent.
     // Must re-run whenever rmt_wnd moves — otherwise a peer window open stays
     // invisible until the next Tuner period (up to ~1s).
+    //
+    // Loss does not subtract from this: the budget itself is the only window
+    // signal, and it is sized from the bandwidth estimate rather than from the
+    // loss rate (see KcpTuner and stepKcpSendBudgetBbr).
     const uint32_t sndTarget = min<uint32_t>({0xFFFFu, sendBudgetSegs, memoryCapSegs,
                                               max<uint32_t>(static_cast<uint32_t>(kcp->rmt_wnd), 8u)});
     if (kcp->snd_wnd == sndTarget) {
@@ -421,40 +688,49 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     const bool appLimited = waitsndNow <= 0
             || (wndForLimit > 0 && deltaSent * 4u < wndForLimit);
 
+    // Delivery rate, send direction: record this period's goodput as a BtlBw
+    // sample. App-limited periods carry no information about the path, so they
+    // are skipped rather than recorded as a low sample.
     if (!appLimited && deltaUna > 0 && dtMs > 0) {
-        const double sampleBps = (static_cast<double>(deltaUna) * segBytes * 8.0 * 1000.0) / static_cast<double>(dtMs);
-        tuner.deliveryBps = tuner.deliveryBps <= 0 ? sampleBps : (tuner.deliveryBps * 7.0 + sampleBps) / 8.0;
+        const double sampleBps = (static_cast<double>(deltaUna) * segBytes * 8.0 * 1000.0)
+                / static_cast<double>(dtMs);
+        tuner.sendBw.record(sampleBps, now);
     }
+    tuner.sendBw.refresh(now, kBwWindow * static_cast<uint64_t>(period));
+
     if (deltaSent > 0) {
         const double sampleLoss = static_cast<double>(deltaLoss) / static_cast<double>(deltaSent);
         tuner.lossRate = tuner.lastSampleTs == 0 ? sampleLoss : (tuner.lossRate * 7.0 + sampleLoss) / 8.0;
     }
     // Receive-rate evidence. A download-only stream never fills its send queue,
-    // so every period looks app-limited and deliveryBps stays 0; the receive
-    // window then has no way to grow (see the rcv_wnd block below). rcv_nxt only
-    // advances on in-order new data, so this is goodput, not wire rate.
-    //
-    // Rise to a higher sample at once, decay towards a lower one. A low-biased
-    // receive estimate is self-reinforcing: too small a window caps the achieved
-    // rate, which in turn keeps the estimate small. Overshooting only costs
-    // receive buffer, and that stays capped by memoryCapSegs.
+    // so every period looks app-limited and the send sampler stays empty; the
+    // receive window then has no way to grow (see the rcv_wnd block below).
+    // rcv_nxt only advances on in-order new data, so this is goodput, not wire
+    // rate. A windowed maximum for the same reason as the send side.
     const uint32_t rcvNxt = kcp->rcv_nxt;
     const uint32_t deltaRcv = tuner.lastSampleTs == 0 ? 0 : (rcvNxt - tuner.lastRcvNxt);
     if (deltaRcv > 0 && dtMs > 0) {
         const double sampleRcvBps = (static_cast<double>(deltaRcv) * segBytes * 8.0 * 1000.0)
                 / static_cast<double>(dtMs);
-        if (sampleRcvBps >= tuner.rcvDeliveryBps) {
-            tuner.rcvDeliveryBps = sampleRcvBps;
-        } else {
-            tuner.rcvDeliveryBps = (tuner.rcvDeliveryBps * 7.0 + sampleRcvBps) / 8.0;
-        }
+        tuner.rcvBw.record(sampleRcvBps, now);
     }
+    tuner.rcvBw.refresh(now, kBwWindow * static_cast<uint64_t>(period));
+
+    // RTprop floor: a running minimum that ages out. A new low resets the stamp;
+    // once the stamp is older than the ProbeRTT interval the minimum is stale,
+    // so let it drift up rather than pin a low value the path no longer has.
+    // ProbeRTT is the primary re-measurement -- it drains the queue and adopts
+    // the RTT it measures there, which may be higher than this floor. The drift
+    // is the backstop for a connection that stays app-limited and never probes.
     if (kcp->rx_srtt > 0) {
         const uint32_t cur = static_cast<uint32_t>(kcp->rx_srtt);
-        tuner.srttMin = tuner.srttMin == 0 ? cur : min(tuner.srttMin, cur);
-        // Slow decay so a transient dip does not pin the min forever.
-        if (tuner.srttMin + 1 < cur) {
+        if (tuner.srttMin == 0 || cur < tuner.srttMin) {
+            tuner.srttMin = cur;
+            tuner.srttMinStamp = now;
+        } else if (cur > tuner.srttMin && tuner.srttMinStamp != 0
+                   && now - tuner.srttMinStamp >= kBbrProbeRttIntervalMs) {
             tuner.srttMin += max(1u, (cur - tuner.srttMin) / 16);
+            tuner.srttMinStamp = now;
         }
     }
     bool haveNewReorder = false;
@@ -470,19 +746,20 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     }
 
     const uint32_t srttForBdp = tuner.srttMin > 0 ? tuner.srttMin : max(srtt, 1u);
-    const double rateBps = tuner.deliveryBps;
-    uint32_t bdpSegs = 8;
-    if (rateBps > 0 && segBytes > 0) {
-        const double bdpBytes = rateBps * static_cast<double>(srttForBdp) / 8000.0;
-        bdpSegs = max(8u, static_cast<uint32_t>(bdpBytes / segBytes + 0.999));
+    const double btlBps = tuner.sendBw.maxBps;
+    uint32_t bdpSegs = kBbrMinSegs;
+    if (btlBps > 0 && segBytes > 0) {
+        const double bdpBytes = btlBps * static_cast<double>(srttForBdp) / 8000.0;
+        bdpSegs = max(kBbrMinSegs, static_cast<uint32_t>(bdpBytes / segBytes + 0.999));
     }
+    const uint32_t inflight = kcp->snd_nxt - kcp->snd_una;
 
-    constexpr double kGamma = 1.25;
-    uint32_t targetBudget = max(8u, static_cast<uint32_t>(bdpSegs * kGamma + 0.999));
-    targetBudget = min(targetBudget, memoryCapSegs);
-
+    // Queuing delay: srtt above the RTprop floor. This is the controller's only
+    // congestion signal; loss is deliberately not used to infer capacity (see
+    // stepKcpSendBudgetBbr).
     const int32_t rttVar = kcp->rx_rttval > 0 ? kcp->rx_rttval : 0;
-    const uint32_t qdelay = (kcp->rx_srtt > 0 && tuner.srttMin > 0 && static_cast<uint32_t>(kcp->rx_srtt) > tuner.srttMin)
+    const uint32_t qdelay = (kcp->rx_srtt > 0 && tuner.srttMin > 0
+                             && static_cast<uint32_t>(kcp->rx_srtt) > tuner.srttMin)
             ? (static_cast<uint32_t>(kcp->rx_srtt) - tuner.srttMin)
             : 0;
     const uint32_t qThreshold = max(static_cast<uint32_t>(4 * max(rttVar, 1)), max(srttForBdp / 2, 1u));
@@ -495,14 +772,123 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     } else {
         tuner.inflateStreak = 0;
     }
-    const uint32_t minBudget = kInitialSendBudgetSegs;
-    const KcpBudgetStep stepped = stepKcpSendBudget(
-            sendBudgetSegs, bdpSegs, memoryCapSegs, kInitialSendBudgetSegs, targetBudget, tuner.lossRate,
-            delayReduce, /*lossBasedBudget=*/true, tuner.coldStartTicks, now, tuner.freezeGrowthUntil, period,
-            minBudget, appLimited);
-    sendBudgetSegs = stepped.sendBudgetSegs;
-    tuner.coldStartTicks = stepped.coldStartTicks;
-    tuner.freezeGrowthUntil = stepped.freezeGrowthUntil;
+
+    // --- BBRv1 state machine: transitions ---------------------------------
+    //
+    // Startup/Drain/ProbeBW/ProbeRTT replace the old capacity probe, which raised
+    // a ceiling by 2x whenever the rate inched up and reset it to zero on any
+    // congestion -- a sawtooth between the floor and an overshoot. Congestion now
+    // pulls the window back to the BDP instead of discarding the bandwidth
+    // estimate, and the window target is always derived from that estimate
+    // (below).
+    if (tuner.lastProbeRtt == 0) {
+        tuner.lastProbeRtt = now;
+    }
+    if (tuner.state == BbrState::Startup) {
+        if (!appLimited && btlBps > 0) {
+            // Exit once the windowed maximum stops growing
+            // (tcp_bbr.c bbr_check_full_bw_reached).
+            if (btlBps >= tuner.fullBwBaseline * kBbrBwGrowThresh) {
+                tuner.fullBwBaseline = btlBps;
+                tuner.fullBwCount = 0;
+            } else if (++tuner.fullBwCount >= kBbrFullBwRounds) {
+                tuner.state = BbrState::Drain;
+                tuner.fullBwCount = 0;
+            }
+        }
+    } else if (tuner.state == BbrState::Drain) {
+        // Drain is done once in-flight data is back down to the BDP.
+        if (inflight <= bdpSegs) {
+            tuner.state = BbrState::ProbeBw;
+            // Seed the up-probe from the BDP this run measured. Done here rather
+            // than every period so a ProbeRTT that restores the budget does not
+            // also reset what the probe learned.
+            if (tuner.probeCeiling == 0) {
+                tuner.probeCeiling = static_cast<uint32_t>(min<double>(memoryCapSegs,
+                        static_cast<double>(bdpSegs) * kBbrCwndGain + 0.999));
+            }
+        }
+    } else if (tuner.state == BbrState::ProbeBw) {
+        if (!appLimited && now - tuner.lastProbeRtt >= kBbrProbeRttIntervalMs) {
+            tuner.probeRttMinSrtt = 0;
+            tuner.probeRttUntil = now + kBbrProbeRttDurationMs;
+            tuner.state = BbrState::ProbeRtt;
+        } else {
+            // The ceiling is the only up-probe, and it moves on evidence about
+            // the queue alone: raise it while the pipe is full and the queue
+            // empty, trim it when a queue stands. Loss is not an input -- a
+            // lossy path is exactly the one that must keep probing, because the
+            // rate-derived BDP it would otherwise fall back on is dragged down
+            // by the same loss.
+            const bool pipeFull = tuner.probeCeiling > 0 && inflight >= tuner.probeCeiling;
+            const bool grow = !appLimited && pipeFull && !delayReduce;
+            tuner.probeCeiling = stepKcpProbeCeiling(tuner.probeCeiling, bdpSegs, memoryCapSegs,
+                                                    grow, delayReduce);
+        }
+    } else {  // ProbeRtt: drain, tracking the RTT the drained queue actually shows.
+        if (kcp->rx_srtt > 0) {
+            const uint32_t cur = static_cast<uint32_t>(kcp->rx_srtt);
+            tuner.probeRttMinSrtt = tuner.probeRttMinSrtt == 0 ? cur : min(tuner.probeRttMinSrtt, cur);
+        }
+        // Done once the drain has run its time and in-flight data is back down
+        // to the probe window (kBbrMinSegs -- the same value the drain clamps to
+        // below, so this test cannot be unsatisfiable).
+        if (now >= tuner.probeRttUntil && inflight <= kBbrMinSegs) {
+            tuner.lastProbeRtt = now;
+            tuner.srttMinStamp = now;
+            // The probe drained the queue precisely to re-measure the
+            // propagation delay, so adopt what it measured -- including a
+            // higher value. A floor that can only ratchet down keeps qdelay
+            // (srtt - srttMin) inflated after a route change raises the path's
+            // RTT, which then starves the window at a BDP computed from a stale
+            // minimum. A genuinely lower sample still pulls it back down on the
+            // next period's minimum.
+            if (tuner.probeRttMinSrtt > 0) {
+                tuner.srttMin = tuner.probeRttMinSrtt;
+            }
+            tuner.probeRttMinSrtt = 0;
+            tuner.state = BbrState::ProbeBw;
+        }
+    }
+
+    // --- apply the (possibly just-updated) state to the window -------------
+    if (tuner.state == BbrState::ProbeRtt) {
+        // A deliberate, temporary drain: clamp the budget straight to the probe
+        // window. The next period is ProbeBW, which sizes the budget from the
+        // ceiling again, so nothing needs saving across the probe. There is no
+        // target here either: the probe size is not derived from the bandwidth
+        // estimate, and walking to it would not drain promptly.
+        sendBudgetSegs = kBbrMinSegs;
+    } else if (tuner.state == BbrState::ProbeBw) {
+        // Follow the ceiling directly. Its own step (x5/4 up, x9/10 down) is
+        // already the gentle probe, so running it through the stepper's 1/8
+        // gap-closing would cascade two rate limiters and the slower one would
+        // decide: the ceiling climbs at 25% per period while the budget trails
+        // at ~7%, so the up-probe never reaches the path. Nothing to do when
+        // app-limited either: the ceiling already holds in that case.
+        //
+        // The max against bdpSegs is not redundant: the ceiling is only advanced
+        // inside this branch, so on the period that ProbeRTT exits into ProbeBw
+        // it is stale, and a BDP that grew during the probe must not be
+        // undercut.
+        sendBudgetSegs = min(memoryCapSegs, max(kBbrMinSegs, max(bdpSegs, tuner.probeCeiling)));
+    } else {
+        // Drain clamps to the BDP; Startup ramps on the BDP.
+        uint32_t targetSegs;
+        if (tuner.state == BbrState::Startup && btlBps <= 0) {
+            // No bandwidth sample yet: ramp toward the memory cap, like BBR's
+            // Startup before the first measurement lands.
+            targetSegs = memoryCapSegs;
+        } else {
+            const double gain = tuner.state == BbrState::Drain ? kBbrDrainGain : kBbrCwndGain;
+            targetSegs = static_cast<uint32_t>(min<double>(memoryCapSegs,
+                    static_cast<double>(bdpSegs) * gain + 0.999));
+        }
+
+        const bool startupGrow = tuner.state == BbrState::Startup;
+        sendBudgetSegs = stepKcpSendBudgetBbr(sendBudgetSegs, targetSegs, memoryCapSegs, appLimited,
+                                             startupGrow, kBbrMinSegs);
+    }
 
     // Adapt fastresend only when this period produced new reorder evidence,
     // stepping at most ±2 toward the P95-derived target. Gating on the
@@ -534,12 +920,12 @@ void KcpStreamPrivate::runTuner(uint64_t now)
     // from the send direction alone pinned every download-only stream at those
     // 1024 segments (≈1.3MB at the default MTU), so downlink throughput was capped
     // at 1024 segments / RTT no matter how fast the path was. bdpSegs above is
-    // derived from deliveryBps alone, which stays 0 for a bulk downlink (every
-    // period is app-limited, see above), so recompute only when the receive rate
-    // is the larger of the two.
-    const double rcvRateBps = max(tuner.rcvDeliveryBps, rateBps);
+    // derived from the send sampler alone, which stays empty for a bulk downlink
+    // (every period is app-limited, see above), so recompute only when the
+    // receive rate is the larger of the two.
+    const double rcvRateBps = max(tuner.rcvBw.maxBps, btlBps);
     uint32_t rcvBdpSegs = bdpSegs;
-    if (rcvRateBps > rateBps && segBytes > 0) {
+    if (rcvRateBps > btlBps && segBytes > 0) {
         const double rcvBdpBytes = rcvRateBps * static_cast<double>(srttForBdp) / 8000.0;
         rcvBdpSegs = max(8u, static_cast<uint32_t>(rcvBdpBytes / segBytes + 0.999));
     }
@@ -571,7 +957,7 @@ KcpStreamStats KcpStreamPrivate::snapshotStats() const
     s.fastResends = kcp ? kcp->xmit_fast : 0;
     s.fastresend = kcp ? static_cast<uint32_t>(max(kcp->fastresend, 0)) : 0;
     s.lossRate = tuner.lossRate;
-    s.deliveryBps = tuner.deliveryBps;
+    s.deliveryBps = tuner.sendBw.maxBps;
     s.waitsnd = kcp ? static_cast<uint32_t>(ikcp_waitsnd(kcp)) : 0;
     s.sndUna = kcp ? kcp->snd_una : 0;
     s.sndNxt = kcp ? kcp->snd_nxt : 0;
@@ -709,8 +1095,17 @@ int32_t KcpStreamPrivate::recv(char *data, int32_t size, bool all)
                 return len;
             }
         }
-        int peeksize = ikcp_peeksize(kcp);
+        const int peeksize = ikcp_peeksize(kcp);
         if (peeksize > 0) {
+            if (!all && peeksize <= size) {
+                // The next message fits the caller's buffer: let ikcp_recv fill it
+                // directly, skipping the temp string + append + memcpy.
+                ScopedLock<RLock> l(kcpLock);
+                const int readBytes = ikcp_recv(kcp, data, size);
+                if (readBytes > 0) {
+                    return readBytes;
+                }
+            }
             string buf(peeksize, '\0');
             int readBytes;
             {
@@ -895,7 +1290,15 @@ void KcpStreamPrivate::updateKcp()
 {
     // replace=false: CoroutineGroup already keeps one "update_kcp". A second
     // call just returns that coroutine; waking forceToUpdate is enough.
-    operations->spawnWithName("update_kcp", [this] { doUpdate(); }, false);
+    // The updateRunning flag avoids the string-keyed lookup on this hot path
+    // (called for every send and every received datagram).
+    if (!updateRunning.load()) {
+        operations->spawnWithName("update_kcp", [this] {
+            doUpdate();
+            updateRunning.store(false);
+        }, false);
+        updateRunning.store(true);
+    }
     kcp->updated = 0;
     forceToUpdate.open();
 }
@@ -1040,6 +1443,7 @@ bool MasterKcpStreamPrivate::isValid() const
 
 bool MasterKcpStreamPrivate::close(bool force)
 {
+    receivingStarted.store(false);
     // if `force` is true, must not block. see doUpdate()
     // Never leave Connected→Unconnected without the cleanup below: an early
     // return after the state flip made later close()/destructor skip killall.
@@ -1151,200 +1555,236 @@ uint32_t MasterKcpStreamPrivate::nextSessionId()
 
 void MasterKcpStreamPrivate::doReceive()
 {
-    // Recv buffer: [kIkcpConvHeadroom unused][up to 64KiB wire payload].
-    // recvfrom writes at offset kIkcpConvHeadroom so handleDatagram can use the
-    // prefix as a zero-conv scratch area (see file-top layout comment).
-    string buf(kIkcpConvHeadroom + 1024 * 64, '\0');
+    // Batch receive. One contiguous heap block holds kRecvBatchSize slots of
+    // kMaxDatagramSize bytes each (~2 MiB at 32) — far too big for the stack,
+    // and a single allocation beats kRecvBatchSize of them. Each slot reserves
+    // kIkcpConvHeadroom inside it in front of the wire payload, so the link
+    // writes straight where handleDatagram expects it (see the file-top layout
+    // comment) and one recvmmsg fills many slots.
+    const size_t recvBufSize = kMaxDatagramSize;
+    unique_ptr<char[]> scratch(new (std::nothrow) char[kRecvBatchSize * recvBufSize]);
+    if (!scratch) {
+        MasterKcpStreamPrivate::close(true);
+        return;
+    }
+    vector<Datagram> datagrams(kRecvBatchSize);
     while (true) {
-        DatagramPath who;
-        // Receive into &buf[kIkcpConvHeadroom]; leave buf[0..3] free for handleDatagram.
-        int32_t len = link->recvfrom(&buf[kIkcpConvHeadroom], buf.size() - kIkcpConvHeadroom, &who);
-        if (len == 0) {
-            continue;
+        // recvfrom shrinks the vector; rebuild it for the next round.
+        datagrams.resize(kRecvBatchSize);
+        for (size_t i = 0; i < kRecvBatchSize; ++i) {
+            datagrams[i].data = scratch.get() + i * recvBufSize + kIkcpConvHeadroom;
+            datagrams[i].len = static_cast<int32_t>(recvBufSize - kIkcpConvHeadroom);
         }
-        if (len < 0 || who.isNull()) {
+        if (link->recvfrom(&datagrams) < 0) {
 #ifdef DEBUG_PROTOCOL
             ngDebug() << "KcpStream can not receive packet." << link->errorString();
 #endif
             MasterKcpStreamPrivate::close(true);
             return;
         }
-        if (len < 1) {
-#ifdef DEBUG_PROTOCOL
-            ngDebug() << "got invalid kcp packet smaller than 1 byte."
-                      << string(buf.data() + kIkcpConvHeadroom, static_cast<size_t>(len));
-#endif
-            continue;
-        }
-
-        // wire == on-wire [cmd][...]; bytes immediately before it are the headroom.
-        char *wire = &buf[kIkcpConvHeadroom];
-        const uint8_t cmd = static_cast<uint8_t>(wire[0]);
-        if (cmd == PACKET_TYPE_CREATE_MULTIPATH && len >= 5) {
-            const uint32_t packetSessionId = ngFromBigEndian<uint32_t>(wire + 1);
-            if (packetSessionId == 0) {
-#ifdef DEBUG_PROTOCOL
-                ngDebug() << "the kcp server side returns an invalid packet with zero session id.";
-#endif
+        for (size_t i = 0; i < datagrams.size(); ++i) {
+            const Datagram &datagram = datagrams[i];
+            if (datagram.len < 1) {
                 continue;
             }
-            if (this->sessionId == 0) {
-                this->sessionId = packetSessionId;
-            } else if (packetSessionId != this->sessionId) {
-#ifdef DEBUG_PROTOCOL
-                ngDebug() << "the kcp server side returns an invalid packet with mismatched session id.";
-#endif
-                continue;
+            // The path is address-shaped by contract for batch links, so it
+            // round-trips through UdpDatagramPath.
+            const DatagramPath who = UdpDatagramPath(datagram.addr, datagram.port).toPath();
+            if (who.isNull()) {
+                MasterKcpStreamPrivate::close(true);
+                return;
             }
-        } else if (cmd == PACKET_TYPE_UNCOMPRESSED_DATA && len >= 5) {
-            const uint32_t packetSessionId = ngFromBigEndian<uint32_t>(wire + 1);
-            if (packetSessionId == 0) {
-#ifdef DEBUG_PROTOCOL
-                ngDebug() << "the kcp server side returns an invalid packet with zero session id.";
-#endif
-                continue;
+            // datagram.data points at its slot + kIkcpConvHeadroom.
+            if (!receiveOneDatagram(datagram.data, static_cast<uint32_t>(datagram.len), who)) {
+                return;
             }
-            if (this->sessionId == 0) {
-                this->sessionId = packetSessionId;
-            } else if (packetSessionId != this->sessionId) {
-#ifdef DEBUG_PROTOCOL
-                ngDebug() << "the kcp server side returns an invalid packet with mismatched session id.";
-#endif
-                continue;
-            }
-        }
-
-        // Pass wire (not buf.data()): handleDatagram expects headroom at wire - 4.
-        if (!handleDatagram(wire, static_cast<uint32_t>(len), who)) {
-            return;
         }
     }
+}
+
+bool MasterKcpStreamPrivate::receiveOneDatagram(char *wire, uint32_t len, const DatagramPath &who)
+{
+    const uint8_t cmd = static_cast<uint8_t>(wire[0]);
+    if (cmd == PACKET_TYPE_CREATE_MULTIPATH && len >= 5) {
+        const uint32_t packetSessionId = ngFromBigEndian<uint32_t>(wire + 1);
+        if (packetSessionId == 0) {
+#ifdef DEBUG_PROTOCOL
+            ngDebug() << "the kcp server side returns an invalid packet with zero session id.";
+#endif
+            return true;
+        }
+        if (this->sessionId == 0) {
+            this->sessionId = packetSessionId;
+        } else if (packetSessionId != this->sessionId) {
+#ifdef DEBUG_PROTOCOL
+            ngDebug() << "the kcp server side returns an invalid packet with mismatched session id.";
+#endif
+            return true;
+        }
+    } else if (cmd == PACKET_TYPE_UNCOMPRESSED_DATA && len >= 5) {
+        const uint32_t packetSessionId = ngFromBigEndian<uint32_t>(wire + 1);
+        if (packetSessionId == 0) {
+#ifdef DEBUG_PROTOCOL
+            ngDebug() << "the kcp server side returns an invalid packet with zero session id.";
+#endif
+            return true;
+        }
+        if (this->sessionId == 0) {
+            this->sessionId = packetSessionId;
+        } else if (packetSessionId != this->sessionId) {
+#ifdef DEBUG_PROTOCOL
+            ngDebug() << "the kcp server side returns an invalid packet with mismatched session id.";
+#endif
+            return true;
+        }
+    }
+
+    // wire still has kIkcpConvHeadroom writable bytes before it (the scratch).
+    return handleDatagram(wire, len, who);
 }
 
 void MasterKcpStreamPrivate::doAccept()
 {
-    // Same zero-copy recv layout as doReceive:
-    // [kIkcpConvHeadroom][wire payload...]; handleDatagram may write into the prefix.
-    string buf(kIkcpConvHeadroom + 1024 * 64, '\0');
+    // Same contiguous batch + headroom layout as doReceive.
+    const size_t recvBufSize = kMaxDatagramSize;
+    unique_ptr<char[]> scratch(new (std::nothrow) char[kRecvBatchSize * recvBufSize]);
+    if (!scratch) {
+        MasterKcpStreamPrivate::close(true);
+        return;
+    }
+    vector<Datagram> datagrams(kRecvBatchSize);
     while (true) {
-        DatagramPath who;
-        // Receive at offset kIkcpConvHeadroom; keep buf[0..3] as headroom for handleDatagram.
-        int32_t len = link->recvfrom(&buf[kIkcpConvHeadroom], buf.size() - kIkcpConvHeadroom, &who);
-        if (len == 0) {
-            continue;
+        datagrams.resize(kRecvBatchSize);
+        for (size_t i = 0; i < kRecvBatchSize; ++i) {
+            datagrams[i].data = scratch.get() + i * recvBufSize + kIkcpConvHeadroom;
+            datagrams[i].len = static_cast<int32_t>(recvBufSize - kIkcpConvHeadroom);
         }
-        if (len < 0 || who.isNull()) {
+        if (link->recvfrom(&datagrams) < 0) {
 #ifdef DEBUG_PROTOCOL
             ngDebug() << "KcpStream can not receive packet." << link->errorString();
 #endif
             MasterKcpStreamPrivate::close(true);
             return;
         }
-        if (len < 1) {
-#ifdef DEBUG_PROTOCOL
-            ngDebug() << "got invalid kcp packet smaller than 1 byte.";
-#endif
-            continue;
-        }
-
-        // wire points at on-wire [cmd][...]; headroom is the kIkcpConvHeadroom bytes before it.
-        char *wire = &buf[kIkcpConvHeadroom];
-        const uint8_t cmd = static_cast<uint8_t>(wire[0]);
-        uint32_t sessionId = 0;
-        if (len >= 5) {
-            if (cmd == PACKET_TYPE_CREATE_MULTIPATH || cmd == PACKET_TYPE_UNCOMPRESSED_DATA) {
-                sessionId = ngFromBigEndian<uint32_t>(wire + 1);
+        for (size_t i = 0; i < datagrams.size(); ++i) {
+            const Datagram &datagram = datagrams[i];
+            if (datagram.len < 1) {
+                continue;
             }
-        }
-        const string &key = who.key();
-        SlaveKcpStreamPrivate *receiver = nullptr;
-        map<string, SlaveKcpStreamPrivate *>::iterator hostIt = receiversByHostAndPort.find(key);
-        if (hostIt != receiversByHostAndPort.end()) {
-            receiver = hostIt->second;
-        }
-        if (receiver) {
-            if (sessionId != 0) {
-                if (receiver->sessionId == 0) {
-                    // only if the slave was created by accept(path), we had zero id.
-                    // if this sessionId is unique in client. we add it to the receiversBySessionId map.
-                    // if it is not, say sorry, and disable the multipath feature.
-                    if (receiversBySessionId.find(sessionId) == receiversBySessionId.end()) {
-                        // only happened in the newly accept(path) connections.
-                        // or remote create new conn with the same path as old, and the old packet is received.
-                        receiver->sessionId = sessionId;
-                        receiversBySessionId[sessionId] = receiver;
-                    }
-                } else if (sessionId != receiver->sessionId) {
-#ifdef DEBUG_PROTOCOL
-                    ngDebug() << "the client sent a invalid session id";
-#endif
-                    continue;
-                }
+            const DatagramPath who = UdpDatagramPath(datagram.addr, datagram.port).toPath();
+            if (who.isNull()) {
+                MasterKcpStreamPrivate::close(true);
+                return;
             }
-            // wire still has kIkcpConvHeadroom bytes before it (owned by `buf` above).
-            // remotePath is updated inside handleDatagram for DATA/KEEPALIVE/CREATE_MULTIPATH.
-            if (!receiver->handleDatagram(wire, static_cast<uint32_t>(len), who)) {
-                receiversByHostAndPort.erase(receiver->originalHostAndPort);
-                receiversBySessionId.erase(receiver->sessionId);
-            }
-        } else {
-            if (sessionId != 0) {  // a multipath packet.
-                const map<uint32_t, SlaveKcpStreamPrivate *>::iterator it = receiversBySessionId.find(sessionId);
-                receiver = (it != receiversBySessionId.end()) ? it->second : nullptr;
-                if (!receiver) {
-                    // it must be bad packet.
-                    const string &closePacket = makeShutdownPacket(sessionId);
-                    if (link->sendto(closePacket.data(), closePacket.size(), who) != static_cast<int32_t>(closePacket.size())) {
-                        if (error == Socket::NoError) {
-                            error = Socket::SocketResourceError;
-                            errorString = "KcpStream can not send packet.";
-                        }
-#ifdef DEBUG_PROTOCOL
-                        ngDebug() << errorString;
-#endif
-                        MasterKcpStreamPrivate::close(true);
-                    }
-                } else {
-                    assert(sessionId == receiver->sessionId);
-                    // Same headroom contract as the primary-path handleDatagram call above.
-                    if (!receiver->handleDatagram(wire, static_cast<uint32_t>(len), who)) {
-#ifdef DEBUG_PROTOCOL
-                        ngDebug() << "can not handle multipath packet.";
-#endif
-                        receiversByHostAndPort.erase(receiver->originalHostAndPort);
-                        receiversBySessionId.erase(receiver->sessionId);
-                    }
-                }
-            } else if (pendingSlaves.size() < pendingSlaves.capacity()) {  // not full. process new connection.
-                unique_ptr<KcpStream> slave(SlaveKcpStreamPrivate::create(this, who));
-                SlaveKcpStreamPrivate *d = SlaveKcpStreamPrivate::getPrivateHelper(slave.get());
-                d->originalHostAndPort = key;
-                d->sessionId = nextSessionId();
-                // First packet of a new slave; wire still sits after the shared recv headroom.
-                if (d->handleDatagram(wire, static_cast<uint32_t>(len), who)) {
-                    receiversByHostAndPort[key] = d;
-                    receiversBySessionId[d->sessionId] = d;
-                    pendingSlaves.put(slave.release());
-                    const string &multiPathPacket = makeMultiPathPacket(d->sessionId);
-                    if (link->sendto(multiPathPacket.data(), multiPathPacket.size(), who) != static_cast<int32_t>(multiPathPacket.size())) {
-                        if (error == Socket::NoError) {
-                            error = Socket::SocketResourceError;
-                            errorString = "KcpStream can not send packet.";
-                        }
-#ifdef DEBUG_PROTOCOL
-                        ngDebug() << errorString;
-#endif
-                        MasterKcpStreamPrivate::close(true);
-                    }
-                }
+            if (!acceptOneDatagram(datagram.data, static_cast<uint32_t>(datagram.len), who)) {
+                return;
             }
         }
     }
 }
 
+bool MasterKcpStreamPrivate::acceptOneDatagram(char *wire, uint32_t len, const DatagramPath &who)
+{
+    const uint8_t cmd = static_cast<uint8_t>(wire[0]);
+    uint32_t sessionId = 0;
+    if (len >= 5) {
+        if (cmd == PACKET_TYPE_CREATE_MULTIPATH || cmd == PACKET_TYPE_UNCOMPRESSED_DATA) {
+            sessionId = ngFromBigEndian<uint32_t>(wire + 1);
+        }
+    }
+    const string &key = who.key();
+    SlaveKcpStreamPrivate *receiver = nullptr;
+    map<string, SlaveKcpStreamPrivate *>::iterator hostIt = receiversByHostAndPort.find(key);
+    if (hostIt != receiversByHostAndPort.end()) {
+        receiver = hostIt->second;
+    }
+    if (receiver) {
+        if (sessionId != 0) {
+            if (receiver->sessionId == 0) {
+                // only if the slave was created by accept(path), we had zero id.
+                // if this sessionId is unique in client. we add it to the receiversBySessionId map.
+                // if it is not, say sorry, and disable the multipath feature.
+                if (receiversBySessionId.find(sessionId) == receiversBySessionId.end()) {
+                    // only happened in the newly accept(path) connections.
+                    // or remote create new conn with the same path as old, and the old packet is received.
+                    receiver->sessionId = sessionId;
+                    receiversBySessionId[sessionId] = receiver;
+                }
+            } else if (sessionId != receiver->sessionId) {
+#ifdef DEBUG_PROTOCOL
+                ngDebug() << "the client sent a invalid session id";
+#endif
+                return true;
+            }
+        }
+        // wire still has kIkcpConvHeadroom writable bytes before it (the scratch).
+        // remotePath is updated inside handleDatagram for DATA/KEEPALIVE/CREATE_MULTIPATH.
+        if (!receiver->handleDatagram(wire, len, who)) {
+            receiversByHostAndPort.erase(receiver->originalHostAndPort);
+            receiversBySessionId.erase(receiver->sessionId);
+        }
+        return true;
+    }
+
+    if (sessionId != 0) {  // a multipath packet.
+        const map<uint32_t, SlaveKcpStreamPrivate *>::iterator it = receiversBySessionId.find(sessionId);
+        receiver = (it != receiversBySessionId.end()) ? it->second : nullptr;
+        if (!receiver) {
+            // it must be bad packet.
+            const string &closePacket = makeShutdownPacket(sessionId);
+            if (link->sendto(closePacket.data(), closePacket.size(), who) != static_cast<int32_t>(closePacket.size())) {
+                if (error == Socket::NoError) {
+                    error = Socket::SocketResourceError;
+                    errorString = "KcpStream can not send packet.";
+                }
+#ifdef DEBUG_PROTOCOL
+                ngDebug() << errorString;
+#endif
+                return false;
+            }
+        } else {
+            assert(sessionId == receiver->sessionId);
+            // Same headroom contract as the primary-path handleDatagram call above.
+            if (!receiver->handleDatagram(wire, len, who)) {
+#ifdef DEBUG_PROTOCOL
+                ngDebug() << "can not handle multipath packet.";
+#endif
+                receiversByHostAndPort.erase(receiver->originalHostAndPort);
+                receiversBySessionId.erase(receiver->sessionId);
+            }
+        }
+        return true;
+    }
+
+    if (pendingSlaves.size() < pendingSlaves.capacity()) {  // not full. process new connection.
+        unique_ptr<KcpStream> slave(SlaveKcpStreamPrivate::create(this, who));
+        SlaveKcpStreamPrivate *d = SlaveKcpStreamPrivate::getPrivateHelper(slave.get());
+        d->originalHostAndPort = key;
+        d->sessionId = nextSessionId();
+        // First packet of a new slave; wire still sits after the shared recv headroom.
+        if (d->handleDatagram(wire, len, who)) {
+            receiversByHostAndPort[key] = d;
+            receiversBySessionId[d->sessionId] = d;
+            pendingSlaves.put(slave.release());
+            const string &multiPathPacket = makeMultiPathPacket(d->sessionId);
+            if (link->sendto(multiPathPacket.data(), multiPathPacket.size(), who) != static_cast<int32_t>(multiPathPacket.size())) {
+                if (error == Socket::NoError) {
+                    error = Socket::SocketResourceError;
+                    errorString = "KcpStream can not send packet.";
+                }
+#ifdef DEBUG_PROTOCOL
+                ngDebug() << errorString;
+#endif
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool MasterKcpStreamPrivate::startReceivingCoroutine()
 {
-    if (operations->get("receiving")) {
+    if (receivingStarted.load()) {
         return true;
     }
     switch (state) {
@@ -1355,12 +1795,19 @@ bool MasterKcpStreamPrivate::startReceivingCoroutine()
     case Socket::ClosingState:
         return false;
     case Socket::ConnectedState:
-        operations->spawnWithName("receiving", [this] { doReceive(); });
+        operations->spawnWithName("receiving", [this] {
+            doReceive();
+            receivingStarted.store(false);
+        });
         break;
     case Socket::ListeningState:
-        operations->spawnWithName("receiving", [this] { doAccept(); });
+        operations->spawnWithName("receiving", [this] {
+            doAccept();
+            receivingStarted.store(false);
+        });
         break;
     }
+    receivingStarted.store(true);
     return true;
 }
 
@@ -1545,8 +1992,6 @@ int32_t SlaveKcpStreamPrivate::rawSend(const char *data, int32_t size)
     }
 }
 
-
-
 KcpStream::KcpStream(shared_ptr<DatagramLink> link, uint32_t sessionId)
     : d_ptr(new MasterKcpStreamPrivate(link, this, sessionId))
 {
@@ -1574,6 +2019,9 @@ void KcpStream::setPacketSize(uint32_t udpPacketSize)
         return;
     }
     if (ikcp_setmtu(d->kcp, static_cast<int>(udpPacketSize)) == 0) {
+        // waitsnd == 0 above means no segment is in flight, so re-classing the
+        // pool (which drains it) cannot strand a live segment.
+        d->segmentPool.setClassSize(sizeof(IKCPSEG) + d->kcp->mss);
         d->recalculateMemoryCap();
         d->applySendWindow();
     }
@@ -1615,6 +2063,11 @@ KcpStreamStats KcpStream::stats() const
     NG_D(const KcpStream);
     ScopedLock<RLock> l(d->kcpLock);
     return d->snapshotStats();
+}
+
+uint64_t kcpSegmentOsAllocationCount()
+{
+    return g_segmentOsAllocs.load();
 }
 
 void KcpStream::setTearDownTime(float secs)
