@@ -1,10 +1,13 @@
 #include <cstring>
 #include <map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "bridge/core_access.h"
 #include "bridge/hostaddress_access.h"
 #include "bridge/qt_socket_bridge.h"
+#include "bridge/udp_access.h"
 #include "socket.h"
 #include "network_interface.h"
 
@@ -292,6 +295,25 @@ QByteArray Socket::recvfrom(qint32 size, HostAddress *addr, quint16 *port)
 qint32 Socket::sendto(const QByteArray &data, const HostAddress &addr, quint16 port)
 {
     return d_ptr->core->sendto(toStdString(data), toCoreAddress(addr), port);
+}
+
+qint32 Socket::recvfrom(QList<Datagram> *datagrams)
+{
+    if (!datagrams || datagrams->isEmpty()) {
+        return -1;
+    }
+    std::vector<qtng_core::Datagram> coreDatagrams = toCoreDatagrams(*datagrams);
+    const qint32 n = d_ptr->core->recvfrom(&coreDatagrams);
+    if (n < 0) {
+        return -1;
+    }
+    applyCoreDatagrams(coreDatagrams, *datagrams);
+    return n;
+}
+
+qint32 Socket::sendto(const QList<Datagram> &datagrams)
+{
+    return d_ptr->core->sendto(toCoreDatagrams(datagrams));
 }
 
 QList<HostAddress> Socket::resolve(const QString &hostName)

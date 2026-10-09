@@ -1,7 +1,17 @@
+// recvmmsg/sendmmsg and struct mmsghdr are guarded by _GNU_SOURCE on glibc.
+// It must be defined before any system header is included.
+#ifndef _GNU_SOURCE
+#  define _GNU_SOURCE
+#endif
+#ifndef _DEFAULT_SOURCE
+#  define _DEFAULT_SOURCE
+#endif
+
 #include <atomic>
 #include <cassert>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <fcntl.h>
@@ -701,6 +711,15 @@ int32_t SocketPrivate::send(const char *data, int32_t size, bool all)
 
 int32_t SocketPrivate::recvfrom(char *data, int32_t maxSize, HostAddress *addr, uint16_t *port)
 {
+    return recvfrom(data, maxSize, addr, port, true, nullptr);
+}
+
+int32_t SocketPrivate::recvfrom(char *data, int32_t maxSize, HostAddress *addr, uint16_t *port, bool wait,
+                                bool *wouldBlock)
+{
+    if (wouldBlock) {
+        *wouldBlock = false;
+    }
     if (!checkState()) {
         return -1;
     }
@@ -738,6 +757,12 @@ int32_t SocketPrivate::recvfrom(char *data, int32_t maxSize, HostAddress *addr, 
             case EWOULDBLOCK:
 #endif
             case EAGAIN:
+                if (!wait) {
+                    if (wouldBlock) {
+                        *wouldBlock = true;
+                    }
+                    return 0;
+                }
                 break;
             case ECONNRESET:
                 if (type == Socket::TcpSocket) {
@@ -771,6 +796,12 @@ int32_t SocketPrivate::recvfrom(char *data, int32_t maxSize, HostAddress *addr, 
             qt_socket_getPortAndAddress(&aa, port, addr);
             // return int64_t(maxSize ? recvResult : recvResult == -1 ? -1 : 0);
             return static_cast<int32_t>(recvResult);
+        }
+        if (!wait) {
+            if (wouldBlock) {
+                *wouldBlock = true;
+            }
+            return 0;
         }
         if (!watcher.start()) {
             setError(Socket::NetworkError, InvalidSocketErrorString);
@@ -865,6 +896,231 @@ int32_t SocketPrivate::sendto(const char *data, int32_t size, const HostAddress 
         }
     }
 }
+
+#ifdef QTNG_HAVE_RECVMMSG
+int32_t SocketPrivate::recvfrom(std::vector<Datagram> *datagrams)
+{
+    if (!datagrams || datagrams->empty() || !checkState()) {
+        return -1;
+    }
+    const size_t maxCount = datagrams->size();
+    for (size_t i = 0; i < maxCount; ++i) {
+        if (!datagrams->at(i).data || datagrams->at(i).len <= 0) {
+            setError(Socket::UnsupportedSocketOperationError, InvalidSocketErrorString);
+            return -1;
+        }
+    }
+
+    // The caller owns the payload buffers; we only describe them to recvmmsg.
+    vector<struct mmsghdr> headers(maxCount);
+    vector<struct iovec> vecs(maxCount);
+    vector<qt_sockaddr> addrs(maxCount);
+    memset(headers.data(), 0, sizeof(struct mmsghdr) * maxCount);
+    for (size_t i = 0; i < maxCount; ++i) {
+        const Datagram &datagram = datagrams->at(i);
+        vecs[i].iov_base = datagram.data;
+        vecs[i].iov_len = static_cast<size_t>(datagram.len);
+        memset(&addrs[i], 0, sizeof(qt_sockaddr));
+        headers[i].msg_hdr.msg_iov = &vecs[i];
+        headers[i].msg_hdr.msg_iovlen = 1;
+        headers[i].msg_hdr.msg_name = &addrs[i];
+        headers[i].msg_hdr.msg_namelen = sizeof(qt_sockaddr);
+    }
+
+    // Like recv() / recvfrom() / accept(), try the syscall first and only wait
+    // when nothing is queued, so an already-available datagram costs no trip
+    // through the event loop.
+    ScopedIoWatcher watcher(EventLoopCoroutine::Read, fd);
+    for (;;) {
+        // The socket may have been closed or aborted while we waited; bail out
+        // the same way recv() / recvfrom() / accept() re-check state each round.
+        if (!checkState()) {
+            return -1;
+        }
+        int received;
+        do {
+            received = ::recvmmsg(fd, headers.data(), static_cast<unsigned int>(maxCount), MSG_DONTWAIT, nullptr);
+        } while (received == -1 && errno == EINTR);
+        if (received > 0) {
+            int32_t total = 0;
+            for (int32_t i = 0; i < received; ++i) {
+                // The kernel caps msg_len at the iov length, so a datagram larger
+                // than the entry's capacity is truncated, like the single read.
+                int32_t n = static_cast<int32_t>(headers[i].msg_len);
+                Datagram &datagram = datagrams->at(static_cast<size_t>(i));
+                if (n > datagram.len) {
+                    n = datagram.len;
+                }
+                if (headers[i].msg_hdr.msg_namelen > 0) {
+                    qt_socket_getPortAndAddress(&addrs[i], &datagram.port, &datagram.addr);
+                } else {
+                    datagram.addr.clear();
+                    datagram.port = 0;
+                }
+                datagram.len = n;
+                total += n;
+            }
+            // One recvmmsg already returned everything that was queued (up to
+            // maxCount); there is nothing left to drain.
+            datagrams->resize(static_cast<size_t>(received));
+            return total;
+        }
+        if (received < 0) {
+            const int e = errno;
+            bool wouldBlock = (e == EAGAIN);
+#if EWOULDBLOCK - 0 && EWOULDBLOCK != EAGAIN
+            wouldBlock = wouldBlock || (e == EWOULDBLOCK);
+#endif
+            if (!wouldBlock) {
+                switch (e) {
+                case ECONNRESET:
+                    if (type == Socket::TcpSocket) {
+                        setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
+                        abort();
+                        return -1;
+                    }
+                    break;  // UDP: transient, keep waiting for the next datagram
+                case ECONNREFUSED:
+                case ENOTCONN:
+                    if (type == Socket::TcpSocket) {
+                        setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
+                        abort();
+                    }
+                    return -1;
+                case ENOMEM:
+                    setError(Socket::SocketResourceError, ResourceErrorString);
+                    return -1;
+                case ENOTSOCK:
+                case EBADF:
+                case EINVAL:
+                case EIO:
+                case EFAULT:
+                default:
+                    setError(Socket::NetworkError, InvalidSocketErrorString);
+                    abort();
+                    return -1;
+                }
+            }
+        }
+        // Nothing queued yet (or a spurious error): yield until readable, then
+        // retry the non-blocking receive with the same buffers.
+        if (!watcher.start()) {
+            setError(Socket::NetworkError, InvalidSocketErrorString);
+            abort();
+            return -1;
+        }
+    }
+}
+#endif  // QTNG_HAVE_RECVMMSG
+
+#ifdef QTNG_HAVE_SENDMMSG
+int32_t SocketPrivate::sendto(const std::vector<Datagram> &datagrams)
+{
+    if (!checkState()) {
+        return -1;
+    }
+    if (datagrams.empty()) {
+        return 0;
+    }
+    int32_t total = 0;
+    for (size_t i = 0; i < datagrams.size(); ++i) {
+        const Datagram &datagram = datagrams[i];
+        if (datagram.len <= 0 || !datagram.data) {
+            setError(Socket::UnsupportedSocketOperationError, InvalidSocketErrorString);
+            return -1;
+        }
+        total += datagram.len;
+    }
+
+    size_t offset = 0;
+    ScopedIoWatcher watcher(EventLoopCoroutine::Write, fd);
+    while (offset < datagrams.size()) {
+        const size_t batch = datagrams.size() - offset;
+        vector<struct mmsghdr> headers(batch);
+        vector<struct iovec> vecs(batch);
+        vector<qt_sockaddr> addrs(batch);
+        memset(headers.data(), 0, sizeof(struct mmsghdr) * batch);
+        for (size_t i = 0; i < batch; ++i) {
+            const Datagram &datagram = datagrams[offset + i];
+            int t = 0;
+            if (!setPortAndAddress(datagram.port, datagram.addr, &addrs[i], &t)) {
+                setError(Socket::UnsupportedSocketOperationError, ProtocolUnsupportedErrorString);
+                return -1;
+            }
+            vecs[i].iov_base = datagram.data;
+            vecs[i].iov_len = static_cast<size_t>(datagram.len);
+            headers[i].msg_hdr.msg_iov = &vecs[i];
+            headers[i].msg_hdr.msg_iovlen = 1;
+            headers[i].msg_hdr.msg_name = &addrs[i].a;
+            headers[i].msg_hdr.msg_namelen = static_cast<NG_SOCKLEN_T>(t);
+        }
+        int sent;
+        do {
+            sent = ::sendmmsg(fd, headers.data(), static_cast<unsigned int>(batch), MSG_NOSIGNAL);
+        } while (sent == -1 && errno == EINTR);
+        if (sent < 0) {
+            const int e = errno;
+            switch (e) {
+#if EWOULDBLOCK - 0 && EWOULDBLOCK != EAGAIN
+            case EWOULDBLOCK:
+#endif
+            case EAGAIN:
+                if (!watcher.start()) {
+                    setError(Socket::NetworkError, InvalidSocketErrorString);
+                    return -1;
+                }
+                continue;
+            case EACCES:
+                setError(Socket::SocketAccessError, AccessErrorString);
+                return -1;
+            case EMSGSIZE:
+                setError(Socket::DatagramTooLargeError, DatagramTooLargeErrorString);
+                return -1;
+            case EPIPE:
+            case ECONNRESET:
+            case ENOTSOCK:
+                if (type == Socket::TcpSocket) {
+                    setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
+                    abort();
+                }
+                return -1;
+            case EDESTADDRREQ:
+            case EISCONN:
+            case ENOTCONN:
+                setError(Socket::UnsupportedSocketOperationError, InvalidSocketErrorString);
+                return -1;
+            case ENOBUFS:
+            case ENOMEM:
+                setError(Socket::SocketResourceError, ResourceErrorString);
+                return -1;
+            case EFAULT:
+            case EINVAL:
+            default:
+                setError(Socket::NetworkError, InvalidSocketErrorString);
+                return -1;
+            }
+        }
+        if (sent == 0) {
+            if (!watcher.start()) {
+                setError(Socket::NetworkError, InvalidSocketErrorString);
+                return -1;
+            }
+            continue;
+        }
+        offset += static_cast<size_t>(sent);
+        if (static_cast<size_t>(sent) < batch) {
+            if (!watcher.start()) {
+                setError(Socket::NetworkError, InvalidSocketErrorString);
+                return -1;
+            }
+        }
+    }
+    if (type == Socket::UdpSocket && !localPort && localAddress.isNull()) {
+        fetchConnectionParameters();
+    }
+    return total;
+}
+#endif  // QTNG_HAVE_SENDMMSG
 
 static void convertToLevelAndOption(Socket::SocketOption opt, HostAddress::NetworkLayerProtocol socketProtocol,
                                     int *level, int *n)

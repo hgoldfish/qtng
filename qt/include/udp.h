@@ -34,6 +34,14 @@ public:
     // 0, a short write, or a negative value is a hard failure: KcpStream
     // closes the session. UDP-style drop-on-full must still return size.
     virtual qint32 sendto(const char *data, qint32 size, const DatagramPath &who) = 0;
+
+    // Batch variants, mirroring Socket's: both return the number of bytes
+    // handled. The caller sizes and fills *datagrams; the default implementation
+    // loops over the single-datagram calls above and stops when one reports no
+    // more data (0) or a failure (< 0).
+    virtual qint32 recvfrom(QList<Datagram> *datagrams);
+    virtual qint32 sendto(const QList<Datagram> &datagrams);
+
     virtual void close() = 0;
     virtual void abort() = 0;
     virtual bool isValid() const = 0;

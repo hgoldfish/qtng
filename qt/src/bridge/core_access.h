@@ -43,6 +43,7 @@
 #include "qtng/private/coroutine_p.h"
 #include "qtng/private/coroutine_utils_p.h"
 #include "qtng/private/socket_p.h"
+#include "qtng/private/udp_p.h"
 #include "qtng/private/http_p.h"
 #include "qtng/private/hostaddress_p.h"
 #include "qtng/private/network_interface_p.h"

@@ -3,6 +3,7 @@
 
 #include <QtCore/qstring.h>
 #include <QtCore/qbytearray.h>
+#include <QtCore/qlist.h>
 #include <QtCore/qobject.h>
 
 #include "hostaddress.h"
@@ -18,6 +19,30 @@ QTNETWORKNG_NAMESPACE_BEGIN
 
 class SocketPrivate;
 class SocketDnsCache;
+
+// Qt-flavoured counterpart of the core Datagram. The payload is a QByteArray,
+// which owns its memory. For receive, the caller sizes each entry's QByteArray
+// to the buffer capacity it offers; recvfrom() resizes it to the bytes actually
+// received. For send, data/addr/port are inputs.
+class Datagram
+{
+public:
+    Datagram()
+        : port(0)
+    {
+    }
+    Datagram(const QByteArray &data, const HostAddress &addr, quint16 port)
+        : data(data)
+        , addr(addr)
+        , port(port)
+    {
+    }
+
+    QByteArray data;
+    HostAddress addr;
+    quint16 port;
+};
+
 class Socket
 {
 public:
@@ -141,6 +166,15 @@ public:
     qint32 sendall(const char *data, qint32 size);
     qint32 recvfrom(char *data, qint32 size, HostAddress *addr, quint16 *port);
     qint32 sendto(const char *data, qint32 size, const HostAddress &addr, quint16 port);
+
+    // Batch datagram I/O, mirroring the core Socket and the single-datagram
+    // overloads above: both return the number of bytes handled. recvfrom()
+    // takes a list already sized and filled by the caller (each entry's
+    // QByteArray is the writable buffer), blocks for the first datagram and
+    // then drains what is already queued; sendto() only returns once everything
+    // has been handed to the kernel, or -1 if any datagram could not be sent.
+    qint32 recvfrom(QList<Datagram> *datagrams);
+    qint32 sendto(const QList<Datagram> &datagrams);
 
     QByteArray recvall(qint32 size);
     QByteArray recv(qint32 size);

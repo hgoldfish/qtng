@@ -6,6 +6,11 @@
 #include "utp.h"
 #include "socket_utils.h"
 
+#include <cstring>
+#include <memory>
+#include <utility>
+#include <vector>
+
 using namespace std;
 using namespace QTNETWORKNG_NAMESPACE;
 using namespace qtng_bridge;
@@ -22,6 +27,56 @@ Socket::SocketError DatagramLink::error() const
 QString DatagramLink::errorString() const
 {
     return QString();
+}
+
+qint32 DatagramLink::recvfrom(QList<Datagram> *datagrams)
+{
+    if (!datagrams || datagrams->isEmpty()) {
+        return -1;
+    }
+    const qint32 maxCount = datagrams->size();
+    qint32 count = 0;
+    qint32 total = 0;
+    while (count < maxCount) {
+        Datagram &datagram = (*datagrams)[count];
+        const int capacity = datagram.data.size();
+        DatagramPath who;
+        const qint32 n = recvfrom(datagram.data.data(), capacity, &who);
+        if (n < 0) {
+            return count == 0 ? -1 : total;
+        }
+        if (n == 0) {
+            break;  // nothing more queued right now
+        }
+        const qtng_core::UdpDatagramPath udp(toCoreDatagramPath(who));
+        datagram.data.resize(n);
+        datagram.addr = toQtAddress(udp.address());
+        datagram.port = udp.port();
+        total += n;
+        ++count;
+    }
+    datagrams->erase(datagrams->begin() + count, datagrams->end());
+    return total;
+}
+
+qint32 DatagramLink::sendto(const QList<Datagram> &datagrams)
+{
+    if (datagrams.isEmpty()) {
+        return 0;
+    }
+    qint32 total = 0;
+    for (const Datagram &datagram : datagrams) {
+        if (datagram.data.isEmpty()) {
+            return -1;
+        }
+        const qtng_core::UdpDatagramPath udp(toCoreAddress(datagram.addr), datagram.port);
+        const qint32 n = sendto(datagram.data.constData(), datagram.data.size(), toQtDatagramPath(udp.toPath()));
+        if (n < 0) {
+            return -1;
+        }
+        total += n;
+    }
+    return total;
 }
 
 namespace {
@@ -958,6 +1013,40 @@ public:
         return qt ? qt->sendto(data, size, toQtDatagramPath(who)) : -1;
     }
 
+    std::int32_t recvfrom(std::vector<qtng_core::Datagram> *datagrams) override
+    {
+        if (!qt || datagrams->empty()) {
+            return -1;
+        }
+        // The Qt link owns its buffers, so give it capacity-sized QByteArrays
+        // and copy the received bytes back into the core caller's buffers.
+        QList<QTNETWORKNG_NAMESPACE::Datagram> qtDatagrams;
+        qtDatagrams.reserve(static_cast<int>(datagrams->size()));
+        for (const qtng_core::Datagram &coreDatagram : *datagrams) {
+            QTNETWORKNG_NAMESPACE::Datagram qtDatagram;
+            qtDatagram.data = QByteArray(coreDatagram.len, '\0');
+            qtDatagram.addr = toQtAddress(coreDatagram.addr);
+            qtDatagram.port = coreDatagram.port;
+            qtDatagrams.append(qtDatagram);
+        }
+        const qint32 n = qt->recvfrom(&qtDatagrams);
+        if (n < 0) {
+            return -1;
+        }
+        for (int i = 0; i < qtDatagrams.size(); ++i) {
+            qtng_core::Datagram &coreDatagram = (*datagrams)[static_cast<size_t>(i)];
+            const int len = qMin(qtDatagrams[i].data.size(), coreDatagram.len);
+            if (len > 0) {
+                memcpy(coreDatagram.data, qtDatagrams[i].data.constData(), static_cast<size_t>(len));
+            }
+            coreDatagram.len = len;
+            coreDatagram.addr = toCoreAddress(qtDatagrams[i].addr);
+            coreDatagram.port = qtDatagrams[i].port;
+        }
+        datagrams->resize(static_cast<size_t>(qtDatagrams.size()));
+        return n;
+    }
+
     void close() override
     {
         if (qt) {
@@ -1005,6 +1094,21 @@ public:
     qint32 sendto(const char *data, qint32 size, const QTNETWORKNG_NAMESPACE::DatagramPath &who) override
     {
         return core ? core->sendto(data, size, toCoreDatagramPath(who)) : -1;
+    }
+
+    qint32 recvfrom(QList<QTNETWORKNG_NAMESPACE::Datagram> *datagrams) override
+    {
+        if (!core || datagrams->isEmpty()) {
+            return -1;
+        }
+        // The Qt caller owns the buffers; the core link fills them in place.
+        std::vector<qtng_core::Datagram> coreDatagrams = toCoreDatagrams(*datagrams);
+        const std::int32_t n = core->recvfrom(&coreDatagrams);
+        if (n < 0) {
+            return -1;
+        }
+        applyCoreDatagrams(coreDatagrams, *datagrams);
+        return n;
     }
 
     void close() override

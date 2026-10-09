@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "qtng/network_interface.h"
 #include "qtng/socket.h"
@@ -51,6 +52,7 @@ public:
 
     std::int32_t recvfrom(char *data, std::int32_t size, DatagramPath *who) override;
     std::int32_t sendto(const char *data, std::int32_t size, const DatagramPath &who) override;
+    std::int32_t recvfrom(std::vector<Datagram> *datagrams) override;
     void close() override;
     void abort() override;
     bool isValid() const override;

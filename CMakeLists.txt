@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 include(CheckFunctionExists)
+include(CheckSymbolExists)
 
 # Optional protocol modules: off by default; enable with -DQTNG_WITH_*=ON.
 option(QTNG_WITH_HTTP2 "Build HTTP/2 client support (still incomplete)" OFF)
@@ -581,6 +582,22 @@ elseif(UNIX)
     target_compile_definitions(qtng PRIVATE EV_USE_4HEAP=1 EV_VERIFY=0 QTNG_EV_ASSERT=0)
     check_function_exists(kqueue HAVE_KQUEUE)
     check_function_exists(epoll_ctl HAVE_EPOLL)
+    # recvmmsg/sendmmsg are Linux/BSD extensions guarded by _GNU_SOURCE on glibc.
+    # Probe for them instead of guessing from the OS: their availability varies
+    # between libc and FreeBSD versions. QTNG_HAVE_* gates the fast path in
+    # src/socket_unix.cpp; every other platform falls back to a plain loop.
+    set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
+    check_symbol_exists(recvmmsg "sys/socket.h" QTNG_HAVE_RECVMMSG)
+    check_symbol_exists(sendmmsg "sys/socket.h" QTNG_HAVE_SENDMMSG)
+    unset(CMAKE_REQUIRED_DEFINITIONS)
+    if(QTNG_HAVE_RECVMMSG)
+        message(STATUS "recvmmsg() available: batch UDP receive uses it")
+        target_compile_definitions(qtng PRIVATE QTNG_HAVE_RECVMMSG=1)
+    endif()
+    if(QTNG_HAVE_SENDMMSG)
+        message(STATUS "sendmmsg() available: batch UDP send uses it")
+        target_compile_definitions(qtng PRIVATE QTNG_HAVE_SENDMMSG=1)
+    endif()
     if(HAVE_EPOLL)
         message(STATUS "Use linux epoll() for libev.")
         target_compile_definitions(qtng PRIVATE EV_USE_EPOLL=1 EV_USE_EVENTFD=1 EV_USE_KQUEUE=0 EV_USE_POLL=0)

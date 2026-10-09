@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "qtng/socket.h"
 #include "qtng/utils/platform.h"
@@ -87,6 +88,14 @@ public:
     std::int32_t send(const char *data, std::int32_t size, bool all);
     std::int32_t recvfrom(char *data, std::int32_t size, HostAddress *addr, std::uint16_t *port);
     std::int32_t sendto(const char *data, std::int32_t size, const HostAddress &addr, std::uint16_t port);
+    // wait == false never blocks: it reports "nothing to read right now" by
+    // returning 0 and setting *wouldBlock, so batch receive can drain the queue
+    // after the first, blocking read.
+    std::int32_t recvfrom(char *data, std::int32_t size, HostAddress *addr, std::uint16_t *port, bool wait,
+                          bool *wouldBlock);
+    // datagrams carries the caller's buffers and capacities; see socket.h.
+    std::int32_t recvfrom(std::vector<Datagram> *datagrams);
+    std::int32_t sendto(const std::vector<Datagram> &datagrams);
     bool fetchConnectionParameters();
 public:
     bool setPortAndAddress(std::uint16_t port, const HostAddress &address, qt_sockaddr *aa, int *sockAddrSize);

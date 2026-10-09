@@ -1000,6 +1000,15 @@ int32_t SocketPrivate::send(const char *data, int32_t size, bool all)
 
 int32_t SocketPrivate::recvfrom(char *data, int32_t size, HostAddress *addr, uint16_t *port)
 {
+    return recvfrom(data, size, addr, port, true, nullptr);
+}
+
+int32_t SocketPrivate::recvfrom(char *data, int32_t size, HostAddress *addr, uint16_t *port, bool wait,
+                                bool *wouldBlock)
+{
+    if (wouldBlock) {
+        *wouldBlock = false;
+    }
     if (!checkState() || size < 0) {
         return -1;
     }
@@ -1046,7 +1055,14 @@ int32_t SocketPrivate::recvfrom(char *data, int32_t size, HostAddress *addr, uin
                 switch (err) {
                 case WSAEINPROGRESS:
                 case WSAEINTR:
+                    break;
                 case WSAEWOULDBLOCK:
+                    if (!wait) {
+                        if (wouldBlock) {
+                            *wouldBlock = true;
+                        }
+                        return 0;
+                    }
                     break;
                 case WSAECONNRESET:
                     if (type == Socket::TcpSocket) {
@@ -1096,6 +1112,12 @@ int32_t SocketPrivate::recvfrom(char *data, int32_t size, HostAddress *addr, uin
 #endif
             return ret;
         } else {
+            if (!wait) {
+                if (wouldBlock) {
+                    *wouldBlock = true;
+                }
+                return 0;
+            }
             if (!watcher.start()) {
                 setError(Socket::UnknownSocketError, UnknownSocketErrorString);
                 return -1;
@@ -1191,6 +1213,8 @@ int32_t SocketPrivate::sendto(const char *data, int32_t size, const HostAddress 
     }
 }
 
+// Windows has no recvmmsg/sendmmsg, so the batch entry points are provided by
+// the portable fallback in src/socket.cpp.
 
 int SocketPrivate::option(Socket::SocketOption option) const
 {

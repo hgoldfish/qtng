@@ -21,6 +21,24 @@ namespace qtng {
 
 class SocketPrivate;
 class SocketDnsCache;
+
+// One UDP datagram: a caller-owned payload buffer plus its source (recv) or
+// destination (send).
+//
+// The caller always owns the payload; this type never frees it. For send, fill
+// in data/len/addr/port and pass the vector to Socket::sendto(). For receive,
+// size the vector to the number of datagrams you are willing to take, point
+// each entry's data at a writable buffer, and set len to that buffer's capacity
+// (bytes). Socket::recvfrom() fills in addr/port, rewrites len to the number of
+// bytes actually received, and shrinks the vector to the number received.
+struct Datagram
+{
+    char *data = nullptr;
+    std::int32_t len = 0;
+    HostAddress addr;
+    std::uint16_t port = 0;
+};
+
 class Socket
 {
 public:
@@ -140,6 +158,25 @@ public:
     std::int32_t sendall(const char *data, std::int32_t size);
     std::int32_t recvfrom(char *data, std::int32_t size, HostAddress *addr, std::uint16_t *port);
     std::int32_t sendto(const char *data, std::int32_t size, const HostAddress &addr, std::uint16_t port);
+
+    // Batch datagram I/O, mirroring the single-datagram overloads above: both
+    // return the number of bytes handled, not the number of datagrams.
+    //
+    // recvfrom() takes datagrams already sized and filled by the caller: each
+    // entry provides a writable buffer in data and its capacity in len, and
+    // datagrams->size() is the maximum number of datagrams to receive. The call
+    // blocks until at least one datagram is available, then drains whatever else
+    // is already queued (up to datagrams->size()), without waiting to fill the
+    // vector. On return the vector is shrunk to the number received and each
+    // entry's len holds the bytes received. The return value is the sum of those
+    // payloads, or -1 on a fatal error (a short result with at least one
+    // datagram is still a success).
+    std::int32_t recvfrom(std::vector<Datagram> *datagrams);
+
+    // sendto() only returns once every datagram has been handed to the kernel.
+    // The return value is the total number of bytes sent, or -1 if any datagram
+    // could not be sent (some earlier datagrams may already have gone out).
+    std::int32_t sendto(const std::vector<Datagram> &datagrams);
 
     std::string recvall(std::int32_t size);
     std::string recv(std::int32_t size);

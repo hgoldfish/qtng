@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "qtng/utils/string_utils.h"
@@ -165,6 +166,35 @@ int32_t UdpDatagramLink::sendto(const char *data, int32_t size, const DatagramPa
     return rawSocket->sendto(data, size, udp.address(), udp.port());
 }
 
+int32_t UdpDatagramLink::recvfrom(std::vector<Datagram> *datagrams)
+{
+    if (!rawSocket) {
+        return -1;
+    }
+    const int32_t total = rawSocket->recvfrom(datagrams);
+    if (total < 0 || !filterCallback) {
+        return total;
+    }
+    // Apply the per-datagram filter: compact the kept entries in place and drop
+    // the rest, subtracting the dropped bytes from the total.
+    const size_t count = datagrams->size();
+    size_t kept = 0;
+    int32_t keptTotal = 0;
+    for (size_t i = 0; i < count; ++i) {
+        Datagram datagram = (*datagrams)[i];
+        // The filter may rewrite the payload in place; the buffer belongs to the
+        // caller, who filled it in before the call.
+        if (filterCallback(datagram.data, &datagram.len, &datagram.addr, &datagram.port)) {
+            continue;
+        }
+        (*datagrams)[kept] = datagram;
+        keptTotal += datagram.len;
+        ++kept;
+    }
+    datagrams->resize(kept);
+    return keptTotal;
+}
+
 void UdpDatagramLink::close()
 {
     rawSocket->close();
@@ -242,5 +272,40 @@ bool DatagramPath::operator<(const DatagramPath &other) const { return m_key < o
 DatagramLink::~DatagramLink() {}
 Socket::SocketError DatagramLink::error() const { return Socket::NoError; }
 string DatagramLink::errorString() const { return string(); }
+
+int32_t DatagramLink::recvfrom(std::vector<Datagram> *datagrams)
+{
+    if (!datagrams || datagrams->empty()) {
+        return -1;
+    }
+    const size_t maxCount = datagrams->size();
+    for (size_t i = 0; i < maxCount; ++i) {
+        if (!datagrams->at(i).data || datagrams->at(i).len <= 0) {
+            return -1;
+        }
+    }
+    size_t count = 0;
+    int32_t total = 0;
+    while (count < maxCount) {
+        Datagram &datagram = datagrams->at(count);
+        DatagramPath who;
+        const int32_t n = recvfrom(datagram.data, datagram.len, &who);
+        if (n < 0) {
+            return count == 0 ? -1 : total;
+        }
+        if (n == 0) {
+            // No more datagrams queued right now.
+            break;
+        }
+        const UdpDatagramPath udp(who);
+        datagram.len = n;
+        datagram.addr = udp.address();
+        datagram.port = udp.port();
+        total += n;
+        ++count;
+    }
+    datagrams->resize(count);
+    return total;
+}
 
 }  // namespace qtng

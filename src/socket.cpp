@@ -1,9 +1,11 @@
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "qtng/coroutine_utils.h"
@@ -628,6 +630,93 @@ int32_t Socket::sendto(const string &data, const HostAddress &addr, uint16_t por
     }
     return d->sendto(data.data(), data.size(), addr, port);
 }
+
+int32_t Socket::recvfrom(vector<Datagram> *datagrams)
+{
+    NG_D(Socket);
+    ScopedLock<Lock> lock(d->readLock);
+    if (!lock.isSuccess()) {
+        return -1;
+    }
+    return d->recvfrom(datagrams);
+}
+
+int32_t Socket::sendto(const vector<Datagram> &datagrams)
+{
+    NG_D(Socket);
+    ScopedLock<Lock> lock(d->writeLock);
+    if (!lock.isSuccess()) {
+        return -1;
+    }
+    return d->sendto(datagrams);
+}
+
+// Portable fallback for platforms that lack the batch syscalls (and, on a
+// platform that has only one of them, for the missing direction). The platform
+// files provide just the single-datagram primitive with a "wait" switch; the
+// drain/batch policy lives here once instead of being copy-pasted per platform.
+#if !defined(QTNG_HAVE_RECVMMSG)
+int32_t SocketPrivate::recvfrom(vector<Datagram> *datagrams)
+{
+    if (!datagrams || datagrams->empty() || !checkState()) {
+        return -1;
+    }
+    const size_t maxCount = datagrams->size();
+    for (size_t i = 0; i < maxCount; ++i) {
+        if (!datagrams->at(i).data || datagrams->at(i).len <= 0) {
+            setError(Socket::UnsupportedSocketOperationError, InvalidSocketErrorString);
+            return -1;
+        }
+    }
+
+    size_t count = 0;
+    int32_t total = 0;
+    while (count < maxCount) {
+        Datagram &datagram = datagrams->at(count);
+        HostAddress addr;
+        uint16_t port = 0;
+        bool wouldBlock = false;
+        // The caller's buffer capacity is datagram.len; block for the first
+        // datagram, then only take what is already queued.
+        const int32_t n = recvfrom(datagram.data, datagram.len, &addr, &port, count == 0, &wouldBlock);
+        if (wouldBlock) {
+            break;
+        }
+        if (n < 0) {
+            return count == 0 ? -1 : total;
+        }
+        datagram.len = n;
+        datagram.addr = addr;
+        datagram.port = port;
+        total += n;
+        ++count;
+    }
+    datagrams->resize(count);
+    return total;
+}
+#endif  // QTNG_HAVE_RECVMMSG
+
+#if !defined(QTNG_HAVE_SENDMMSG)
+int32_t SocketPrivate::sendto(const vector<Datagram> &datagrams)
+{
+    if (!checkState()) {
+        return -1;
+    }
+    int32_t total = 0;
+    for (size_t i = 0; i < datagrams.size(); ++i) {
+        const Datagram &datagram = datagrams[i];
+        if (datagram.len <= 0 || !datagram.data) {
+            setError(Socket::UnsupportedSocketOperationError, InvalidSocketErrorString);
+            return -1;
+        }
+        if (sendto(datagram.data, datagram.len, datagram.addr, datagram.port) < 0) {
+            return -1;
+        }
+        total += datagram.len;
+    }
+    return total;
+}
+#endif  // QTNG_HAVE_SENDMMSG
 
 vector<HostAddress> Socket::resolve(const string &hostName)
 {
