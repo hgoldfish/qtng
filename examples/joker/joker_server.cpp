@@ -272,7 +272,7 @@ bool JokerServerPrivate::sendReply(shared_ptr<VirtualChannel> channel, const Hos
 {
     string reply;
     MsgPackStream mps(&reply, true);
-    mps << addr.toString();
+    mps.writeString(addr.toString());
     return channel->sendPacket(reply);
 }
 

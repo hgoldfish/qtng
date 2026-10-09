@@ -429,7 +429,7 @@ MsgPackStream &MsgPackStream::operator>>(QString &str)
 MsgPackStream &MsgPackStream::operator<<(const QString &str)
 {
     Q_D(MsgPackStream);
-    d->core << toStdString(str);
+    d->core.writeString(toStdString(str));
     return *this;
 }
 
@@ -512,7 +512,7 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
     switch (kind) {
     case QVariantWireKind::Nil: {
         char c = 0;
-        if (!s.readBytes(&c, 1)) {
+        if (!s.readRawBytes(&c, 1)) {
             return *this;
         }
         v = QVariant();
@@ -679,7 +679,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
         s << static_cast<double>(v.toFloat());
         break;
     case QMetaType::QString:
-        s << toStdString(v.toString());
+        s.writeString(toStdString(v.toString()));
         break;
     case QMetaType::QStringList: {
         const QStringList &list = v.toStringList();
@@ -687,7 +687,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
             break;
         }
         for (const QString &str : list) {
-            s << toStdString(str);
+            s.writeString(toStdString(str));
             if (s.status() != qtng_core::MsgPackStream::Ok) {
                 break;
             }
@@ -724,7 +724,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
             break;
         }
         for (QVariantMap::const_iterator it = map.constBegin(); it != map.constEnd(); ++it) {
-            s << toStdString(it.key());
+            s.writeString(toStdString(it.key()));
             *this << it.value();
             if (s.status() != qtng_core::MsgPackStream::Ok) {
                 break;
@@ -738,7 +738,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
             break;
         }
         for (QVariantHash::const_iterator it = hash.constBegin(); it != hash.constEnd(); ++it) {
-            s << toStdString(it.key());
+            s.writeString(toStdString(it.key()));
             *this << it.value();
             if (s.status() != qtng_core::MsgPackStream::Ok) {
                 break;
@@ -753,7 +753,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
         if (v.type() == QVariant::Invalid) {
 #endif
             static const char nilByte[1] = {static_cast<char>(qtng_core::FirstByte::NIL)};
-            s.writeBytes(nilByte, 1);
+            s.writeRawBytes(nilByte, 1);
         } else if (v.canConvert<MsgPackExtData>()) {
             *this << v.value<MsgPackExtData>();
         } else {
@@ -770,10 +770,10 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
     return *this;
 }
 
-bool MsgPackStream::readBytes(char *data, qint64 len)
+bool MsgPackStream::readRawBytes(char *data, qint64 len)
 {
     Q_D(MsgPackStream);
-    return d->core.readBytes(data, len);
+    return d->core.readRawBytes(data, len);
 }
 
 bool MsgPackStream::readArrayHeader(qint32 &len)
@@ -806,6 +806,12 @@ bool MsgPackStream::writeBytes(const char *data, qint64 len)
 {
     Q_D(MsgPackStream);
     return d->core.writeBytes(data, len);
+}
+
+bool MsgPackStream::writeRawBytes(const char *data, qint64 len)
+{
+    Q_D(MsgPackStream);
+    return d->core.writeRawBytes(data, len);
 }
 
 bool MsgPackStream::writeBytes(const QByteArray &array)

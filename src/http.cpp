@@ -112,7 +112,9 @@ static inline string joinLines(const vector<string> &lines)
 
 inline MsgPackStream &operator<<(MsgPackStream &ds, const HttpHeader &header)
 {
-    return ds << header.name() << header.value();
+    ds.writeString(header.name());
+    ds.writeString(header.value());
+    return ds;
 }
 
 inline MsgPackStream &operator>>(MsgPackStream &ds, HttpHeader &header)
@@ -2244,7 +2246,10 @@ bool HttpCacheManager::addResponse(HttpResponse &response)
     const string &body = response.body();
     string bs;
     MsgPackStream ds(&bs, true);
-    ds << statusCode << statusText << headers << body;
+    ds << statusCode;
+    ds.writeString(statusText);
+    ds << headers;
+    ds.writeString(body);
     if (!ds.isOk()) {
         return false;
     }

@@ -83,7 +83,9 @@ public:
     MsgPackStream &operator>>(QDateTime &dt);
     MsgPackStream &operator>>(MsgPackExtData &ext);
     MsgPackStream &operator>>(QVariant &v);
-    bool readBytes(char *data, qint64 len);
+    // Read exactly `len` bytes from the device as-is. Use readBytes(QByteArray &)
+    // to read a bin value.
+    bool readRawBytes(char *data, qint64 len);
     bool readString(QString &str);
     bool readBytes(QByteArray &array);
     bool readArrayHeader(qint32 &len);
@@ -107,8 +109,11 @@ public:
     MsgPackStream &operator<<(const MsgPackExtData &ext);
     MsgPackStream &operator<<(const QVariant &v);
 
+    // Emit a MessagePack bin value (header + payload). Use writeRawBytes() for
+    // verbatim bytes without a bin header (single-byte NIL, DER/TLV).
     bool writeBytes(const char *data, qint64 len);
     bool writeBytes(const QByteArray &array);
+    bool writeRawBytes(const char *data, qint64 len);
     bool writeString(const QString &str);
     bool writeString(const char *data, quint32 len);
     bool writeArrayHeader(quint32 len);

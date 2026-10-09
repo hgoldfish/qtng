@@ -93,7 +93,9 @@ public:
     MsgPackStream &operator>>(qtng::utils::DateTime &dt);
     MsgPackStream &operator>>(qtng::utils::Date &d);
     MsgPackStream &operator>>(MsgPackExtData &ext);
-    bool readBytes(char *data, std::int64_t len);
+    // Read exactly `len` bytes from the device as-is, without interpreting a
+    // MessagePack header. Use readBytes(std::string &) to read a bin value.
+    bool readRawBytes(char *data, std::int64_t len);
     bool readString(std::string &s);
     bool readBytes(std::string &s);
     bool peekByte(std::uint8_t *b) const;
@@ -112,13 +114,17 @@ public:
     MsgPackStream &operator<<(std::int64_t i64);
     MsgPackStream &operator<<(float f);
     MsgPackStream &operator<<(double d);
-    MsgPackStream &operator<<(const std::string &str);
     MsgPackStream &operator<<(const qtng::utils::DateTime &dt);
     MsgPackStream &operator<<(const qtng::utils::Date &d);
     MsgPackStream &operator<<(const MsgPackExtData &ext);
 
+    // Emit a MessagePack bin value: the BIN8/BIN16/BIN32 header followed by
+    // the payload. Callers that need to write bytes verbatim without a bin
+    // header (DER/TLV, single-byte NIL) must use writeRawBytes() instead.
     bool writeBytes(const char *data, std::int64_t len);
     bool writeBytes(const std::string &s);
+    // Write bytes to the device as-is, without any MessagePack header.
+    bool writeRawBytes(const char *data, std::int64_t len);
     bool writeString(const std::string &s);
     bool writeString(const char *data, std::uint32_t len);
     bool writeArrayHeader(std::uint32_t len);
@@ -358,14 +364,14 @@ MsgPackStream &operator>>(MsgPackStream &s, std::unordered_map<K, V> &map)
 inline MsgPackStream &operator<<(MsgPackStream &s, std::monostate)
 {
     static const char nilByte[1] = {static_cast<char>(FirstByte::NIL)};
-    s.writeBytes(nilByte, 1);
+    s.writeRawBytes(nilByte, 1);
     return s;
 }
 
 inline MsgPackStream &operator>>(MsgPackStream &s, std::monostate)
 {
     char b = 0;
-    if (!s.readBytes(&b, 1)) {
+    if (!s.readRawBytes(&b, 1)) {
         return s;
     }
     if (static_cast<std::uint8_t>(b) != FirstByte::NIL) {
@@ -549,6 +555,21 @@ inline void variant_read_value<std::string>(MsgPackStream &s, std::string &val)
     s.readString(val);
 }
 
+template<typename T>
+inline void variant_write_value(MsgPackStream &s, const T &val)
+{
+    s << val;
+}
+
+// std::string must be written through writeString(); there is no generic
+// operator<< for std::string because a bare std::string cannot say whether it
+// means a MessagePack str or bin.
+template<>
+inline void variant_write_value<std::string>(MsgPackStream &s, const std::string &val)
+{
+    s.writeString(val);
+}
+
 template<std::size_t I, typename Variant>
 inline bool variant_read_if(MsgPackStream &s, Variant &v, MsgPackWireKind kind, bool &matched)
 {
@@ -587,7 +608,7 @@ MsgPackStream &operator<<(MsgPackStream &s, const std::variant<Ts...> &v)
         s.setStatus(MsgPackStream::WriteFailed);
         return s;
     }
-    std::visit([&s](const auto &val) { s << val; }, v);
+    std::visit([&s](const auto &val) { detail::variant_write_value(s, val); }, v);
     return s;
 }
 

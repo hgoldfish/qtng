@@ -286,7 +286,7 @@ void writeValue(qtng::MsgPackStream &s, const Value &v)
 {
     switch (v.type()) {
     case Value::Type::Nil:
-        if (!s.writeBytes("\xc0", 1)) {
+        if (!s.writeRawBytes("\xc0", 1)) {
             throw RpcSerializationException("can not write nil.");
         }
         break;
@@ -303,7 +303,7 @@ void writeValue(qtng::MsgPackStream &s, const Value &v)
         s << v.asDouble();
         break;
     case Value::Type::Str:
-        s << v.asStr();
+        s.writeString(v.asStr());
         break;
     case Value::Type::Bin:
         if (!s.writeBytes(v.asBin())) {
@@ -326,7 +326,7 @@ void writeValue(qtng::MsgPackStream &s, const Value &v)
             throw RpcSerializationException("can not write map header.");
         }
         for (const std::pair<const std::string, Value> &e : m) {
-            s << e.first;
+            s.writeString(e.first);
             writeValue(s, e.second);
         }
         break;
@@ -336,7 +336,7 @@ void writeValue(qtng::MsgPackStream &s, const Value &v)
         if (dt.isValid()) {
             s << dt;
         } else {
-            if (!s.writeBytes("\xc0", 1)) {
+            if (!s.writeRawBytes("\xc0", 1)) {
                 throw RpcSerializationException("can not write nil.");
             }
         }
@@ -363,7 +363,7 @@ Value readValue(qtng::MsgPackStream &s)
     switch (wireKind(b)) {
     case WireKind::Nil: {
         char c = 0;
-        s.readBytes(&c, 1);
+        s.readRawBytes(&c, 1);
         return Value();
     }
     case WireKind::Bool: {

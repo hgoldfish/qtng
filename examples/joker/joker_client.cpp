@@ -301,7 +301,9 @@ shared_ptr<SocketLike> JokerClient::connectToRemoteHost(const string &hostName, 
     MsgPackStream mps(&command, true);
 
     if (!hostName.empty()) {
-        mps << static_cast<uint8_t>(0x01) << hostName << port;
+        mps << static_cast<uint8_t>(0x01);
+        mps.writeString(hostName);
+        mps << port;
     } else if (!addr.isNull()) {
         bool ok = false;
         const uint32_t ipv4 = addr.toIPv4Address(&ok);

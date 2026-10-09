@@ -153,15 +153,15 @@ public:
     MsgPackStreamPrivate(const string &a);
     ~MsgPackStreamPrivate();
 public:
-    bool readBytes(char *data, int64_t len);
-    inline bool readBytes(uint8_t *data, int len);
+    bool readRawBytes(char *data, int64_t len);
+    inline bool readRawBytes(uint8_t *data, int len);
     bool peekByte(uint8_t *c) const;
     bool ensurePeekCached();
     bool readArrayHeader(uint32_t &len);
     bool readMapHeader(uint32_t &len);
     bool readExtHeader(uint32_t &len, uint8_t &msgpackType);
-    bool writeBytes(const char *data, int64_t len);
-    inline bool writeBytes(const uint8_t *data, int len);
+    bool writeRawBytes(const char *data, int64_t len);
+    inline bool writeRawBytes(const uint8_t *data, int len);
     bool writeArrayHeader(uint32_t len);
     bool writeMapHeader(uint32_t len);
     bool writeExtHeader(uint32_t len, uint8_t msgpackType);
@@ -250,7 +250,7 @@ MsgPackStreamPrivate::~MsgPackStreamPrivate()
     userData.clear();
 }
 
-bool MsgPackStreamPrivate::readBytes(char *data, int64_t len)
+bool MsgPackStreamPrivate::readRawBytes(char *data, int64_t len)
 {
     if (status != MsgPackStream::Ok) {
         return false;
@@ -292,9 +292,9 @@ bool MsgPackStreamPrivate::readBytes(char *data, int64_t len)
     return true;
 }
 
-bool MsgPackStreamPrivate::readBytes(uint8_t *data, int len)
+bool MsgPackStreamPrivate::readRawBytes(uint8_t *data, int len)
 {
-    return readBytes(static_cast<char *>(static_cast<void *>(data)), len);
+    return readRawBytes(static_cast<char *>(static_cast<void *>(data)), len);
 }
 
 bool MsgPackStreamPrivate::ensurePeekCached()
@@ -342,28 +342,34 @@ bool MsgPackStreamPrivate::peekByte(uint8_t *c) const
 
 static bool lengthFitsRemaining(uint32_t len, uint32_t pos, uint32_t limit)
 {
+    // Reject lengths that do not fit a signed 32-bit count. Callers -- and the Qt
+    // binding's int-sized containers -- count with int, and a length above INT_MAX must
+    // never be allowed to drive a multi-gigabyte resize() before it can be known to be
+    // corrupt. The configured `limit` alone cannot catch this on a stream device, whose
+    // default limit is UINT32_MAX.
+    if (len > static_cast<uint32_t>(numeric_limits<int>::max())) {
+        return false;
+    }
     // For array/map counts: each element costs >= 1 byte. For str/bin/ext payloads:
     // `len` is the exact byte count still to read.
-    // Qt bindings that feed QVector/QList (int sizes) must additionally reject
-    // len > INT_MAX at the Qt layer; STL size_t callers do not need that here.
     return pos <= limit && len <= limit - pos;
 }
 
 bool MsgPackStreamPrivate::readArrayHeader(uint32_t &len)
 {
     uint8_t p[5];
-    if (!readBytes(p, 1)) {
+    if (!readRawBytes(p, 1)) {
         return false;
     }
     if (p[0] >= FirstByte::FIXARRAY && p[0] <= (FirstByte::FIXARRAY + 0xf)) {
         len = p[0] & 0xf;
     } else if (p[0] == FirstByte::ARRAY16) {
-        if (!readBytes((char *) p + 1, 2)) {
+        if (!readRawBytes((char *) p + 1, 2)) {
             return false;
         }
         len = _msgpack_load16(p + 1);
     } else if (p[0] == FirstByte::ARRAY32) {
-        if (!readBytes((char *) p + 1, 4)) {
+        if (!readRawBytes((char *) p + 1, 4)) {
             return false;
         }
         len = _msgpack_load32(p + 1);
@@ -381,18 +387,18 @@ bool MsgPackStreamPrivate::readArrayHeader(uint32_t &len)
 bool MsgPackStreamPrivate::readMapHeader(uint32_t &len)
 {
     uint8_t p[5];
-    if (!readBytes(p, 1)) {
+    if (!readRawBytes(p, 1)) {
         return false;
     }
     if (p[0] >= FirstByte::FIXMAP && p[0] <= (FirstByte::FIXMAP + 0xf)) {
         len = p[0] & 0xf;
     } else if (p[0] == FirstByte::MAP16) {
-        if (!readBytes((char *) p + 1, 2)) {
+        if (!readRawBytes((char *) p + 1, 2)) {
             return false;
         }
         len = _msgpack_load16(p + 1);
     } else if (p[0] == FirstByte::MAP32) {
-        if (!readBytes((char *) p + 1, 4)) {
+        if (!readRawBytes((char *) p + 1, 4)) {
             return false;
         }
         len = _msgpack_load32(p + 1);
@@ -414,39 +420,39 @@ bool MsgPackStreamPrivate::readExtHeader(uint32_t &len, uint8_t &msgpackType)
         return false;
     }
     uint8_t typeByte = 0;
-    if (!readBytes(&typeByte, 1)) {
+    if (!readRawBytes(&typeByte, 1)) {
         return false;
     }
     if (FirstByte::FIXEXT1 <= typeByte && typeByte <= FirstByte::FIXEX16) {
         len = 1;
         len <<= typeByte - FirstByte::FIXEXT1;
-        if (!readBytes(&typeByte, 1)) {
+        if (!readRawBytes(&typeByte, 1)) {
             return false;
         }
     } else if (typeByte == FirstByte::EXT8) {
-        if (!readBytes(&typeByte, 1)) {
+        if (!readRawBytes(&typeByte, 1)) {
             return false;
         }
         len = typeByte;
-        if (!readBytes(&typeByte, 1)) {
+        if (!readRawBytes(&typeByte, 1)) {
             return false;
         }
     } else if (typeByte == FirstByte::EXT16) {
         uint8_t lenBytes[2];
-        if (!readBytes(lenBytes, 2)) {
+        if (!readRawBytes(lenBytes, 2)) {
             return false;
         }
         len = _msgpack_load16(lenBytes);
-        if (!readBytes(&typeByte, 1)) {
+        if (!readRawBytes(&typeByte, 1)) {
             return false;
         }
     } else if (typeByte == FirstByte::EXT32) {
         uint8_t lenBytes[4];
-        if (!readBytes(lenBytes, 4)) {
+        if (!readRawBytes(lenBytes, 4)) {
             return false;
         }
         len = _msgpack_load32(lenBytes);
-        if (!readBytes(&typeByte, 1)) {
+        if (!readRawBytes(&typeByte, 1)) {
             return false;
         }
     } else {
@@ -465,7 +471,7 @@ bool MsgPackStreamPrivate::readExtHeader(uint32_t &len, uint8_t &msgpackType)
 bool MsgPackStreamPrivate::unpack_longlong(int64_t &i64)
 {
     uint8_t p[9];
-    if (!readBytes(p, 1)) {
+    if (!readRawBytes(p, 1)) {
         return false;
     }
 
@@ -474,37 +480,37 @@ bool MsgPackStreamPrivate::unpack_longlong(int64_t &i64)
     } else if (p[0] >= FirstByte::NEGATIVE_FIXINT) {  // negative fixint 0xe0 - 0xff
         i64 = static_cast<int8_t>(p[0]);
     } else if (p[0] == FirstByte::UINT8) {
-        if (!readBytes(p + 1, 1)) {
+        if (!readRawBytes(p + 1, 1)) {
             return false;
         }
         i64 = p[1];
     } else if (p[0] == FirstByte::INT8) {
-        if (!readBytes(p + 1, 1)) {
+        if (!readRawBytes(p + 1, 1)) {
             return false;
         }
         i64 = static_cast<int8_t>(p[1]);
     } else if (p[0] == FirstByte::UINT16) {
-        if (!readBytes(p + 1, 2)) {
+        if (!readRawBytes(p + 1, 2)) {
             return false;
         }
         i64 = _msgpack_load16(p + 1);
     } else if (p[0] == FirstByte::INT16) {
-        if (!readBytes(p + 1, 2)) {
+        if (!readRawBytes(p + 1, 2)) {
             return false;
         }
         i64 = static_cast<int16_t>(_msgpack_load16(p + 1));
     } else if (p[0] == FirstByte::UINT32) {
-        if (!readBytes(p + 1, 4)) {
+        if (!readRawBytes(p + 1, 4)) {
             return false;
         }
         i64 = static_cast<int64_t>(_msgpack_load32(p + 1));
     } else if (p[0] == FirstByte::INT32) {
-        if (!readBytes(p + 1, 4)) {
+        if (!readRawBytes(p + 1, 4)) {
             return false;
         }
         i64 = static_cast<int32_t>(_msgpack_load32(p + 1));
     } else if (p[0] == FirstByte::UINT64) {
-        if (!readBytes(p + 1, 8)) {
+        if (!readRawBytes(p + 1, 8)) {
             return false;
         }
         uint64_t u64;
@@ -515,7 +521,7 @@ bool MsgPackStreamPrivate::unpack_longlong(int64_t &i64)
         }
         i64 = static_cast<int64_t>(u64);
     } else if (p[0] == FirstByte::INT64) {
-        if (!readBytes(p + 1, 8)) {
+        if (!readRawBytes(p + 1, 8)) {
             return false;
         }
         i64 = static_cast<int64_t>(_msgpack_load64(p + 1));
@@ -529,7 +535,7 @@ bool MsgPackStreamPrivate::unpack_longlong(int64_t &i64)
 bool MsgPackStreamPrivate::unpack_ulonglong(uint64_t &u64)
 {
     uint8_t p[9];
-    if (!readBytes(p, 1)) {
+    if (!readRawBytes(p, 1)) {
         return false;
     }
 
@@ -539,12 +545,12 @@ bool MsgPackStreamPrivate::unpack_ulonglong(uint64_t &u64)
         status = MsgPackStream::ReadCorruptData;
         return false;
     } else if (p[0] == FirstByte::UINT8) {
-        if (!readBytes(p + 1, 1)) {
+        if (!readRawBytes(p + 1, 1)) {
             return false;
         }
         u64 = p[1];
     } else if (p[0] == FirstByte::INT8) {
-        if (!readBytes(p + 1, 1)) {
+        if (!readRawBytes(p + 1, 1)) {
             return false;
         }
         int8_t i8 = static_cast<int8_t>(p[1]);
@@ -554,12 +560,12 @@ bool MsgPackStreamPrivate::unpack_ulonglong(uint64_t &u64)
         }
         u64 = static_cast<uint64_t>(i8);
     } else if (p[0] == FirstByte::UINT16) {
-        if (!readBytes(p + 1, 2)) {
+        if (!readRawBytes(p + 1, 2)) {
             return false;
         }
         u64 = _msgpack_load16(p + 1);
     } else if (p[0] == FirstByte::INT16) {
-        if (!readBytes(p + 1, 2)) {
+        if (!readRawBytes(p + 1, 2)) {
             return false;
         }
         int16_t i16 = static_cast<int16_t>(_msgpack_load16(p + 1));
@@ -569,12 +575,12 @@ bool MsgPackStreamPrivate::unpack_ulonglong(uint64_t &u64)
         }
         u64 = static_cast<uint64_t>(i16);
     } else if (p[0] == FirstByte::UINT32) {
-        if (!readBytes(p + 1, 4)) {
+        if (!readRawBytes(p + 1, 4)) {
             return false;
         }
         u64 = _msgpack_load32(p + 1);
     } else if (p[0] == FirstByte::INT32) {
-        if (!readBytes(p + 1, 4)) {
+        if (!readRawBytes(p + 1, 4)) {
             return false;
         }
         int32_t i32 = static_cast<int32_t>(_msgpack_load32(p + 1));
@@ -584,12 +590,12 @@ bool MsgPackStreamPrivate::unpack_ulonglong(uint64_t &u64)
         }
         u64 = static_cast<uint64_t>(i32);
     } else if (p[0] == FirstByte::UINT64) {
-        if (!readBytes(p + 1, 8)) {
+        if (!readRawBytes(p + 1, 8)) {
             return false;
         }
         u64 = _msgpack_load64(p + 1);
     } else if (p[0] == FirstByte::INT64) {
-        if (!readBytes(p + 1, 8)) {
+        if (!readRawBytes(p + 1, 8)) {
             return false;
         }
         u64 = _msgpack_load64(p + 1);
@@ -608,7 +614,7 @@ bool MsgPackStreamPrivate::unpack_ulonglong(uint64_t &u64)
 bool MsgPackStreamPrivate::unpackString(string &s)
 {
     uint8_t p[5];
-    if (!readBytes(p, 1)) {
+    if (!readRawBytes(p, 1)) {
         return false;
     }
 
@@ -616,17 +622,17 @@ bool MsgPackStreamPrivate::unpackString(string &s)
     if (p[0] >= FirstByte::FIXSTR && p[0] <= (FirstByte::FIXSTR + 0x1f)) {  // fixstr
         len = p[0] - FirstByte::FIXSTR;
     } else if (p[0] == FirstByte::STR8) {
-        if (!readBytes(p + 1, 1)) {
+        if (!readRawBytes(p + 1, 1)) {
             return false;
         }
         len = p[1];
     } else if (p[0] == FirstByte::STR16) {
-        if (!readBytes(p + 1, 2)) {
+        if (!readRawBytes(p + 1, 2)) {
             return false;
         }
         len = _msgpack_load16(p + 1);
     } else if (p[0] == FirstByte::STR32) {
-        if (!readBytes(p + 1, 4)) {
+        if (!readRawBytes(p + 1, 4)) {
             return false;
         }
         len = _msgpack_load32(p + 1);
@@ -640,23 +646,23 @@ bool MsgPackStreamPrivate::unpackString(string &s)
 bool MsgPackStreamPrivate::unpackBin(string &s)
 {
     uint8_t p[5];
-    if (!readBytes(p, 1)) {
+    if (!readRawBytes(p, 1)) {
         return false;
     }
 
     uint32_t len = 0;
     if (p[0] == FirstByte::BIN8) {
-        if (!readBytes(p + 1, 1)) {
+        if (!readRawBytes(p + 1, 1)) {
             return false;
         }
         len = p[1];
     } else if (p[0] == FirstByte::BIN16) {
-        if (!readBytes(p + 1, 2)) {
+        if (!readRawBytes(p + 1, 2)) {
             return false;
         }
         len = _msgpack_load16(p + 1);
     } else if (p[0] == FirstByte::BIN32) {
-        if (!readBytes(p + 1, 4)) {
+        if (!readRawBytes(p + 1, 4)) {
             return false;
         }
         len = _msgpack_load32(p + 1);
@@ -670,7 +676,7 @@ bool MsgPackStreamPrivate::unpackBin(string &s)
 bool MsgPackStreamPrivate::readPayload(uint32_t len, string &s)
 {
     // Reject before resize(): length past remaining bytes would allocate first and
-    // only fail later in readBytes. std::string takes size_t; do not narrow through int.
+    // only fail later in readRawBytes. std::string takes size_t; do not narrow through int.
     if (!lengthFitsRemaining(len, pos, limit)) {
         ngDebug() << "read length is too large.";
         status = MsgPackStream::ReadCorruptData;
@@ -679,7 +685,7 @@ bool MsgPackStreamPrivate::readPayload(uint32_t len, string &s)
     string buf;
     if (len > 0) {
         buf.resize(len);
-        if (!readBytes(&buf[0], len)) {
+        if (!readRawBytes(&buf[0], len)) {
             return false;
         }
     }
@@ -687,7 +693,7 @@ bool MsgPackStreamPrivate::readPayload(uint32_t len, string &s)
     return true;
 }
 
-bool MsgPackStreamPrivate::writeBytes(const char *data, int64_t len)
+bool MsgPackStreamPrivate::writeRawBytes(const char *data, int64_t len)
 {
     if (status != MsgPackStream::Ok) {
         return false;
@@ -721,9 +727,9 @@ bool MsgPackStreamPrivate::writeBytes(const char *data, int64_t len)
     return true;
 }
 
-bool MsgPackStreamPrivate::writeBytes(const uint8_t *data, int len)
+bool MsgPackStreamPrivate::writeRawBytes(const uint8_t *data, int len)
 {
-    return writeBytes(static_cast<const char *>(static_cast<const void *>(data)), len);
+    return writeRawBytes(static_cast<const char *>(static_cast<const void *>(data)), len);
 }
 
 bool MsgPackStreamPrivate::writeArrayHeader(uint32_t len)
@@ -731,15 +737,15 @@ bool MsgPackStreamPrivate::writeArrayHeader(uint32_t len)
     uint8_t p[5];
     if (len <= 15) {
         p[0] = FirstByte::FIXARRAY | len;
-        writeBytes(p, 1);
+        writeRawBytes(p, 1);
     } else if (len <= numeric_limits<uint16_t>::max()) {
         p[0] = FirstByte::ARRAY16;
         _msgpack_store16(p + 1, static_cast<uint16_t>(len));
-        writeBytes(p, 3);
+        writeRawBytes(p, 3);
     } else {
         p[0] = FirstByte::ARRAY32;
         _msgpack_store32(p + 1, len);
-        writeBytes(p, 5);
+        writeRawBytes(p, 5);
     }
     return status == MsgPackStream::Ok;
 }
@@ -749,15 +755,15 @@ bool MsgPackStreamPrivate::writeMapHeader(uint32_t len)
     uint8_t p[5];
     if (len <= 15) {
         p[0] = FirstByte::FIXMAP | len;
-        writeBytes(p, 1);
+        writeRawBytes(p, 1);
     } else if (len <= numeric_limits<uint16_t>::max()) {
         p[0] = FirstByte::MAP16;
         _msgpack_store16(p + 1, static_cast<uint16_t>(len));
-        writeBytes(p, 3);
+        writeRawBytes(p, 3);
     } else {
         p[0] = FirstByte::MAP32;
         _msgpack_store32(p + 1, len);
-        writeBytes(p, 5);
+        writeRawBytes(p, 5);
     }
     return status == MsgPackStream::Ok;
 }
@@ -805,7 +811,7 @@ bool MsgPackStreamPrivate::writeExtHeader(uint32_t len, uint8_t msgpackType)
         p[5] = msgpackType;
         sz = 6;
     }
-    if (!writeBytes(p, sz)) {
+    if (!writeRawBytes(p, sz)) {
         return false;
     }
     return true;
@@ -940,7 +946,7 @@ MsgPackStream &MsgPackStream::operator>>(bool &b)
 {
     CHECK_STREAM_PRECOND(*this)
     uint8_t p[1];
-    if (!d->readBytes(p, 1)) {
+    if (!d->readRawBytes(p, 1)) {
         d->status = ReadPastEnd;
         b = false;
     } else {
@@ -1060,14 +1066,14 @@ MsgPackStream &MsgPackStream::operator>>(float &f)
 {
     CHECK_STREAM_PRECOND(*this);
     uint8_t p[5];
-    if (!d->readBytes(p, 1)) {
+    if (!d->readRawBytes(p, 1)) {
         return *this;
     }
     if (p[0] != FirstByte::FLOAT32) {
         d->status = ReadCorruptData;
         return *this;
     }
-    if (!d->readBytes(p + 1, 4)) {
+    if (!d->readRawBytes(p + 1, 4)) {
         return *this;
     }
     uint32_t i32 = _msgpack_load32(p + 1);
@@ -1079,14 +1085,14 @@ MsgPackStream &MsgPackStream::operator>>(double &f)
 {
     CHECK_STREAM_PRECOND(*this);
     uint8_t p[9];
-    if (!d->readBytes(p, 1)) {
+    if (!d->readRawBytes(p, 1)) {
         return *this;
     }
     if (p[0] != FirstByte::FLOAT64) {
         d->status = ReadCorruptData;
         return *this;
     }
-    if (!d->readBytes(p + 1, 8)) {
+    if (!d->readRawBytes(p + 1, 8)) {
         return *this;
     }
     uint64_t i64 = _msgpack_load64(p + 1);
@@ -1123,7 +1129,7 @@ MsgPackStream &MsgPackStream::operator>>(utils::DateTime &dt)
         dt = utils::DateTime();
     }
     uint8_t p[12];
-    if (!d->readBytes(p, len)) {
+    if (!d->readRawBytes(p, len)) {
         dt = utils::DateTime();
         return *this;
     }
@@ -1156,7 +1162,7 @@ MsgPackStream &MsgPackStream::operator>>(MsgPackExtData &ext)
     string payload;
     if (len > 0) {
         payload.resize(len);
-        if (!d->readBytes(&payload[0], len)) {
+        if (!d->readRawBytes(&payload[0], len)) {
             return *this;
         }
     }
@@ -1164,10 +1170,10 @@ MsgPackStream &MsgPackStream::operator>>(MsgPackExtData &ext)
     return *this;
 }
 
-bool MsgPackStream::readBytes(char *data, int64_t len)
+bool MsgPackStream::readRawBytes(char *data, int64_t len)
 {
     NG_D(MsgPackStream);
-    return d->readBytes(data, len);
+    return d->readRawBytes(data, len);
 }
 
 bool MsgPackStream::peekByte(uint8_t *b) const
@@ -1199,7 +1205,7 @@ MsgPackStream &MsgPackStream::operator<<(bool b)
     CHECK_STREAM_PRECOND(*this);
     uint8_t p[1];
     p[0] = b ? FirstByte::MTRUE : FirstByte::MFALSE;
-    d->writeBytes(p, 1);
+    d->writeRawBytes(p, 1);
     return *this;
 }
 
@@ -1209,11 +1215,11 @@ MsgPackStream &MsgPackStream::operator<<(uint8_t u8)
     uint8_t p[2];
     if (u8 <= FirstByte::POSITIVE_FIXINT) {
         _msgpack_store8(p, u8);
-        d->writeBytes(p, 1);
+        d->writeRawBytes(p, 1);
     } else {
         p[0] = FirstByte::UINT8;
         _msgpack_store8(p + 1, u8);
-        d->writeBytes(p, 2);
+        d->writeRawBytes(p, 2);
     }
     return *this;
 }
@@ -1227,7 +1233,7 @@ MsgPackStream &MsgPackStream::operator<<(uint16_t u16)
         uint8_t p[3];
         p[0] = FirstByte::UINT16;
         _msgpack_store16(p + 1, u16);
-        d->writeBytes(p, 3);
+        d->writeRawBytes(p, 3);
     }
     return *this;
 }
@@ -1241,7 +1247,7 @@ MsgPackStream &MsgPackStream::operator<<(uint32_t u32)
         uint8_t p[5];
         p[0] = FirstByte::UINT32;
         _msgpack_store32(p + 1, u32);
-        d->writeBytes(p, 5);
+        d->writeRawBytes(p, 5);
     }
     return *this;
 }
@@ -1255,7 +1261,7 @@ MsgPackStream &MsgPackStream::operator<<(uint64_t u64)
         uint8_t p[9];
         p[0] = FirstByte::UINT64;
         _msgpack_store64(p + 1, u64);
-        d->writeBytes(p, 9);
+        d->writeRawBytes(p, 9);
     }
     return *this;
 }
@@ -1266,11 +1272,11 @@ MsgPackStream &MsgPackStream::operator<<(int8_t i8)
     uint8_t p[2];
     if (-32 <= i8) {  //  && i8 <= 127 is always true
         _msgpack_store8(p, i8);
-        d->writeBytes(p, 1);
+        d->writeRawBytes(p, 1);
     } else {
         p[0] = i8 > 0 ? FirstByte::UINT8 : FirstByte::INT8;
         _msgpack_store8(p + 1, i8);
-        d->writeBytes(p, 2);
+        d->writeRawBytes(p, 2);
     }
     return *this;
 }
@@ -1285,12 +1291,12 @@ MsgPackStream &MsgPackStream::operator<<(int16_t i16)
         uint8_t p[2];
         p[0] = FirstByte::UINT8;
         _msgpack_store8(p + 1, static_cast<uint8_t>(i16));
-        d->writeBytes(p, 2);
+        d->writeRawBytes(p, 2);
     } else {
         uint8_t p[3];
         p[0] = i16 > 0 ? FirstByte::UINT16 : FirstByte::INT16;
         _msgpack_store16(p + 1, i16);
-        d->writeBytes(p, 3);
+        d->writeRawBytes(p, 3);
     }
     return *this;
 }
@@ -1304,12 +1310,12 @@ MsgPackStream &MsgPackStream::operator<<(int32_t i32)
         uint8_t p[3];
         p[0] = FirstByte::UINT16;
         _msgpack_store16(p + 1, static_cast<uint16_t>(i32));
-        d->writeBytes(p, 3);
+        d->writeRawBytes(p, 3);
     } else {
         uint8_t p[5];
         p[0] = i32 > 0 ? FirstByte::UINT32 : FirstByte::INT32;
         _msgpack_store32(p + 1, i32);
-        d->writeBytes(p, 5);
+        d->writeRawBytes(p, 5);
     }
     return *this;
 }
@@ -1323,12 +1329,12 @@ MsgPackStream &MsgPackStream::operator<<(int64_t i64)
         uint8_t p[5];
         p[0] = FirstByte::UINT32;
         _msgpack_store32(p + 1, static_cast<uint32_t>(i64));
-        d->writeBytes(p, 5);
+        d->writeRawBytes(p, 5);
     } else {
         uint8_t p[9];
         p[0] = i64 > 0 ? FirstByte::UINT64 : FirstByte::INT64;
         _msgpack_store64(p + 1, i64);
-        d->writeBytes(p, 9);
+        d->writeRawBytes(p, 9);
     }
     return *this;
 }
@@ -1342,7 +1348,7 @@ MsgPackStream &MsgPackStream::operator<<(float f)
     u32 = *((uint32_t *) &f);
     //    strncpy(static_cast<char*>(static_cast<void*>(&u32)), static_cast<char*>(static_cast<void*>(&f)), 4);
     _msgpack_store32(p + 1, u32);
-    d->writeBytes(p, 5);
+    d->writeRawBytes(p, 5);
     return *this;
 }
 
@@ -1354,14 +1360,7 @@ MsgPackStream &MsgPackStream::operator<<(double f)
     uint64_t u64;
     u64 = *((uint64_t *) &f);
     _msgpack_store64(p + 1, u64);
-    d->writeBytes(p, 9);
-    return *this;
-}
-
-MsgPackStream &MsgPackStream::operator<<(const string &str)
-{
-    const string &bytes = str;
-    writeString(bytes.data(), bytes.size());
+    d->writeRawBytes(p, 9);
     return *this;
 }
 
@@ -1388,7 +1387,7 @@ MsgPackStream &MsgPackStream::operator<<(const utils::DateTime &dt)
     if (!d->writeExtHeader(static_cast<uint32_t>(bs.size()), 0xff)) {
         return *this;
     }
-    d->writeBytes(bs.data(), bs.size());
+    d->writeRawBytes(bs.data(), bs.size());
     return *this;
 }
 
@@ -1411,39 +1410,50 @@ MsgPackStream &MsgPackStream::operator<<(const MsgPackExtData &ext)
     if (!success) {
         return *this;
     }
-    d->writeBytes(ext.payload().data(), ext.payload().size());
+    d->writeRawBytes(ext.payload().data(), ext.payload().size());
     return *this;
 }
 
 bool MsgPackStream::writeBytes(const char *data, int64_t len)
 {
-    NG_D(MsgPackStream);
-    return d->writeBytes(data, len);
+    CHECK_STREAM_PRECOND(false);
+    // The payload length goes into a 32-bit header field. Reject negative or
+    // oversized lengths instead of silently truncating.
+    if (len < 0 || static_cast<uint64_t>(len) > numeric_limits<uint32_t>::max()) {
+        d->status = WriteFailed;
+        return false;
+    }
+    uint8_t p[5];
+    int sz;
+    const uint32_t n = static_cast<uint32_t>(len);
+    if (n <= numeric_limits<uint8_t>::max()) {
+        p[0] = FirstByte::BIN8;
+        _msgpack_store8(p + 1, static_cast<uint8_t>(n));
+        sz = 2;
+    } else if (n <= numeric_limits<uint16_t>::max()) {
+        p[0] = FirstByte::BIN16;
+        _msgpack_store16(p + 1, static_cast<uint16_t>(n));
+        sz = 3;
+    } else {
+        p[0] = FirstByte::BIN32;
+        _msgpack_store32(p + 1, n);
+        sz = 5;
+    }
+    if (!d->writeRawBytes(p, sz)) {
+        return false;
+    }
+    return d->writeRawBytes(data, len);
 }
 
 bool MsgPackStream::writeBytes(const string &data)
 {
-    CHECK_STREAM_PRECOND(false);
-    uint8_t p[5];
-    int sz;
-    const uint32_t len = static_cast<uint32_t>(data.size());
-    if (len <= numeric_limits<uint8_t>::max()) {
-        p[0] = FirstByte::BIN8;
-        _msgpack_store8(p + 1, static_cast<uint8_t>(len));
-        sz = 2;
-    } else if (len <= numeric_limits<uint16_t>::max()) {
-        p[0] = FirstByte::BIN16;
-        _msgpack_store16(p + 1, static_cast<uint16_t>(len));
-        sz = 3;
-    } else {
-        p[0] = FirstByte::BIN32;
-        _msgpack_store32(p + 1, len);
-        sz = 5;
-    }
-    if (!d->writeBytes(p, sz)) {
-        return false;
-    }
-    return d->writeBytes(data.data(), static_cast<int64_t>(data.size()));
+    return writeBytes(data.data(), static_cast<int64_t>(data.size()));
+}
+
+bool MsgPackStream::writeRawBytes(const char *data, int64_t len)
+{
+    NG_D(MsgPackStream);
+    return d->writeRawBytes(data, len);
 }
 
 bool MsgPackStream::writeString(const string &data)
@@ -1472,10 +1482,10 @@ bool MsgPackStream::writeString(const char *data, uint32_t len)
         _msgpack_store32(p + 1, len);
         sz = 5;
     }
-    if (!d->writeBytes(p, sz)) {
+    if (!d->writeRawBytes(p, sz)) {
         return false;
     }
-    return d->writeBytes(data, len);
+    return d->writeRawBytes(data, len);
 }
 
 bool MsgPackStream::writeArrayHeader(uint32_t len)
