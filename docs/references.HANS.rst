@@ -971,6 +971,39 @@ qtng 支持 IPv4 和 IPv6，旨在提供类似 Python socket 模块的面向对�
 
     std::string版本的数据报发送方法
 
+Datagram
+^^^^^^^^
+
+``Datagram`` 是一个值类型，承载单个数据报及其来源（接收时）或目标（发送时）地址：
+
+.. code-block:: c++
+
+    struct Datagram
+    {
+        char *data;
+        std::int32_t len;
+        HostAddress addr;
+        std::uint16_t port;
+    };
+
+负载缓冲区始终由调用方拥有，本类型不会释放它。发送时填好 ``data``/``len``/``addr``/``port``；接收时先把 vector 调整为愿意接收的个数，每个条目的 ``data`` 指向可写缓冲、``len`` 为该缓冲的容量（字节）。
+
+.. method:: std::int32_t recvfrom(std::vector<Datagram> *datagrams)
+
+    一次性接收多个数据报，仅用于数据报套接字。
+
+    ``datagrams`` 须由调用方先调整好尺寸并填好参数：每个条目在 ``data`` 提供可写缓冲、在 ``len`` 提供其容量，``datagrams->size()`` 即最多接收的数据报个数。阻塞当前协程直到至少有一个数据报可用，随后把已排队的、至多 ``datagrams->size()`` 个数据报全部取走，不会为凑满而等待。返回前 vector 会收缩为实际收到的个数，每个条目的 ``len`` 为实际收到的字节数（超过容量的数据报按容量截断）。
+
+    返回收到的负载总字节数。出错返回 `-1`；只要已收到至少一个数据报，部分成功仍算成功。
+
+.. method:: std::int32_t sendto(const std::vector<Datagram> &datagrams)
+
+    一次性发送多个数据报，仅用于数据报套接字。
+
+    阻塞当前协程直到所有数据报都已交给内核；负载在调用期间由调用方借用。
+
+    返回发出的负载总字节数。只要有数据报未能发出就返回 `-1`，此时前面的数据报可能已经发出。空 vector 返回 `0`。
+
 状态与信息查询
 ^^^^^^^^^^^^^^
 .. method:: SocketError error() const
@@ -4032,16 +4065,27 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 会话逻辑可以跑在 UDP、ICMP 或其它自定义报文通道上。
 
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — 以**字节**计的内存预算
-  （经 ``mss+72`` 换算为段数）；生效发送窗口为 ``min(BDP 额度, 该上限, rmt_wnd)``。
-  冷启动预算为 256 段。没有任何丢包或排队时延证据时，发送预算不低于冷启动下限；
-  只有丢包或持续排队时延才能把它压到这个下限以下。应用未填满窗口（``waitsnd == 0``，
-  或本拍发送量远小于窗口）时不更新 ``deliveryBps``，也不收缩窗口。
+  （经 ``mss+72`` 换算为段数）；生效发送窗口为 ``min(Tuner 额度, 该上限, rmt_wnd)``。
+  冷启动预算为 256 段。Tuner 按 BBRv1 风格控制律确定预算：容量由
+  ``btlBw * srttMin * gain`` 得出，丢包绝不作为容量信号。应用未填满窗口
+  （``waitsnd == 0``，或本拍发送量远小于窗口）时不更新带宽估计，也不收缩窗口。
 * ``setTunerEnabled`` / ``tunerEnabled`` — 为 true（默认，``KcpSocket`` 使用）时，
   每拍运行发送预算 Tuner，且 ikcp ``fastresend`` 初值为 16（Tuner 可按乱序调整）。
-  Tuner 丢包率超过 5% 会收缩发送预算，但只因丢包收缩时的下限是冷启动预算（256 段）。
   为 false 时 Tuner 不再改写 ``sendBudgetSegs``，``fastresend`` 保持 0：乱序不触发
   快重传。SLOW 多路径将其设为 false，并由外部写入预算。``accept()`` 得到的 slave
   在创建时快照该标志，与 MTU 相同。
+  Tuner 遵循 BBRv1：带宽取最近一个窗口内交付速率的**最大值**，传播时延取 10s 窗口内
+  srtt 的最小值。Startup / Drain / ProbeBW / ProbeRTT 状态机据此确定窗口目标：Startup
+  以 ``btlBw * srttMin * gain`` 为目标倍增，直到带宽估计不再增长；Drain 在该过冲后
+  把在途数据压回 BDP；ProbeBW 跟随一个**上探测上限**；ProbeRTT 每 10s 至多一次、排空到
+  8 段下限并持续 200ms，用于重新测量时延下限。窗口始终受 ``setSendBufferLimit`` 封顶。
+  丢包完全不参与窗口大小：既不是门限，也不是乘性降窗，也不是每拍扣除；上探测亦完全
+  忽略丢包。这一点很关键——预算的目标本身取自实测速率，而实测速率又由窗口决定，于是
+  任何"因丢包而缩窗"的行为都会同时压小那个用来定窗的估计；在高带宽 + 随机丢包
+  （WiFi 型）链路上，这个反馈会直接把窗口和吞吐一起压到地板。因此 ProbeBW 改为抬高一个
+  **独立于该估计**的上限（管道满且无排队时每拍 ×5/4，出现排队时 ×9/10，且不低于 BDP）
+  并直接跟随它。pacing 仍未实现，故探测的突发行为尚不理想。
+  实测对比见 ``examples/kcp-bench/README.md`` 的 P5 节。
 * ``setSendBudgetSegs`` — 写入 ``sendBudgetSegs`` 并 ``applySendWindow()``。仅当
   Tuner 已关闭时返回 true；否则返回 false，避免外部预算被下一拍 Tuner 覆盖。
   允许 ``0``（路径 cwnd 耗尽 → ``snd_wnd=0``）。此时 ``send`` / ``sendall``
@@ -4069,6 +4113,11 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 关闭会话。眼下发不出去、但仍希望段留在 ``snd_buf`` 等下次 RTO 的调用方，必须
 仍然返回 ``size``。
 
+``DatagramLink`` 另有批量的 ``recvfrom`` 重载，与 ``Socket`` 一样返回字节数。
+基类实现是在单包 ``recvfrom`` 上循环，遇到首个 ``0`` 或负数即停止；``UdpDatagramLink`` 覆盖它，
+转交给底层 ``Socket``，并对每个数据报应用 filter。没有批量 ``sendto``：``KcpStream`` 每个
+``rawSend`` 只发一个数据报（基准测试未测出批量发送的吞吐收益，反而引入一次额外拷贝）。
+
 优雅 ``close()`` 最多等待 3 秒排空发送队列。``CLOSE`` 控制包仅在源 ``DatagramPath`` 与已记录
 对端路径一致时生效；其它路径发来的伪造关闭会被忽略。
 
@@ -4093,10 +4142,16 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 
 mKCP 式 ACK 优化（在版本 2 线格式下启用）：当两端协商为 ``protocolVersion`` 2 时，
 ACK 打包进紧凑的 ``0x55`` ACKN 帧——``[conv(4)][cmd(1)=0x55][count(2)][wnd(2)][una(4)]``
-后接每个 ACK 的 ``[sn(4) + ts(4)]``——而不是每个数据包一个 24 字节 ACK 段；
-待确认批次每 ``interval*3`` 毫秒重传一次，最多 5 次（重复 ACK 对端幂等无害，
-因此不需要跟踪提前确认）。``src/kcp/ikcp.c`` 暴露 ``ikcp_ackn_mode()`` /
-``ikcp_ackn_param()``；该优化默认关闭，关闭时线格式与上游 ikcp 逐字节一致。
+后接每个 ACK 的 ``[sn(4) + ts(4)]``——而不是每个数据包一个 24 字节 ACK 段。
+待发送批次每次 flush 都会清空，因此丢失的 ACKN 帧由发送端的数据 RTO 恢复，
+与丢失普通 ACK 时一致。``src/kcp/ikcp.c`` 暴露 ``ikcp_ackn_mode()``；
+该优化默认关闭，关闭时线格式与上游 ikcp 逐字节一致。
+
+每个 ``KcpStream`` 持有本会话的 ikcp 段池（经 ``ikcp_set_segment_allocator()`` 装载），
+使 ``ikcp_segment_new``/``delete`` 复用 mss 大小的段，而不是每个包调用两次
+``malloc``/``free``。该池严格 per-kcp 且无锁。``kcpSegmentOsAllocationCount()``
+返回进程内为段做出的真实堆分配次数（池未命中的次数），是供基准使用的诊断接口，
+正常使用无需关心。
 
 ``wrapKcpStreamAsSocket`` 为公开 API：可将任意 ``DatagramLink`` 上的 ``KcpStream``
 包装为 ``KcpSocket``；底层非 UDP 时，仅 UDP 相关方法会失败或空操作。
@@ -4647,3 +4702,106 @@ qtng 在网络代码中用到的两个字节缓冲区都位于命名空间 ``qtn
 
 该类可移动但不可拷贝,且不是线程安全的(单线程使用,同 ``ByteBuffer``)。
 扩容时的 rehoming 与反别名 recenter 都是内部实现;公开接口稳定。
+
+
+11. 值类型
+-----------
+
+``qtng::String`` 与 ``qtng::ByteArray``(位于 ``qtng/types/string.h`` 与
+``qtng/types/bytes.h``)是隐式共享的值类
+型:拷贝只增加一次原子引用计数,内容不可变(没有 ``detach()``,也没有可写的
+``operator[]``)。增量构建字符串用 ``StringBuilder``;拼接固定的若干片段用
+``operator+``,它只分配一次。
+
+两者共享同一套存储布局,但语义不同:
+
+* ``String`` 是**文本**;``ByteArray`` 是**字节**。两者之间没有隐式转换;显式转换用
+  ``String::fromUtf8(const ByteArray &)`` 与 ``String::toUtf8()``。由于 ``String``
+  本身就以 UTF-8 存储,这两个转换既不做转码也不做校验,只是把内容按字节原样重解释;
+  内容超过内联容量时两个句柄共享同一块存储(O(1),不复制)。
+* ``String::size()``、``length()``、``count()`` 以及所有下标与切片长度都按
+  **UTF-8 code point** 计数(同 ``QString``)。``String("héllo").size()`` 为 5。
+  字节数用 ``byteSize()``(供 ``data()``/``toUtf8String()``/序列化使用)。非法
+  UTF-8 被容忍:一段非法或被截断的序列按一个 code point 计,因此恒有
+  ``size() <= byteSize()``,且不会越界读取。
+* ``ByteArray`` 的方法按字节操作(同 ``QByteArray``)。
+
+两者都可直接用 ``MsgPackStream`` 序列化:``operator<<``/``operator>>`` 把
+``String`` 按 MessagePack **str** 读写,把 ``ByteArray`` 按 **bin** 读写,wire
+类型由 C++ 类型决定,不必再从裸 ``std::string`` 去猜。这两个运算符声明在类型头里
+(包含 ``qtng/types/string.h`` 或 ``qtng/types/bytes.h`` 即可),内部用
+``byteSize()``,因此内嵌的 ``'\0'`` 与非 ASCII 内容都能原样往返。
+
+两者都不保证 NUL 结尾,也没有 ``c_str()``;内容可以包含 ``'\0'``,只有
+``size()``/``byteSize()`` 定义长度。
+
+.. code-block:: c++
+
+    qtng::String s = "héllo";                        // 5 个 code point,6 字节
+    s.size();                                        // 5
+    s.byteSize();                                    // 6
+    s.toUpper();                                     // "HÉLLO"
+    s.contains("é");                                 // true
+    s.indexOf("llo");                                // 2(code point 下标)
+    qtng::StringList parts = s.split('l');           // ["hé", "", "o"]
+    qtng::String joined = parts.join("-");           // "hé--o"
+
+String 接口要点(全部非变异,均返回新的 String):
+
+* 长度与元素:``size()``/``length()``/``count()``、``byteSize()``、
+  ``at()``/``operator[]``/``front()``/``back()``(返回 code point;越界得到 0)、
+  ``constData()``。
+* 切片:``left()``、``right()``、``mid()``、``sliced()``、``chopped()``。
+* 搜索:``indexOf()``/``lastIndexOf()``(返回 code point 下标或
+  ``String::npos``)、``contains()``、``startsWith()``、``endsWith()``、
+  ``count(needle)``/``count(char)``。
+* 变换:``trimmed()``、``simplified()``、``toLower()``、``toUpper()``
+  (ASCII、Latin-1、希腊字母与西里尔字母)、``replaced()``、``repeated()``。
+* 拆分与连接:``split()`` 返回 ``StringList``,其成员 ``join()`` 负责连接。
+* 数值:``String::number()`` 与 ``toInt()``/``toUInt()``/``toLongLong()``/
+  ``toULongLong()``/``toDouble()``/``toFloat()``,可选 ``bool *ok``。
+* 字节:``String::fromUtf8(ba)`` 与 ``toUtf8()``——把 UTF-8 字节显式、零拷贝地重解释为
+  ``ByteArray`` 并转回(不做转码、不做校验;长内容共享同一块存储)。
+* 比较:``==``、``!=``、``<``、``<=``、``>``、``>=``。
+* 大小写:``compare()``、``contains(needle, cs)``、``replaced(before, after, cs)``
+  接受 ``CaseSensitivity``(``CaseSensitive`` / ``CaseInsensitive``)。折叠是
+  1:1 的,覆盖 ASCII、Latin-1、希腊字母与西里尔字母。
+
+``StringList`` 是 ``Vector<String>`` 再加上非容器通用的 ``QStringList`` 词汇:
+``join()``(``String`` 或 ``char`` 分隔符)、``filter()``、``sort(cs)``、
+``replaceInStrings(before, after, cs)``、``removeDuplicates()``(返回删除的个数;
+先排序再去掉相邻重复,因此保留下来的元素顺序会变),以及 ``contains()`` /
+``indexOf()`` / ``lastIndexOf()`` 的大小写不敏感重载。容器通用方法
+(``isEmpty`` / ``first`` / ``last`` / ``value`` / ``takeFirst`` / ``removeAll`` …)
+全部继承自 ``Vector``;「未找到」用 ``npos``(``size_type(-1)``),不是 Qt 的
+``int -1``。
+
+COW 容器
+^^^^^^^^
+
+``qtng::Vector``、``Deque``、``List``、``Map``、``Set``、``UnorderedMap`` 与
+``UnorderedSet``(位于 ``qtng/types/containers.h``)是隐式共享的包装类型,分别包住对应的
+STL 容器:拷贝只增加一次原子引用计数,首次写入时才 detach 出一份私有副本。在 STL 的交集
+之上,它们补了一层 Qt 容器惯用 API:
+
+* ``isEmpty()``——``empty()`` 的 Qt 写法。
+* 序列容器(``Vector``/``Deque``/``List``):``removeAll()``、``removeOne()``、
+  ``removeFirst()``/``removeLast()``、``takeFirst()``/``takeLast()``、
+  ``prepend()``/``append()``、``contains()``/``count()``、``indexOf()``/``lastIndexOf()``
+  (返回下标或 ``npos``)、``first()``/``last()``、``startsWith()``/``endsWith()``、
+  ``removeIf()``、``fill()``,以及反向迭代(``rbegin()``/``rend()``)。
+* ``Vector`` 与 ``Deque`` 另有按下标操作的一批:``removeAt()``/``takeAt()``/
+  ``insert(i, v)``/``replace()``/``value()``/``swapItemsAt()``/``move()``;``Vector``
+  还有 ``squeeze()``。``List`` 故意不提供这些:``std::list`` 没有随机访问,给了也只是
+  O(n) 陷阱。
+* ``Map``/``UnorderedMap``:``remove()``、``take()``、``value()``、``keys()``、
+  ``values()``、``key()``、``insert(k, v)``(覆盖同 key)、``unite()``、``removeIf()``;
+  有序的 ``Map`` 还有 ``firstKey()``/``lastKey()``/``first()``/``last()``。
+* ``Set``/``UnorderedSet``:``remove()``、``removeIf()``、``unite()``、``intersect()``、
+  ``subtract()`` 与 ``values()``。
+
+这些方法遵循同一条 COW 规则:const 重载(``indexOf``、``contains``、``count``、
+``value``、``keys``、``values``、各只读 ``first()``/``last()`` 等)只读、绝不 detach;
+变异重载先 detach。"未找到"是 ``npos``(``size_type(-1)``),而不是 Qt 的整型 ``-1``。
+越界下标与缺失的 key 都有定义——返回哨兵值(如 ``T()``)或按无操作处理——不产生未定义
+行为。``Map`` 的 ``firstKey()``/``lastKey()``/``first()``/``last()`` 要求 map 非空。

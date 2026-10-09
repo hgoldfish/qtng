@@ -129,3 +129,10 @@ The binding exposes the full qtng 2.0 public surface with Qt types, plus 1.0 com
 ``createKcpConnection``); ``utp.h`` is ``UtpStream`` / ``UtpSocket`` (and
 ``createUtpConnection``). New 2.0 modules include
 ``bencode``, ``kademlia``, ``noise``, ``multi_stream``, and ``udp``.
+
+``Socket`` mirrors the core batch datagram API with a Qt ``Datagram`` value type whose payload is a
+``QByteArray`` (which owns its memory): ``recvfrom(QList<Datagram> *)`` takes a list already sized and
+filled by the caller (each entry's ``QByteArray`` is the writable buffer), blocks for the first datagram
+and then drains what is queued, while ``sendto(const QList<Datagram> &)`` returns only after every
+datagram has been handed to the kernel. Both return the number of bytes handled, matching the
+single-datagram overloads. ``DatagramLink`` gains the same batch pair.

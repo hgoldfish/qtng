@@ -1196,6 +1196,39 @@ These are the member functions of ``Socket`` type.
 
     If some error occured, function returns `-1`. You can use ``error()`` and ``errorString()`` to get the error message.
 
+Datagram
+^^^^^^^^
+
+``Datagram`` is a value type carrying a single datagram together with its source (on receive) or destination (on send):
+
+.. code-block:: c++
+
+    struct Datagram
+    {
+        char *data;
+        std::int32_t len;
+        HostAddress addr;
+        std::uint16_t port;
+    };
+
+The caller always owns the payload buffer; this type never frees it. For send, fill in ``data``/``len``/``addr``/``port``. For receive, size the vector to the number of datagrams you are willing to take, point each entry's ``data`` at a writable buffer, and set ``len`` to that buffer's capacity in bytes.
+
+.. method:: std::int32_t recvfrom(std::vector<Datagram> *datagrams)
+
+    Receive several datagrams at once. This is used for datagram socket only.
+
+    ``datagrams`` must already be sized and filled by the caller: each entry provides a writable buffer in ``data`` and its capacity in ``len``, and ``datagrams->size()`` is the maximum number of datagrams to receive. The call blocks the current coroutine until at least one datagram is available, then returns every datagram already queued (up to ``datagrams->size()``) without waiting to fill the vector. On return the vector is shrunk to the number received, and each entry's ``len`` holds the bytes received (a datagram larger than its capacity is truncated).
+
+    Return the total number of payload bytes received. If some error occured, function returns `-1`; a partial result with at least one datagram is still a success.
+
+.. method:: std::int32_t sendto(const std::vector<Datagram> &datagrams)
+
+    Send several datagrams at once. This is used for datagram socket only.
+
+    Blocks the current coroutine until every datagram has been handed to the kernel. The payloads are borrowed from the caller for the duration of the call.
+
+    Return the total number of payload bytes sent. If any datagram could not be sent, function returns `-1`; datagrams before the failure may already have gone out. An empty vector returns `0`.
+
 .. method:: SocketError error() const
 
     Return the type of error that last occurred.
@@ -4404,20 +4437,39 @@ Public knobs:
 
 * ``setSendBufferLimit`` / ``sendBufferLimit`` — memory budget in **bytes**
   (converted to segments via ``mss+72``); effective send window is
-  ``min(BDP budget, this limit, rmt_wnd)``. Cold-start budget is 256 segments.
-  With no loss and no queuing-delay evidence, the send budget stays at least
-  the cold-start floor. Only loss or sustained queuing delay may push it
-  below that floor. An app-limited period (``waitsnd == 0``, or this period
-  sent far less than the window) does not update ``deliveryBps`` and never
-  shrinks the window.
+  ``min(Tuner budget, this limit, rmt_wnd)``. Cold-start budget is 256 segments.
+  The Tuner sizes the budget from a BBRv1-style controller: capacity is
+  ``btlBw * srttMin * gain`` and loss is never read as a capacity signal. An
+  app-limited period (``waitsnd == 0``, or this period sent far less than the
+  window) does not update the bandwidth estimate and never shrinks the window.
 * ``setTunerEnabled`` / ``tunerEnabled`` — when true (default, used by
   ``KcpSocket``), the send-budget Tuner runs each period and ikcp
-  ``fastresend`` starts at 16 (Tuner may adapt it from reorder). A Tuner
-  loss rate above 5% shrinks the send budget, but the loss-only floor is the
-  cold-start budget (256 segments). When false, the Tuner does not rewrite
-  ``sendBudgetSegs`` and ``fastresend`` stays 0: reordering is not a fast
-  retransmit. SLOW multipath sets this to false and drives the budget from
-  outside. ``accept()`` slaves snapshot the flag at construction, like MTU.
+  ``fastresend`` starts at 16 (Tuner may adapt it from reorder). When false,
+  the Tuner does not rewrite ``sendBudgetSegs`` and ``fastresend`` stays 0:
+  reordering is not a fast retransmit. SLOW multipath sets this to false and
+  drives the budget from outside. ``accept()`` slaves snapshot the flag at
+  construction, like MTU.
+  The Tuner follows BBRv1. Bandwidth is the **maximum** delivery-rate sample
+  over a recent window, and the propagation delay is the minimum srtt over a
+  10s window. A Startup/Drain/ProbeBW/ProbeRTT state machine turns those
+  estimates into a window target: Startup doubles toward
+  ``btlBw * srttMin * gain`` until the bandwidth estimate stops growing, Drain
+  pulls in-flight back down to the BDP after that overshoot, ProbeBW follows an
+  up-probe ceiling, and ProbeRTT drains to the 8-segment floor for 200ms at most
+  once per 10s to re-measure the delay floor. The window stays bounded by
+  ``setSendBufferLimit``.
+  Loss does not size the window at all: it is neither a threshold, nor a
+  multiplicative shrink, nor a per-period deduction, and the up-probe ignores it
+  entirely. This matters because the budget's own target is derived from the
+  achieved rate, which the window itself sets -- anything that shrinks the window
+  on loss also shrinks the estimate that sizes it, and on a high-bandwidth path
+  with random loss (a WiFi-shaped link) that feedback otherwise collapses the
+  window to its floor and throughput with it. ProbeBW instead raises a ceiling
+  that is independent of that estimate (x5/4 per period while the pipe is full
+  and the queue empty, x9/10 when a queue stands, never below the BDP) and
+  follows it directly. Pacing is still not implemented, so the probe's burst
+  behaviour is not yet ideal.
+  ``examples/kcp-bench/README.md`` (section P5) holds the measured comparison.
 * ``setSendBudgetSegs`` — write ``sendBudgetSegs`` and ``applySendWindow()``.
   Returns true only when the Tuner is disabled; otherwise returns false so an
   external budget is not overwritten by the next Tuner period. ``0`` is allowed
@@ -4448,6 +4500,14 @@ or intentionally dropped (UDP-style). ``KcpStream`` treats any other return —
 ``0``, a short write, or negative — as a hard failure and closes the session.
 Callers that cannot send now, but still want the segment kept in ``snd_buf``
 for a later RTO, must return ``size``.
+
+``DatagramLink`` also has a batch ``recvfrom`` overload that, like ``Socket``'s,
+returns a byte count. The base implementation loops over the single-datagram
+``recvfrom`` and stops at the first ``0`` or negative result;
+``UdpDatagramLink`` overrides it to delegate to the underlying ``Socket`` (and
+applies its filter per datagram). There is no batch ``sendto``: ``KcpStream``
+sends one datagram per ``rawSend`` (the benchmark found no throughput gain from
+batching sends, and it forced an extra copy).
 
 Graceful ``close()`` waits up to 3 seconds for the send queue to drain. A ``CLOSE`` control
 packet is accepted only when its source ``DatagramPath`` matches the recorded peer path;
@@ -4480,12 +4540,18 @@ mKCP-style ACK optimization (enabled on the version-2 wire): when both peers
 settle on ``protocolVersion`` 2, ACKs are packed into compact ``0x55`` ACKN
 frames — ``[conv(4)][cmd(1)=0x55][count(2)][wnd(2)][una(4)]`` followed by
 ``[sn(4) + ts(4)]`` per ack — instead of one 24-byte ACK segment per data
-packet, and the pending batch is retransmitted every ``interval*3`` ms for at
-most 5 attempts (duplicate ACKs are idempotent on the peer, so no early
-confirmation is tracked).
-``src/kcp/ikcp.c`` exposes ``ikcp_ackn_mode()`` / ``ikcp_ackn_param()``; the
-optimization stays off by default, so the wire format is byte-identical to
-upstream ikcp when it is disabled.
+packet. The pending batch is drained on every flush, so a lost ACKN frame is
+recovered by the sender's data RTO exactly as a lost plain ACK would be.
+``src/kcp/ikcp.c`` exposes ``ikcp_ackn_mode()``; the optimization stays off by
+default, so the wire format is byte-identical to upstream ikcp when it is
+disabled.
+
+Each ``KcpStream`` owns a per-session pool of ikcp segments (installed through
+``ikcp_set_segment_allocator()``), so ``ikcp_segment_new``/``delete`` recycle
+mss-sized segments instead of calling ``malloc``/``free`` twice per packet. The
+pool is strictly per-kcp and lock-free. ``kcpSegmentOsAllocationCount()`` returns
+the process-wide number of real heap allocations made for segments (pool
+misses); it is a diagnostic used by benchmarks and is unnecessary in normal use.
 
 ``wrapKcpStreamAsSocket`` is public: wrap any ``KcpStream`` (any ``DatagramLink``)
 as a ``KcpSocket``. UDP-only methods fail or no-op when the link is not UDP.
@@ -5097,3 +5163,121 @@ Key members:
 The class is movable but not copyable, and is not thread-safe (single-threaded
 use, like ``ByteBuffer``). Growth rehoming and the aliasing-safe recenter are
 internal; the public interface is stable.
+
+
+11. Value Types
+---------------
+
+``qtng::String`` and ``qtng::ByteArray`` (in ``qtng/types/string.h`` and
+``qtng/types/bytes.h``) are implicitly
+shared value types: copying one only bumps an atomic reference count, and the
+content is immutable (there is no ``detach()`` and no writable ``operator[]``).
+Build strings incrementally with ``StringBuilder``; join a fixed set of pieces
+with ``operator+``, which materializes in a single allocation.
+
+The two share the same storage layout but not their semantics:
+
+* ``String`` is **text**; ``ByteArray`` is **bytes**, and there is no implicit
+  conversion in either direction. The explicit conversions are
+  ``String::fromUtf8(const ByteArray &)`` and ``String::toUtf8()``. Because
+  ``String`` is stored as UTF-8 these do not transcode or validate the bytes:
+  the content is reinterpreted byte-for-byte, and for content longer than the
+  inline capacity the two handles share one block (O(1), no copy).
+* ``String::size()``, ``length()``, ``count()``, every index and every slicing
+  length count **UTF-8 code points**, like ``QString``.
+  ``String("héllo").size()`` is 5. Use ``byteSize()`` for the number of bytes
+  (what ``data()``/``toUtf8String()``/serialization need). Malformed UTF-8 is
+  tolerated: an invalid or truncated sequence counts as one code point, so
+  ``size() <= byteSize()`` always holds and nothing reads past the end.
+* ``ByteArray`` methods are byte-oriented, like ``QByteArray``.
+
+Both are directly serializable with ``MsgPackStream``: ``operator<<``/``operator>>``
+write and read a ``String`` as a MessagePack **str** and a ``ByteArray`` as
+**bin**, so the wire type is decided by the C++ type instead of being guessed
+from a bare ``std::string``. The operators are declared in the type headers
+(include ``qtng/types/string.h`` or ``qtng/types/bytes.h``) and use
+``byteSize()``, so embedded ``'\0'`` and non-ASCII survive a round-trip.
+
+Neither guarantees NUL termination, and neither has ``c_str()``; the content may
+contain ``'\0'``, so only ``size()``/``byteSize()`` define the length.
+
+.. code-block:: c++
+
+    qtng::String s = "héllo";                        // 5 code points, 6 bytes
+    s.size();                                        // 5
+    s.byteSize();                                    // 6
+    s.toUpper();                                     // "HÉLLO"
+    s.contains("é");                                 // true
+    s.indexOf("llo");                                // 2 (code point index)
+    qtng::StringList parts = s.split('l');           // ["hé", "", "o"]
+    qtng::String joined = parts.join("-");           // "hé--o"
+
+String API highlights (all non-mutating, each returns a new String):
+
+* Length and elements: ``size()``/``length()``/``count()``, ``byteSize()``,
+  ``at()``/``operator[]``/``front()``/``back()`` (a code point value; out of
+  range yields 0), ``constData()``.
+* Slicing: ``left()``, ``right()``, ``mid()``, ``sliced()``, ``chopped()``.
+* Search: ``indexOf()``/``lastIndexOf()`` (return a code point index or
+  ``String::npos``), ``contains()``, ``startsWith()``, ``endsWith()``,
+  ``count(needle)``/``count(char)``.
+* Transforms: ``trimmed()``, ``simplified()``, ``toLower()``, ``toUpper()``
+  (ASCII, Latin-1, Greek and Cyrillic), ``replaced()``, ``repeated()``.
+* Split and join: ``split()`` returning a ``StringList``, and its member
+  ``join()``.
+* Numbers: ``String::number()`` and ``toInt()``/``toUInt()``/``toLongLong()``/
+  ``toULongLong()``/``toDouble()``/``toFloat()``, each with an optional
+  ``bool *ok``.
+* Bytes: ``String::fromUtf8(ba)`` and ``toUtf8()`` -- explicit, zero-copy
+  reinterpretation of the UTF-8 bytes as a ``ByteArray`` and back (no
+  transcoding, no validation; long content shares one block).
+* Ordering: ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=``.
+* Case sensitivity: ``compare()``, ``contains(needle, cs)`` and
+  ``replaced(before, after, cs)`` take a ``CaseSensitivity``
+  (``CaseSensitive`` / ``CaseInsensitive``). Folding is 1:1 and covers ASCII,
+  Latin-1, Greek and Cyrillic.
+
+``StringList`` is ``Vector<String>`` plus the ``QStringList`` vocabulary that is
+not container generic: ``join()`` (``String`` or ``char`` separator), ``filter()``,
+``sort(cs)``, ``replaceInStrings(before, after, cs)``, ``removeDuplicates()``
+(returns the number removed; it sorts and then drops adjacent duplicates, so the
+surviving elements are reordered), and the case-insensitive overloads of
+``contains()`` / ``indexOf()`` / ``lastIndexOf()``. The container-generic methods
+(``isEmpty`` / ``first`` / ``last`` / ``value`` / ``takeFirst`` / ``removeAll`` …)
+are inherited from ``Vector``, and "not found" is ``npos`` (``size_type(-1)``),
+not Qt's ``int -1``.
+
+COW containers
+^^^^^^^^^^^^^^
+
+``qtng::Vector``, ``Deque``, ``List``, ``Map``, ``Set``, ``UnorderedMap`` and
+``UnorderedSet`` (in ``qtng/types/containers.h``) are implicitly shared wrappers around the
+matching STL containers: a copy only bumps an atomic reference count, and the first write
+detaches a private copy. On top of the STL intersection they expose the Qt container
+vocabulary:
+
+* ``isEmpty()`` -- the Qt spelling of ``empty()``.
+* Sequence containers (``Vector`` / ``Deque`` / ``List``): ``removeAll()``,
+  ``removeOne()``, ``removeFirst()``/``removeLast()``, ``takeFirst()``/``takeLast()``,
+  ``prepend()``/``append()``, ``contains()``/``count()``, ``indexOf()``/``lastIndexOf()``
+  (return an index or ``npos``), ``first()``/``last()``, ``startsWith()``/``endsWith()``,
+  ``removeIf()``, ``fill()``, plus reverse iteration (``rbegin()``/``rend()``).
+* ``Vector`` and ``Deque`` additionally offer the index-based ``removeAt()`` /
+  ``takeAt()`` / ``insert(i, v)`` / ``replace()`` / ``value()`` / ``swapItemsAt()`` /
+  ``move()``; ``Vector`` also has ``squeeze()``. ``List`` deliberately omits them:
+  ``std::list`` has no random access, so those would be O(n) traps dressed up as O(1)
+  calls.
+* ``Map`` / ``UnorderedMap``: ``remove()``, ``take()``, ``value()``, ``keys()``,
+  ``values()``, ``key()``, ``insert(k, v)`` (overwrites an existing key), ``unite()``,
+  ``removeIf()``. The ordered ``Map`` also has ``firstKey()``/``lastKey()``/``first()``/
+  ``last()``.
+* ``Set`` / ``UnorderedSet``: ``remove()``, ``removeIf()``, ``unite()``, ``intersect()``,
+  ``subtract()`` and ``values()``.
+
+The COW rule applies to every one of them: the const overloads (``indexOf``,
+``contains``, ``count``, ``value``, ``keys``, ``values``, every read-only ``first()`` /
+``last()``, ...) read through a const reference and never detach, while the mutating
+overloads detach first. "Not found" is ``npos`` (``size_type(-1)``), not Qt's integer
+``-1``. Out-of-range indices and missing keys are always defined -- a sentinel such as
+``T()`` or a no-op -- never undefined behaviour. ``Map::firstKey()``/``lastKey()``/
+``first()``/``last()`` require a non-empty map.

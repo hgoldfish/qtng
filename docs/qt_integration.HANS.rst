@@ -124,3 +124,9 @@ API 覆盖
 ``KcpStream`` / ``KcpSocket``（及 ``createKcpConnection``）；``utp.h`` 是 ``UtpStream`` /
 ``UtpSocket``（及 ``createUtpConnection``）。
 2.0 新增模块包括 ``bencode``、``kademlia``、``noise``、``multi_stream``、``udp``。
+
+``Socket`` 同样提供 core 的批量数据报 API，但用 Qt 的 ``Datagram`` 值类型（负载为 ``QByteArray``，
+由其自身管理内存）：``recvfrom(QList<Datagram> *)`` 接收调用方先调整好尺寸并填好的列表（每个条目的
+``QByteArray`` 就是可写缓冲），阻塞等待首个数据报后把已排队的取走；``sendto(const QList<Datagram> &)``
+则要等所有数据报都交给内核才返回。两者都返回处理的字节数，与单包重载一致。``DatagramLink`` 也增加了
+对应的批量方法。
