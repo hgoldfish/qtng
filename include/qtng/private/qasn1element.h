@@ -17,10 +17,11 @@
 // We mean it.
 //
 
-#include "qtng/msgpack.h"
 #include "qtng/utils/datetime.h"
 
 namespace qtng {
+
+class FileLike;
 
 #define RSA_ENCRYPTION_OID "1.2.840.113549.1.1.1"
 #define DSA_ENCRYPTION_OID "1.2.840.10040.4.1"
@@ -57,9 +58,9 @@ public:
     };
 
     explicit QAsn1Element(std::uint8_t type = 0, const std::string &value = std::string());
-    bool read(MsgPackStream &data);
+    bool read(FileLike &data);
     bool read(const std::string &data);
-    void write(MsgPackStream &data) const;
+    void write(FileLike &data) const;
 
     static QAsn1Element fromBool(bool val);
     static QAsn1Element fromInteger(unsigned int val);

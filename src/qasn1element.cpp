@@ -1,9 +1,11 @@
 #include <cassert>
+#include <limits>
 #include <locale>
 #include <map>
 #include <string>
 #include <vector>
 
+#include "qtng/io_utils.h"
 #include "qtng/utils/platform.h"
 #include "qtng/private/qasn1element.h"
 #include "qtng/utils/string_utils.h"
@@ -77,33 +79,56 @@ QAsn1Element::QAsn1Element(uint8_t type, const string &value)
 {
 }
 
-bool QAsn1Element::read(MsgPackStream &stream)
+namespace {
+
+// FileLike::read() is allowed to return a short count (0 < n < size) before a
+// clean EOF, so loop until the whole buffer has been filled. A 0 return means
+// EOF and a negative return is an error; both count as a failure here.
+bool readFully(FileLike &stream, char *data, int32_t len)
 {
-    // DER is raw TLV, not MsgPack: read tag/length bytes verbatim via
-    // readBytes(). operator>> treats the first byte as a MsgPack type header,
-    // so a DER long-form length like 0x82 lands in the fixmap range and is
-    // rejected as ReadCorruptData, breaking any certificate > 127 bytes.
+    int32_t total = 0;
+    while (total < len) {
+        const int32_t bs = stream.read(data + total, len - total);
+        if (bs <= 0)
+            return false;
+        total += bs;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool QAsn1Element::read(FileLike &stream)
+{
+    // DER is a raw TLV encoding and has nothing to do with MessagePack: the tag
+    // and length bytes must be read verbatim. Going through a codec that
+    // interprets the first byte as a type header would reject a long-form
+    // length such as 0x82 (which looks like a fixmap) and thus break every
+    // certificate larger than 127 bytes.
     uint8_t tmpType = 0;
-    if (!stream.readBytes(reinterpret_cast<char *>(&tmpType), 1))
+    if (!readFully(stream, reinterpret_cast<char *>(&tmpType), 1))
         return false;
     if (!tmpType)
         return false;
 
     // length
-    int32_t length = 0;
+    uint32_t length = 0;
     uint8_t first = 0;
-    if (!stream.readBytes(reinterpret_cast<char *>(&first), 1))
+    if (!readFully(stream, reinterpret_cast<char *>(&first), 1))
         return false;
 
     if (first & 0x80) {
-        // long form
+        // long form: 0x80 | number of length bytes
         const uint8_t bytes = (first & 0x7f);
-        if (bytes > 7)
+        // Lengths that do not fit int32_t are rejected up front; accepting more
+        // bytes here would overflow the counter and silently wrap to a small
+        // (or negative) length.
+        if (bytes > 4)
             return false;
 
-        uint8_t b = 0;
-        for (int i = 0; i < bytes; i++) {
-            if (!stream.readBytes(reinterpret_cast<char *>(&b), 1))
+        for (uint8_t i = 0; i < bytes; i++) {
+            uint8_t b = 0;
+            if (!readFully(stream, reinterpret_cast<char *>(&b), 1))
                 return false;
             length = (length << 8) | b;
         }
@@ -112,11 +137,17 @@ bool QAsn1Element::read(MsgPackStream &stream)
         length = (first & 0x7f);
     }
 
+    // A length above INT32_MAX cannot be represented by the reads below and,
+    // if stored in an int32_t, would look like a negative value and be
+    // mistaken for an empty one.
+    if (length > static_cast<uint32_t>(numeric_limits<int32_t>::max()))
+        return false;
+
     // value
     string tmpValue;
     if (length > 0) {
         tmpValue.resize(length);
-        if (!stream.readBytes(&tmpValue[0], length))
+        if (!readFully(stream, &tmpValue[0], static_cast<int32_t>(length)))
             return false;
     }
 
@@ -127,18 +158,16 @@ bool QAsn1Element::read(MsgPackStream &stream)
 
 bool QAsn1Element::read(const string &data)
 {
-    MsgPackStream stream(data);
+    BytesIO stream(data);
     return read(stream);
 }
 
-void QAsn1Element::write(MsgPackStream &stream) const
+void QAsn1Element::write(FileLike &stream) const
 {
-    // DER is raw TLV, not MsgPack: write tag/length bytes verbatim via
-    // writeBytes(). operator<< prepends a MsgPack type header for any value
-    // >= 0x80, which would corrupt DER output (e.g. DnsNameType 0x82,
-    // long-form length 0x80|n).
+    // DER is a raw TLV encoding: write the tag, length and value bytes
+    // verbatim, without any MessagePack framing.
     const uint8_t type = mType;
-    stream.writeBytes(reinterpret_cast<const char *>(&type), 1);
+    stream.write(reinterpret_cast<const char *>(&type), 1);
 
     // length
     int64_t length = static_cast<int64_t>(mValue.size());
@@ -151,16 +180,18 @@ void QAsn1Element::write(MsgPackStream &stream) const
             length >>= 8;
             encodedLength += 1;
         }
-        stream.writeBytes(reinterpret_cast<const char *>(&encodedLength), 1);
-        stream.writeBytes(ba.data(), ba.size());
+        stream.write(reinterpret_cast<const char *>(&encodedLength), 1);
+        stream.write(ba.data(), static_cast<int32_t>(ba.size()));
     } else {
         // short form
         const uint8_t shortLen = static_cast<uint8_t>(length);
-        stream.writeBytes(reinterpret_cast<const char *>(&shortLen), 1);
+        stream.write(reinterpret_cast<const char *>(&shortLen), 1);
     }
 
     // value
-    stream.writeBytes(mValue.data(), mValue.size());
+    if (!mValue.empty()) {
+        stream.write(mValue.data(), static_cast<int32_t>(mValue.size()));
+    }
 }
 
 QAsn1Element QAsn1Element::fromBool(bool val)
@@ -186,7 +217,7 @@ QAsn1Element QAsn1Element::fromVector(const vector<QAsn1Element> &items)
     QAsn1Element seq;
     seq.mType = SequenceType;
     string buffer;
-    MsgPackStream stream(&buffer, true);
+    BytesIO stream(&buffer);
     for (vector<QAsn1Element>::const_iterator it = items.cbegin(), end = items.cend(); it != end; ++it)
         it->write(stream);
     seq.mValue = std::move(buffer);
@@ -264,10 +295,10 @@ multimap<string, string> QAsn1Element::toInfo() const
 {
     multimap<string, string> info;
     QAsn1Element elem;
-    MsgPackStream issuerStream(mValue);
+    BytesIO issuerStream(mValue);
     while (elem.read(issuerStream) && elem.mType == QAsn1Element::SetType) {
         QAsn1Element issuerElem;
-        MsgPackStream setStream(elem.mValue);
+        BytesIO setStream(elem.mValue);
         if (issuerElem.read(setStream) && issuerElem.mType == QAsn1Element::SequenceType) {
             vector<QAsn1Element> elems = issuerElem.toVector();
             if (elems.size() == 2) {
@@ -309,7 +340,7 @@ vector<QAsn1Element> QAsn1Element::toVector() const
     vector<QAsn1Element> items;
     if (mType == SequenceType) {
         QAsn1Element elem;
-        MsgPackStream stream(mValue);
+        BytesIO stream(mValue);
         while (elem.read(stream))
             items.push_back(elem);
     }

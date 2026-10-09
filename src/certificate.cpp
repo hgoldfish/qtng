@@ -11,6 +11,7 @@
 #include <openssl/pem.h>
 #include <openssl/asn1.h>
 #include "qtng/certificate.h"
+#include "qtng/io_utils.h"
 #include "qtng/private/qasn1element.h"
 #include "qtng/private/crypto_p.h"
 #include "qtng/utils/string_utils.h"
@@ -700,12 +701,12 @@ bool CertificatePrivate::qtParse()
     const string &data = save(Ssl::Der);
     QAsn1Element root;
 
-    MsgPackStream dataStream(data);
+    BytesIO dataStream(data);
     if (!root.read(dataStream) || root.type() != QAsn1Element::SequenceType) {
         return false;
     }
 
-    MsgPackStream rootStream(root.value());
+    BytesIO rootStream(root.value());
     QAsn1Element cert;
     if (!cert.read(rootStream) || cert.type() != QAsn1Element::SequenceType) {
         return false;
@@ -713,13 +714,13 @@ bool CertificatePrivate::qtParse()
 
     // version or serial number
     QAsn1Element elem;
-    MsgPackStream certStream(cert.value());
+    BytesIO certStream(cert.value());
     if (!elem.read(certStream)) {
         return false;
     }
 
     if (elem.type() == QAsn1Element::Context0Type) {
-        MsgPackStream versionStream(elem.value());
+        BytesIO versionStream(elem.value());
         if (!elem.read(versionStream) || elem.type() != QAsn1Element::IntegerType) {
             return false;
         }
@@ -754,7 +755,7 @@ bool CertificatePrivate::qtParse()
         return false;
     }
 
-    MsgPackStream validityStream(elem.value());
+    BytesIO validityStream(elem.value());
     if (!elem.read(validityStream)
         || (elem.type() != QAsn1Element::UtcTimeType && elem.type() != QAsn1Element::GeneralizedTimeType)) {
         return false;
