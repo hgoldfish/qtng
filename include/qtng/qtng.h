@@ -57,4 +57,8 @@
 #include "qtng/data_channel.h"
 #include "qtng/multi_stream.h"
 
+#include "qtng/types/string.h"
+#include "qtng/types/bytes.h"
+#include "qtng/types/string_builder.h"
+
 #endif  // QTNG_QTNG_H

@@ -334,6 +334,23 @@ set(QTNG_UTILS_INCLUDE
     include/qtng/utils/slice_ring_buffer.h
 )
 
+# Value types (implicitly shared String / ByteArray / COW containers).
+# Header-only except StringBuilder. Themselves they need only the C++11 standard
+# library, but string.h and bytes.h declare MsgPackStream operators and so include
+# qtng/msgpack.h (which brings in io_utils.h).
+set(QTNG_TYPES_SRC
+    src/types/string_builder.cpp
+)
+
+set(QTNG_TYPES_INCLUDE
+    include/qtng/types/cow.h
+    include/qtng/types/string.h
+    include/qtng/types/bytes.h
+    include/qtng/types/string_builder.h
+    include/qtng/types/containers.h
+    include/qtng/types/private/string_data.h
+)
+
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
     set(OS_DEPENDENDED_SRC
         src/socket_win.cpp
@@ -463,6 +480,8 @@ set(QTNG_LIB_SOURCES
     ${QTNG_PUBLIC_INCLUDE}
     ${QTNG_PRIVATE_INCLUDE}
     ${QTNG_UTILS_INCLUDE}
+    ${QTNG_TYPES_SRC}
+    ${QTNG_TYPES_INCLUDE}
     ${OS_DEPENDENDED_SRC}
     ${QTNG_LMDB_SRC}
     ${QTNG_LMDB_INCLUDE}
