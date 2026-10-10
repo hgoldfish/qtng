@@ -36,9 +36,10 @@ public:
     virtual qint32 sendto(const char *data, qint32 size, const DatagramPath &who) = 0;
 
     // Batch variants, mirroring Socket's: both return the number of bytes
-    // handled. The caller sizes and fills *datagrams; the default implementation
-    // loops over the single-datagram calls above and stops when one reports no
-    // more data (0) or a failure (< 0).
+    // handled. The caller sizes and fills *datagrams. The default
+    // implementation reads exactly one datagram through the single-datagram
+    // recvfrom() above, which is allowed to block until one is available; a
+    // looping default would stall the caller mid-batch.
     virtual qint32 recvfrom(QList<Datagram> *datagrams);
     virtual qint32 sendto(const QList<Datagram> &datagrams);
 

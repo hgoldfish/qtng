@@ -41,17 +41,16 @@ public:
     // not the number of datagrams. The caller sizes and fills *datagrams
     // (buffer in data, capacity in len); see Datagram in socket.h.
     //
-    // KcpStream drains several datagrams per call, so a DatagramLink feeding a
-    // KcpStream must carry address-shaped paths: Datagram only holds addr/port,
-    // so a link with an opaque DatagramPath key (not convertible to HostAddress
-    // + port) would lose the peer identity. Such links must override this with a
-    // correct implementation, or not be used with KcpStream.
+    // KcpStream drains several datagrams per call. Datagram only holds
+    // addr/port, so a link whose DatagramPath key is opaque (not convertible to
+    // HostAddress + port) cannot report the peer identity here; KcpStream then
+    // keeps the path recorded at connect() time. A link that needs per-datagram
+    // peer identity with KcpStream must carry address-shaped paths.
     //
-    // The default implementation loops over the single-datagram recvfrom() and
-    // stops as soon as it reports no more data (0) or a failure (< 0), so it
-    // assumes recvfrom() does not block forever once the queue is empty. Links
-    // that can do better (UdpDatagramLink backed by Socket) override it to reach
-    // recvmmsg.
+    // The default implementation reads exactly one datagram through the
+    // single-datagram recvfrom(), which may block until one is available; a
+    // looping default would stall mid-batch. Links that can do better
+    // (UdpDatagramLink backed by Socket) override it to reach recvmmsg.
     virtual std::int32_t recvfrom(std::vector<Datagram> *datagrams);
 
     virtual void close() = 0;

@@ -275,37 +275,32 @@ string DatagramLink::errorString() const { return string(); }
 
 int32_t DatagramLink::recvfrom(std::vector<Datagram> *datagrams)
 {
+    // Fallback for links that do not implement real batching. The single
+    // recvfrom() below is allowed to block until a datagram is available (a
+    // coroutine queue, for instance), so this must read exactly one datagram:
+    // a second call would stall the caller mid-batch waiting for traffic that
+    // a request/response exchange may never produce. Links that can genuinely
+    // batch (a recvmmsg-backed UDP socket) override this.
     if (!datagrams || datagrams->empty()) {
         return -1;
     }
-    const size_t maxCount = datagrams->size();
-    for (size_t i = 0; i < maxCount; ++i) {
-        if (!datagrams->at(i).data || datagrams->at(i).len <= 0) {
-            return -1;
-        }
+    Datagram &datagram = datagrams->at(0);
+    if (!datagram.data || datagram.len <= 0) {
+        return -1;
     }
-    size_t count = 0;
-    int32_t total = 0;
-    while (count < maxCount) {
-        Datagram &datagram = datagrams->at(count);
-        DatagramPath who;
-        const int32_t n = recvfrom(datagram.data, datagram.len, &who);
-        if (n < 0) {
-            return count == 0 ? -1 : total;
-        }
-        if (n == 0) {
-            // No more datagrams queued right now.
-            break;
-        }
-        const UdpDatagramPath udp(who);
-        datagram.len = n;
-        datagram.addr = udp.address();
-        datagram.port = udp.port();
-        total += n;
-        ++count;
+    DatagramPath who;
+    const int32_t n = recvfrom(datagram.data, datagram.len, &who);
+    if (n <= 0) {
+        // 0 = nothing queued right now, < 0 = fatal; both report an empty batch.
+        datagrams->resize(0);
+        return n;
     }
-    datagrams->resize(count);
-    return total;
+    const UdpDatagramPath udp(who);
+    datagram.len = n;
+    datagram.addr = udp.address();
+    datagram.port = udp.port();
+    datagrams->resize(1);
+    return n;
 }
 
 }  // namespace qtng

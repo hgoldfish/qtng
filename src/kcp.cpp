@@ -1587,9 +1587,14 @@ void MasterKcpStreamPrivate::doReceive()
             if (datagram.len < 1) {
                 continue;
             }
-            // The path is address-shaped by contract for batch links, so it
-            // round-trips through UdpDatagramPath.
-            const DatagramPath who = UdpDatagramPath(datagram.addr, datagram.port).toPath();
+            // Prefer the datagram's own address. A link whose DatagramPath key
+            // is opaque reports none, and a connected stream has exactly one
+            // peer, so fall back to the path recorded at connect() instead of
+            // dropping the session.
+            DatagramPath who = UdpDatagramPath(datagram.addr, datagram.port).toPath();
+            if (who.isNull()) {
+                who = remotePath;
+            }
             if (who.isNull()) {
                 MasterKcpStreamPrivate::close(true);
                 return;
@@ -1673,6 +1678,10 @@ void MasterKcpStreamPrivate::doAccept()
             }
             const DatagramPath who = UdpDatagramPath(datagram.addr, datagram.port).toPath();
             if (who.isNull()) {
+                // accept() demuxes a new slave by the datagram's own peer, and a
+                // listening master has no single recorded path to fall back on
+                // (remotePath is only set by connect()). A batch link that
+                // cannot report an address per datagram is unsupported here.
                 MasterKcpStreamPrivate::close(true);
                 return;
             }

@@ -4502,10 +4502,15 @@ Callers that cannot send now, but still want the segment kept in ``snd_buf``
 for a later RTO, must return ``size``.
 
 ``DatagramLink`` also has a batch ``recvfrom`` overload that, like ``Socket``'s,
-returns a byte count. The base implementation loops over the single-datagram
-``recvfrom`` and stops at the first ``0`` or negative result;
+returns a byte count. The base implementation reads exactly one datagram through
+the single-datagram ``recvfrom``, which is allowed to block until one is
+available; a looping default would stall mid-batch on such a link.
 ``UdpDatagramLink`` overrides it to delegate to the underlying ``Socket`` (and
-applies its filter per datagram). There is no batch ``sendto``: ``KcpStream``
+applies its filter per datagram). ``KcpStream`` takes the peer identity from each
+datagram's address; a link whose ``DatagramPath`` key is opaque (not convertible
+to ``HostAddress``+port) falls back to the path recorded by ``connect()``, so a
+listening (``accept()``) stream still requires address-shaped paths. There is no
+batch ``sendto``: ``KcpStream``
 sends one datagram per ``rawSend`` (the benchmark found no throughput gain from
 batching sends, and it forced an extra copy).
 

@@ -4114,9 +4114,13 @@ listen/connect/accept、keepalive，以及自适应发送队列水位。它只�
 仍然返回 ``size``。
 
 ``DatagramLink`` 另有批量的 ``recvfrom`` 重载，与 ``Socket`` 一样返回字节数。
-基类实现是在单包 ``recvfrom`` 上循环，遇到首个 ``0`` 或负数即停止；``UdpDatagramLink`` 覆盖它，
-转交给底层 ``Socket``，并对每个数据报应用 filter。没有批量 ``sendto``：``KcpStream`` 每个
-``rawSend`` 只发一个数据报（基准测试未测出批量发送的吞吐收益，反而引入一次额外拷贝）。
+基类实现只通过单包 ``recvfrom`` 读一个数据报——该调用允许阻塞到有数据为止，
+否则在会阻塞的链路上「循环收」会在中途卡死。``UdpDatagramLink`` 覆盖它，
+转交给底层 ``Socket``，并对每个数据报应用 filter。``KcpStream`` 从每个数据报的地址
+取对端身份；``DatagramPath`` 键为不透明键（无法转成 ``HostAddress``+端口）的链路
+退回 ``connect()`` 时记录的路径，因此监听（``accept()``）侧的流仍要求地址形态的路径。
+没有批量 ``sendto``：``KcpStream`` 每个 ``rawSend`` 只发一个数据报（基准测试未测出
+批量发送的吞吐收益，反而引入一次额外拷贝）。
 
 优雅 ``close()`` 最多等待 3 秒排空发送队列。``CLOSE`` 控制包仅在源 ``DatagramPath`` 与已记录
 对端路径一致时生效；其它路径发来的伪造关闭会被忽略。

@@ -31,32 +31,28 @@ QString DatagramLink::errorString() const
 
 qint32 DatagramLink::recvfrom(QList<Datagram> *datagrams)
 {
+    // Mirror the core DatagramLink default: read exactly one datagram. The
+    // single-datagram recvfrom() below is allowed to block until one is
+    // available, so a looping default would stall the caller mid-batch. Links
+    // that can genuinely batch override this.
     if (!datagrams || datagrams->isEmpty()) {
         return -1;
     }
-    const qint32 maxCount = datagrams->size();
-    qint32 count = 0;
-    qint32 total = 0;
-    while (count < maxCount) {
-        Datagram &datagram = (*datagrams)[count];
-        const int capacity = datagram.data.size();
-        DatagramPath who;
-        const qint32 n = recvfrom(datagram.data.data(), capacity, &who);
-        if (n < 0) {
-            return count == 0 ? -1 : total;
-        }
-        if (n == 0) {
-            break;  // nothing more queued right now
-        }
-        const qtng_core::UdpDatagramPath udp(toCoreDatagramPath(who));
-        datagram.data.resize(n);
-        datagram.addr = toQtAddress(udp.address());
-        datagram.port = udp.port();
-        total += n;
-        ++count;
+    Datagram &datagram = (*datagrams)[0];
+    const int capacity = datagram.data.size();
+    DatagramPath who;
+    const qint32 n = recvfrom(datagram.data.data(), capacity, &who);
+    if (n <= 0) {
+        // 0 = nothing queued right now, < 0 = fatal; both report an empty batch.
+        datagrams->clear();
+        return n;
     }
-    datagrams->erase(datagrams->begin() + count, datagrams->end());
-    return total;
+    const qtng_core::UdpDatagramPath udp(toCoreDatagramPath(who));
+    datagram.data.resize(n);
+    datagram.addr = toQtAddress(udp.address());
+    datagram.port = udp.port();
+    datagrams->erase(datagrams->begin() + 1, datagrams->end());
+    return n;
 }
 
 qint32 DatagramLink::sendto(const QList<Datagram> &datagrams)
