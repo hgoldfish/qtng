@@ -757,7 +757,7 @@ void WebSocketConnectionPrivate::doReceive(const string &headBytes)
             needMoreData = true;
             continue;
         } else if (payloadSize > maxPayloadSize) {
-            ngInfo() << "can not process web socket frame larger than " << maxPayloadSize;
+            ngInfo() << "can not process web socket frame larger than" << maxPayloadSize;
             WebSocketFrame closeFrame = makeControlFrame(CloseFrame);
             closeFrame.payload = makeClosePayload(WebSocketConnection::MessageTooBig,
                                                   "the frame is too big to process.");

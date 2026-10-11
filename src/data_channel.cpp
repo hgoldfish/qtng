@@ -381,14 +381,14 @@ DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t chan
         shared_ptr<VirtualChannel> channel = subChannels.at(channelNumber).lock();
         if (!channel) {
 #ifdef DEBUG_PROTOCOL
-            ngDebug() << "channel is destroyed and data is abandoned: " << channelNumber;
+            ngDebug() << "channel is destroyed and data is abandoned:" << channelNumber;
 #endif
             subChannels.erase(channelNumber);
         } else {
             const int headerSize = sizeof(uint32_t);
             if (payload.size() < headerSize) {
 #ifdef DEBUG_PROTOCOL
-                ngDebug() << "the sub channel got an too small packet: " << channelNumber << payload.size()
+                ngDebug() << "the sub channel got an too small packet:" << channelNumber << payload.size()
                            << headerSize;
 #endif
                 return DataChannel::InvalidPacket;
@@ -399,7 +399,7 @@ DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t chan
                     channel->d_func()->handleIncomingPacket(nestedChannelNumber, std::move(packet));
             if (handlePacketResult != DataChannel::NoError) {
 #ifdef DEBUG_PROTOCOL
-                ngDebug() << "the sub channel got an too small packet: " << channelNumber << payload.size()
+                ngDebug() << "the sub channel got an too small packet:" << channelNumber << payload.size()
                            << headerSize;
 #endif
                 channel->d_func()->abort(handlePacketResult);
@@ -407,7 +407,7 @@ DataChannel::ChannelError DataChannelPrivate::handleIncomingPacket(uint32_t chan
         }
     } else {
 #ifdef DEBUG_PROTOCOL
-        ngDebug() << "channel is destroyed and data is abandoned: " << channelNumber;
+        ngDebug() << "channel is destroyed and data is abandoned:" << channelNumber;
 #endif
     }
     return DataChannel::NoError;

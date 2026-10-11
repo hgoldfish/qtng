@@ -216,7 +216,7 @@ template <typename Lambda> struct ProcessNetlinkRequest
                 ngWarning() << "NetworkInterface/AF_NETLINK: received unknown packet type ("
                              << hdr->nlmsg_type << ") or too short (" << hdr->nlmsg_len << ")";
             else
-                ngWarning() << "NetworkInterface/AF_NETLINK: received invalid packet with size "
+                ngWarning() << "NetworkInterface/AF_NETLINK: received invalid packet with size"
                              << int(len);
 #endif
             return;
@@ -327,7 +327,7 @@ static vector<NetworkInterfacePrivate *> getInterfaces(int sock, char *buf)
         }
 
         if ((iface->name.empty())) {
-            ngWarning() << "NetworkInterface: found interface " << iface->index << " with no name";
+            ngWarning() << "NetworkInterface: found interface" << iface->index << "with no name";
             delete iface;
         } else {
             iface->type = probeIfType(sock, &req, ifi->ifi_type);
@@ -369,7 +369,7 @@ static void getAddresses(int sock, char *buf, vector<NetworkInterfacePrivate *> 
         }
 
         if ((!iface)) {
-            ngWarning() << "NetworkInterface/AF_NETLINK: found unknown interface with index "
+            ngWarning() << "NetworkInterface/AF_NETLINK: found unknown interface with index"
                          << ifa->ifa_index;
             return;
         }

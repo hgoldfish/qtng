@@ -580,7 +580,7 @@ void NoiseCipherState::setNonce(uint64_t n)
 {
     NG_D(NoiseCipherState);
     if (!transportNonceAllowed(n)) {
-        ngWarning() << "NoiseCipherState::setNonce: nonce " << n << " exceeds MaxNonce (" << MaxNonce << ")";
+        ngWarning() << "NoiseCipherState::setNonce: nonce" << n << "exceeds MaxNonce (" << MaxNonce << ")";
         return;
     }
     d->nonce = n;
@@ -661,7 +661,7 @@ string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertex
         return string();
     }
     if (!transportNonceAllowed(nonce)) {
-        ngWarning() << "NoiseCipherState::decryptWithAd: nonce " << nonce << " reserved/exhausted";
+        ngWarning() << "NoiseCipherState::decryptWithAd: nonce" << nonce << "reserved/exhausted";
         return string();
     }
     const Aead::Algorithm algo = d->aead.algorithm();

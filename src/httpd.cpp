@@ -156,7 +156,7 @@ bool BaseHttpRequestHandler::parseRequest()
     setHeaders(headers);
 #ifdef DEBUG_HTTP_PROTOCOL
     for (const HttpHeader &header : headers) {
-        ngDebug() << "header(" << header.name() << ") = " << header.value();
+        ngDebug() << "header(" << header.name() << ") =" << header.value();
     }
 #endif
     const string &connectionType = header(ConnectionHeader);

@@ -114,7 +114,7 @@ bool BaseCoroutinePrivate::yield()
     currentCoroutine().set(q);
 
     if (swapcontext(old->d_func()->context, this->context) < 0) {
-        ngDebug() << "swapcontext() return error: " << errno;
+        ngDebug() << "swapcontext() return error:" << errno;
         return false;
     }
     if (currentCoroutine().get() != old) { // when coroutine finished, swapcontext auto yield to the previous.

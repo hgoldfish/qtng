@@ -28,7 +28,11 @@ public:
     template<typename T>
     LogStream &operator<<(const T &value)
     {
+        if (needSpace) {
+            message += " ";
+        }
         message += toString(value);
+        needSpace = true;
         return *this;
     }
 
@@ -50,6 +54,7 @@ private:
     const char *category;
     std::string message;
     bool active;
+    bool needSpace;
 };
 
 LogStream ngDebug(const char *category = "qtng");

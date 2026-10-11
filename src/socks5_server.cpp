@@ -184,7 +184,7 @@ void Socks5RequestHandler::handle()
         doConnect(hostName, addr, port);
         break;
     default:
-        ngDebug() << "unsupported command: " << commandHeader[1];
+        ngDebug() << "unsupported command:" << commandHeader[1];
         doFailed(hostName, addr, port);
         break;
     }

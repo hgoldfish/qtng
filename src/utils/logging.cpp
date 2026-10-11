@@ -54,6 +54,7 @@ LogStream::LogStream(LogLevel level, const char *category)
     : level(level)
     , category(category)
     , active(true)
+    , needSpace(false)
 {
 }
 
@@ -69,6 +70,7 @@ LogStream::LogStream(LogStream &&other) noexcept
     , category(other.category)
     , message(std::move(other.message))
     , active(other.active)
+    , needSpace(other.needSpace)
 {
     other.active = false;
 }
