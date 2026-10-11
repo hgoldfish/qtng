@@ -1,9 +1,6 @@
 #include <QtCore/qobject.h>
 #include <QtCore/qprocess.h>
 #include <QtCore/qthread.h>
-#ifdef Q_OS_WIN
-#  include <windows.h>
-#endif
 
 #include "bridge/core_access.h"
 #include "coroutine_utils.h"
@@ -132,38 +129,7 @@ bool waitProcess(QProcess *process)
     }
     if (!qtEventLoopIsRunning()) {
         // QProcess does not observe child exit unless a Qt loop is pumping.
-#ifdef Q_OS_UNIX
-        return qtng_core::waitProcessPid(static_cast<int>(process->processId()));
-#else
-#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        const DWORD nativePid = static_cast<DWORD>(process->processId());
-        if (!nativePid) {
-            return false;
-        }
-        HANDLE handle = OpenProcess(SYNCHRONIZE, FALSE, nativePid);
-        if (!handle) {
-            return false;
-        }
-        struct ScopedHandle {
-            HANDLE h;
-            ~ScopedHandle()
-            {
-                if (h) {
-                    CloseHandle(h);
-                }
-            }
-        } closer{handle};
-        return qtng_core::callInThread<bool>(
-                [handle] { return WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0; });
-#  else
-        HANDLE handle = process->pid() ? process->pid()->hProcess : nullptr;
-        if (!handle) {
-            return false;
-        }
-        return qtng_core::callInThread<bool>(
-                [handle] { return WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0; });
-#  endif
-#endif
+        return qtng_core::waitProcessPid(process->processId());
     }
     if (process->state() == QProcess::NotRunning) {
         return true;

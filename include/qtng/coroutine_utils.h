@@ -115,10 +115,8 @@ T callInThread(std::function<T(ARG1, Args...)> func, ARG1 arg1, Args... args)
 bool waitThread(std::thread &thread);
 #endif
 
-#ifdef NG_OS_UNIX
-bool waitProcessPid(int pid);
-#elif defined(NG_OS_WIN)
-bool waitint /*pid*/(void *handle);
+#if defined(NG_OS_UNIX) || defined(NG_OS_WIN)
+bool waitProcessPid(std::int64_t pid);
 #endif
 
 class CoroutineThreadPrivate;

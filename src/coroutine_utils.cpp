@@ -212,24 +212,31 @@ bool waitThread(std::thread &thread)
 }
 
 #ifdef NG_OS_UNIX
-bool waitProcessPid(int pid)
+bool waitProcessPid(std::int64_t pid)
 {
     if (pid <= 0) {
         return false;
     }
-    return callInThread<bool>([pid] {
+    const int nativePid = static_cast<int>(pid);
+    return callInThread<bool>([nativePid] {
         int wstatus = 0;
-        return waitpid(pid, &wstatus, 0) == pid;
+        return waitpid(nativePid, &wstatus, 0) == nativePid;
     });
 }
 #elif defined(NG_OS_WIN)
-bool waitint /*pid*/(void *handle)
+bool waitProcessPid(std::int64_t pid)
 {
+    if (pid <= 0) {
+        return false;
+    }
+    HANDLE handle = OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
     if (!handle) {
         return false;
     }
     return callInThread<bool>([handle] {
-        return WaitForSingleObject(static_cast<HANDLE>(handle), INFINITE) == WAIT_OBJECT_0;
+        const bool exited = WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0;
+        CloseHandle(handle);
+        return exited;
     });
 }
 #endif
@@ -592,7 +599,7 @@ shared_ptr<Event> ThreadPool::spawn(const function<void()> &func)
                try {
                    func();
                } catch (const exception &e) {
-                   ngWarning() << "thread pool task threw std::exception: " << e.what();
+                   ngWarning() << "thread pool task threw std::exception:" << e.what();
                } catch (...) {
                    ngWarning() << "thread pool task threw an unknown exception";
                }
