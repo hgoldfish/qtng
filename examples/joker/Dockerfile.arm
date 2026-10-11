@@ -1,0 +1,117 @@
+# musl.cc cross toolchains (armv7 hard-float + aarch64) for fully static Linux binaries.
+FROM debian:bookworm
+
+RUN sed -i \
+        -e 's#https\?://deb.debian.org#http://mirrors.ustc.edu.cn#g' \
+        -e 's#https\?://security.debian.org#http://mirrors.ustc.edu.cn/debian-security#g' \
+        /etc/apt/sources.list.d/debian.sources \
+    || sed -i \
+        -e 's#https\?://deb.debian.org#http://mirrors.ustc.edu.cn#g' \
+        -e 's#https\?://security.debian.org#http://mirrors.ustc.edu.cn/debian-security#g' \
+        /etc/apt/sources.list \
+    || true
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        cmake \
+        curl \
+        file \
+        make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Self-contained toolchains: statically linked host binaries, each with its own musl sysroot.
+RUN set -eu; \
+    mkdir -p /opt/cross; \
+    cd /tmp; \
+    for tarball in arm-linux-musleabihf-cross.tgz aarch64-linux-musl-cross.tgz; do \
+        curl -fsSL "https://musl.cc/$tarball" -o "$tarball"; \
+        tar -xzf "$tarball" -C /opt/cross; \
+        rm -f "$tarball"; \
+    done
+
+# The musl toolchains ship no zlib (qtng needs it for gzip), so build one static copy per target.
+RUN set -eu; \
+    cd /tmp; \
+    curl -fsSL "https://zlib.net/fossils/zlib-1.3.1.tar.gz" -o zlib.tar.gz; \
+    tar -xzf zlib.tar.gz; \
+    for spec in arm32:arm-linux-musleabihf arm64:aarch64-linux-musl; do \
+        arch="${spec%%:*}"; \
+        triple="${spec#*:}"; \
+        cp -a zlib-1.3.1 "zlib-1.3.1-$arch"; \
+        cd "zlib-1.3.1-$arch"; \
+        CC="/opt/cross/$triple-cross/bin/$triple-gcc" \
+        AR="/opt/cross/$triple-cross/bin/$triple-ar" \
+        RANLIB="/opt/cross/$triple-cross/bin/$triple-ranlib" \
+        ./configure --prefix="/opt/zlib-$arch" --static; \
+        make -j"$(nproc)"; \
+        make install; \
+        cd /tmp; \
+    done; \
+    rm -rf /tmp/zlib-1.3.1*
+
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'set -eu' \
+        'JOKER_DIR=/qtng/examples/joker' \
+        'BUILD_ROOT="$JOKER_DIR/.build-arm"' \
+        'JOBS="$(nproc)"' \
+        'cd "$JOKER_DIR"' \
+        '' \
+        'if [ ! -d /qtng/3rdparty/libressl ]; then' \
+        '  echo "3rdparty/libressl/ missing under /qtng; the bundled LibreSSL is required" >&2' \
+        '  exit 1' \
+        'fi' \
+        '' \
+        'build_arch() {' \
+        '  arch="$1"' \
+        '  token="$2"' \
+        '  build_dir="$BUILD_ROOT/$arch"' \
+        '  echo "=== building $arch ==="' \
+        '  rm -rf "$build_dir"' \
+        '  mkdir -p "$build_dir"' \
+        '  configure_log="$build_dir/configure.log"' \
+        '  if ! cmake -S . -B "$build_dir" -DCMAKE_TOOLCHAIN_FILE="$JOKER_DIR/cmake/toolchain-linux-$arch.cmake" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" -DZLIB_USE_STATIC_LIBS=ON -DZLIB_LIBRARY="/opt/zlib-$arch/lib/libz.a" -DZLIB_INCLUDE_DIR="/opt/zlib-$arch/include" > "$configure_log" 2>&1; then' \
+        '    cat "$configure_log"' \
+        '    exit 1' \
+        '  fi' \
+        '  cat "$configure_log"' \
+        '  if ! grep -q "CRYPTO=TRUE" "$configure_log"; then' \
+        '    echo "ERROR: qtng was configured without crypto, so $arch would ship a TLS-less joker." >&2' \
+        '    echo "       The bundled LibreSSL is probably an incomplete submodule checkout" >&2' \
+        '    echo "       (a fresh worktree needs 3rdparty/libressl/update.sh)." >&2' \
+        '    exit 1' \
+        '  fi' \
+        '  cmake --build "$build_dir" -j "$JOBS" --target joker-server joker-client' \
+        '  for bin in joker-server joker-client; do' \
+        '    path="$build_dir/$bin"' \
+        '    if [ ! -f "$path" ]; then' \
+        '      echo "missing binary: $path" >&2' \
+        '      exit 1' \
+        '    fi' \
+        '    file_out="$(file "$path")"' \
+        '    echo "$file_out"' \
+        '    case "$file_out" in' \
+        '      *"$token"*) ;;' \
+        '      *)' \
+        '        echo "ERROR: $path is not $token" >&2' \
+        '        exit 1' \
+        '        ;;' \
+        '    esac' \
+        '    if ldd "$path" >/dev/null 2>&1; then' \
+        '      echo "ERROR: $path is not fully static:" >&2' \
+        '      ldd "$path" >&2 || true' \
+        '      exit 1' \
+        '    fi' \
+        '    echo "static ok: $path"' \
+        '  done' \
+        '}' \
+        '' \
+        'build_arch arm32 "ELF 32-bit LSB executable, ARM"' \
+        'build_arch arm64 "ELF 64-bit LSB executable, ARM aarch64"' \
+        'echo "artifacts under $BUILD_ROOT/{arm32,arm64}/"' \
+        > /usr/local/bin/joker-arm-build \
+    && chmod +x /usr/local/bin/joker-arm-build
+
+WORKDIR /qtng/examples/joker
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/joker-arm-build"]

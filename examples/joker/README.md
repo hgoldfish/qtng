@@ -88,3 +88,26 @@ The build uses `cmake/xp-compat/` (include override + link shims) so the PE does
 not import Vista+ APIs (`BCryptGenRandom`, `InitOnceExecuteOnce`, `GetTickCount64`,
 `inet_pton`) that would prevent loading on Windows XP. LibreSSL sources are left
 untouched.
+
+### ARM musl-static binaries (Docker / musl.cc cross toolchain)
+
+Cross-compile fully static, musl-linked binaries for 32-bit ARM (ARMv7
+hard-float) and 64-bit ARM (aarch64) inside a Debian bookworm container. The
+build uses the prebuilt musl.cc toolchains, so no QEMU or emulation is involved.
+Requires Docker.
+
+From the `examples/joker` directory:
+
+    $ ./arm.py
+    # optional: ./arm.py --no-cache
+
+Artifacts are copied to:
+
+- `dist/arm32/joker-server`, `dist/arm32/joker-client`
+- `dist/arm64/joker-server`, `dist/arm64/joker-client`
+
+zlib is not part of the musl.cc toolchains, so the image builds a static `libz.a`
+per target; `cmake/toolchain-linux-arm32.cmake` and
+`cmake/toolchain-linux-arm64.cmake` point CMake at it. The arm32 binaries are
+built for the Debian armhf baseline (ARMv7 + VFPv3-D16), so ARMv6 boards such as
+the Raspberry Pi 1 / Zero are not supported.

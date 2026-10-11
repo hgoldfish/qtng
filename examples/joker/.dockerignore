@@ -5,6 +5,7 @@
 *
 !Dockerfile.linux
 !Dockerfile.winxp
+!Dockerfile.arm
 !.dockerignore
 !cmake/
 !cmake/*.cmake
