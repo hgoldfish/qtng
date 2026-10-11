@@ -37,6 +37,28 @@ Example (force Qt6)::
 
     cmake -S /path/to/qtng/qt/examples/fetch_web_content -B build-fetch -DQTNG_QT_VERSION=6
 
+Windows XP (Qt 5.6)
+~~~~~~~~~~~~~~~~~~~
+
+Qt 5.6 is the last Qt release that supports Windows XP. When the binding is built against Qt 5.6
+on Windows, the detected Qt version selects the XP API level for you: with ``Qt5Core_VERSION``
+older than 5.7 it pins ``WINVER=0x0501`` and ``_WIN32_WINNT=0x0501`` on the core and binding
+targets, so the system headers hide Vista-and-later APIs and qtng's XP fallbacks
+(``GetTickCount()``, ``CancelIo()``) are compiled in. No option to set. The definitions are
+per-target rather than global, so they do not clash with the bundled LibreSSL, which pins
+``_WIN32_WINNT=0x0600`` in its own translation units.
+
+That covers compilation only. For the produced executable to actually load on Windows XP its PE
+subsystem version must also be set to 5.1 (MinGW stamps new binaries with 5.2, which is XP x64 /
+Server 2003), and it is worth linking the pthread runtime statically. Both belong in the
+toolchain file, not here, since the correct subsystem version differs for XP x64 and for
+non-XP targets; see ``examples/joker/cmake/toolchain-mingw-win32.cmake`` for a worked example.
+
+Build XP binaries with the MinGW toolchain that ships with Qt 5.6 (GCC 4.9.2). The MSVC 2013
+package is not usable: qtng uses ``constexpr`` and ``std::make_unique``, which MSVC 2013 does
+not provide. A core-only (no Qt) XP build is out of scope here; for that, set ``_WIN32_WINNT``
+in the toolchain as the core ``CMakeLists.txt`` no longer exposes an option for it.
+
 Toolchain requirements
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -44,6 +66,11 @@ The binding compiles Qt5 targets with C++11 and Qt6 targets with C++17
 (``CMAKE_CXX_STANDARD`` is set automatically by ``qt/CMakeLists.txt``). Qt6 headers use
 ``<filesystem>``, so building the Qt6 variant needs a C++17 compiler (GCC 8+, Clang 7+ or
 equivalent); a C++11 compiler such as GCC 7 is only sufficient for the Qt5 variant.
+
+The Qt5 variant needs a C++11 compiler with ``constexpr`` and ``std::make_unique``
+(GCC 4.9+, Clang 3.4+, MSVC 2015+). This rules out MSVC 2013, so an XP build must use the
+MinGW 4.9.2 toolchain bundled with Qt 5.6. The test suites under ``qt/tests/`` require
+Catch2 v3 and C++17 and are not part of an XP build.
 
 Minimal example
 ---------------

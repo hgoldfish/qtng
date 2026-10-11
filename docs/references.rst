@@ -3468,7 +3468,7 @@ On Unix systems, qtng uses libev as its event loop backend. CMake selects the be
 
 3. **Source integration**: libev sources live under ``src/ev/``; ``src/eventloop_ev.cpp`` implements the event loop on Unix.
 
-4. **Windows**: Uses a separate Windows-specific event loop implementation.
+4. **Windows**: Uses a separate Windows-specific event loop implementation. When the Qt binding is built against Qt 5.6 (the last XP-capable Qt) on Windows, the detected Qt version selects the XP API level automatically: it pins ``WINVER`` and ``_WIN32_WINNT`` to ``0x0501`` on the core and binding targets, so the headers hide Vista-and-later APIs and the XP fallbacks (``GetTickCount()``, ``CancelIo()``) are compiled in. This is a compile-time choice only; making the executable load on XP also needs the PE subsystem version (5.1 for 32-bit XP) from the toolchain.
 
 
 6.2 SSL/TLS configuration

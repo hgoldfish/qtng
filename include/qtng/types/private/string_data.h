@@ -355,7 +355,9 @@ private:
         std::uint32_t offset;
         Data *d;
     };
-    union U {
+    // alignas(8): the heap branch's pointer makes this union 8-aligned on 64-bit, but only
+    // 4-aligned on a 32-bit target (i686 XP). Pin the 8 that the layout asserts below require.
+    union alignas(8) U {
         Inl inl;
         Heap heap;
     };

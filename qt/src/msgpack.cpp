@@ -47,15 +47,6 @@ public:
     QIODevice *dev;
 };
 
-inline qtng_core::FileLike *ioAdapterFileLike(const QSharedPointer<QIODeviceFileLike> &p)
-{
-#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
-    return p.get();
-#else
-    return p.data();
-#endif
-}
-
 enum class QVariantWireKind
 {
     Unknown,
@@ -140,14 +131,14 @@ QDateTime unpackDatetime(const QByteArray &bs)
     quint64 seconds = 0;
     quint64 nanoseconds = 0;
     if (bs.size() == 4) {
-        seconds = qFromBigEndian<quint32>(static_cast<const void *>(bs.constData()));
+        seconds = qFromBigEndian<quint32>(reinterpret_cast<const uchar *>(bs.constData()));
     } else if (bs.size() == 8) {
-        const quint64 t = qFromBigEndian<quint64>(static_cast<const void *>(bs.constData()));
+        const quint64 t = qFromBigEndian<quint64>(reinterpret_cast<const uchar *>(bs.constData()));
         seconds = t & 0x00000003ffffffffULL;
         nanoseconds = t >> 34;
     } else if (bs.size() == 12) {
-        nanoseconds = qFromBigEndian<quint32>(static_cast<const void *>(bs.constData()));
-        seconds = static_cast<quint64>(qFromBigEndian<qint64>(static_cast<const void *>(bs.constData() + 4)));
+        nanoseconds = qFromBigEndian<quint32>(reinterpret_cast<const uchar *>(bs.constData()));
+        seconds = static_cast<quint64>(qFromBigEndian<qint64>(reinterpret_cast<const uchar *>(bs.constData() + 4)));
     } else {
         return QDateTime();
     }
@@ -229,7 +220,7 @@ static void bindDevice(MsgPackStreamPrivate *d, QIODevice *device)
         return;
     }
     d->ioAdapter = QSharedPointer<QIODeviceFileLike>(new QIODeviceFileLike(device));
-    d->core.setDevice(ioAdapterFileLike(d->ioAdapter));
+    d->core.setDevice(d->ioAdapter.data());
     // Seekable devices: bound reads to remaining bytes (matches QByteArray* ReadOnly).
     // Without this, a corrupt ARRAY32 length can exceed the file yet pass when limit is
     // uint32 max; callers then QVector::resize(uint32→int) and smash the heap.

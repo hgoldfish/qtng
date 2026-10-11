@@ -3160,7 +3160,7 @@ PSK 不是独立 pattern，而是 ``NoisePskModifier``（``None`` / ``Psk0``–`
 
 3. **源码集成**：libev 位于 ``src/ev/``；Unix 上由 ``src/eventloop_ev.cpp`` 实现事件循环。
 
-4. **Windows**：使用独立的 Windows 事件循环实现。
+4. **Windows**：使用独立的 Windows 事件循环实现。在 Windows 上以 Qt 5.6（最后一个支持 XP 的 Qt）构建 Qt 兼容层时，检测到的 Qt 版本会自动选定 XP API 级别：它把核心与兼容层目标的 ``WINVER`` 与 ``_WIN32_WINNT`` 固定为 ``0x0501``，从而使头文件隐藏 Vista 及更高版本的 API，并把 XP 回退路径（``GetTickCount()``、``CancelIo()``）编译进去。这只是编译期的选择；要让可执行文件能在 XP 上加载，还需由工具链把 PE 子系统版本设为 5.1（32 位 XP）。
 
 
 6.2 SSL/TLS 配置

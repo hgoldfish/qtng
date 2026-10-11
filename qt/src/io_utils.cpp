@@ -323,6 +323,16 @@ public:
         // byte-wise writers into few large chunks.
         return qMin<qint32>(maxBufferSize, 64 * 1024);
     }
+    bool isClosed() const
+    {
+        // loadRelaxed() only exists since Qt 5.14; load() is the conservative
+        // equivalent and is never weaker.
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        return closed.loadRelaxed();
+#else
+        return closed.load();
+#endif
+    }
 public:
     Pipe * const q_ptr;
     qtng_core::ThreadQueue<QByteArray> queue;
@@ -510,7 +520,7 @@ public:
     virtual qint32 write(const char *data, qint32 size) override
     {
         QSharedPointer<PipePrivate> pp = this->pp.toStrongRef();
-        if (pp.isNull() || pp->closed.loadRelaxed() || size <= 0) {
+        if (pp.isNull() || pp->isClosed() || size <= 0) {
             return -1;
         }
         if (pp->debugLevel >= 2) {
@@ -539,7 +549,7 @@ public:
     virtual void close() override
     {
         QSharedPointer<PipePrivate> pp = this->pp.toStrongRef();
-        if (pp.isNull() || pp->closed.loadRelaxed()) {
+        if (pp.isNull() || pp->isClosed()) {
             return;
         }
         if (pp->debugLevel >= 2) {
@@ -683,7 +693,7 @@ public:
         if (!pp->queue.isEmpty()) {
             return true;
         }
-        if (pp->closed.loadRelaxed()) {
+        if (pp->isClosed()) {
             return false;
         }
         // honor the timeout: a timed-out wait must report false, not spin forever.
@@ -728,7 +738,7 @@ public:
         if (pp.isNull()) {
             return true;
         }
-        return pp->closed.loadRelaxed();
+        return pp->isClosed();
     }
 
     virtual qint64 bytesAvailable() const override { return 0; }
@@ -736,7 +746,7 @@ public:
     virtual qint64 bytesToWrite() const override
     {
         QSharedPointer<PipePrivate> pp = this->pp.toStrongRef();
-        if (pp.isNull() || pp->closed.loadRelaxed()) {
+        if (pp.isNull() || pp->isClosed()) {
             return 0;
         }
         // qtnetworkng reports the spare pipe capacity (maxBufferSize minus the
@@ -751,7 +761,7 @@ public:
     virtual void close() override
     {
         QSharedPointer<PipePrivate> pp = this->pp.toStrongRef();
-        if (pp.isNull() || pp->closed.loadRelaxed()) {
+        if (pp.isNull() || pp->isClosed()) {
             return;
         }
 
@@ -775,7 +785,7 @@ public:
     {
         // according to the document, we must write all data!
         QSharedPointer<PipePrivate> pp = this->pp.toStrongRef();
-        if (pp.isNull() || pp->closed.loadRelaxed() || size < 0) {
+        if (pp.isNull() || pp->isClosed() || size < 0) {
             return -1;
         } else if (size > 0) {
             // accumulate into localBuffer; flush only when a reasonable chunk has formed.
@@ -810,7 +820,7 @@ public:
     virtual bool waitForBytesWritten(int msecs) override
     {
         QSharedPointer<PipePrivate> pp = this->pp.toStrongRef();
-        if (pp.isNull() || pp->closed.loadRelaxed()) {
+        if (pp.isNull() || pp->isClosed()) {
             return false;
         }
         // every write is accepted synchronously, so there is never buffered data

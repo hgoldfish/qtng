@@ -64,6 +64,16 @@ elseif(WIN32)
     set(QTNG_QT_COMPILE_DEFS QTNETWORKNG_USE_WIN=1)
 endif()
 
+# Qt 5.6 is the last Qt release that runs on Windows XP. Detect it from the Qt version and
+# select the XP API level: the headers then hide Vista+ APIs and qtng's XP fallbacks
+# (GetTickCount, CancelIo) are compiled in. Compilation only - an executable XP will load
+# further needs the PE subsystem version in the toolchain (MinGW defaults to 5.2, XP is 5.1).
+set(QTNG_QT_XP_COMPILE_DEFS)
+if(WIN32 AND QTNG_QT_VERSION_MAJOR EQUAL 5 AND Qt5Core_VERSION VERSION_LESS 5.7)
+    set(QTNG_QT_XP_COMPILE_DEFS WINVER=0x0501 _WIN32_WINNT=0x0501)
+    target_compile_definitions(qtng PRIVATE ${QTNG_QT_XP_COMPILE_DEFS})
+endif()
+
 set(QTNG_QT_PUBLIC_HEADERS
     ${QTNG_QT_DIR}/include/config.h
     ${QTNG_QT_DIR}/include/qtnetworkng.h
@@ -174,6 +184,8 @@ target_compile_definitions(qtnetworkng
     PUBLIC
         QTNG_HAVE_ZLIB
         ${QTNG_QT_COMPILE_DEFS}
+    PRIVATE
+        ${QTNG_QT_XP_COMPILE_DEFS}
 )
 
 target_link_libraries(qtnetworkng

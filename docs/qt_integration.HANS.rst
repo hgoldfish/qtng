@@ -35,6 +35,26 @@ Qt5/Qt6 可选兼容层
 
     cmake -S /path/to/qtng/qt/examples/fetch_web_content -B build-fetch -DQTNG_QT_VERSION=6
 
+Windows XP（Qt 5.6）
+~~~~~~~~~~~~~~~~~~~
+
+Qt 5.6 是最后一个支持 Windows XP 的 Qt 版本。在 Windows 上以 Qt 5.6 构建兼容层时，检测到的 Qt
+版本会替你选定 XP API 级别：只要 ``Qt5Core_VERSION`` 低于 5.7，就把核心与兼容层目标的
+``WINVER`` 与 ``_WIN32_WINNT`` 固定为 ``0x0501``，从而让系统头文件隐藏 Vista 及更高版本的 API，
+并把 qtng 的 XP 回退路径（``GetTickCount()``、``CancelIo()``）编译进去。无需任何选项。这些定义按
+目标（per-target）施加而非全局，因此不会与外带的 LibreSSL 冲突——后者在自己的翻译单元里固定
+``_WIN32_WINNT=0x0600``。
+
+以上只覆盖编译期。要让产出的可执行文件真正能在 Windows XP 上加载，其 PE 子系统版本还必须设为
+5.1（MinGW 默认盖 5.2，即 XP x64 / Server 2003），并且最好把 pthread 运行时静态链接。这两项属于
+工具链文件而非本处，因为正确的子系统版本对 XP x64 与非 XP 目标并不相同；可参考
+``examples/joker/cmake/toolchain-mingw-win32.cmake``。
+
+XP 二进制应使用 Qt 5.6 自带的 MinGW 工具链（GCC 4.9.2）构建。MSVC 2013 不可用：qtng 使用了
+``constexpr`` 与 ``std::make_unique``，MSVC 2013 并不提供。仅核心库（不含 Qt）的 XP 构建不在
+此处范围内；这种场景请直接在工具链里设置 ``_WIN32_WINNT``，核心 ``CMakeLists.txt`` 已不再对它
+暴露选项。
+
 编译器要求
 ----------
 
@@ -42,6 +62,10 @@ Qt5 目标以 C++11 编译，Qt6 目标以 C++17 编译（``qt/CMakeLists.txt`` 
 ``CMAKE_CXX_STANDARD``）。Qt6 头文件使用了 ``<filesystem>``，因此编译 Qt6 版本需要
 C++17 编译器（GCC 8+、Clang 7+ 或等效）；仅编译 Qt5 版本时 C++11 编译器（如 GCC 7）
 即可。
+
+Qt5 版本需要支持 ``constexpr`` 与 ``std::make_unique`` 的 C++11 编译器（GCC 4.9+、
+Clang 3.4+、MSVC 2015+），因此 MSVC 2013 不可用；XP 构建应使用 Qt 5.6 自带的 MinGW 4.9.2。
+``qt/tests/`` 下的测试套件依赖 Catch2 v3 与 C++17，不属于 XP 构建的一部分。
 
 最小示例
 --------
