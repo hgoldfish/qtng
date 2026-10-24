@@ -1,8 +1,13 @@
+#include <ucontext.h>
+
 #include "qtng/coroutine.h"
 #include "qtng/private/coroutine_p.h"
+#include "qtng/utils/logging.h"
 #include "stack_pool.h"
 
 using namespace std;
+
+NG_LOGGER("qtng.coroutine.unix");
 
 namespace qtng {
 
@@ -43,7 +48,7 @@ void run_stub(BaseCoroutinePrivate *coroutine)
         coroutine->state = BaseCoroutine::Stopped;
         coroutine->q_ptr->finished.callback(coroutine->q_ptr);
     } catch(...) {
-        ngWarning() << ) << "coroutine throw a unhandled exception.";
+        ngWarning() << "coroutine throw a unhandled exception.";
         coroutine->state = BaseCoroutine::Stopped;
         coroutine->q_ptr->finished.callback(coroutine->q_ptr);
 //        throw; // cause undefined behaviors
@@ -59,7 +64,7 @@ BaseCoroutinePrivate::BaseCoroutinePrivate(BaseCoroutine *q, BaseCoroutine *prev
     if (stackSize) {
         stack = stack_pool::acquire(stackSize);
         if (!stack) {
-            ngWarning() << "Coroutine can not malloc new memroy.");
+            ngWarning() << "Coroutine can not malloc new memroy.";
             bad = true;
         }
     }
@@ -70,20 +75,20 @@ BaseCoroutinePrivate::~BaseCoroutinePrivate()
 {
     NG_Q(BaseCoroutine);
     if (state == BaseCoroutine::Started) {
-        ngWarning() << ) << "deleting running BaseCoroutine" << this;
+        ngWarning() << "deleting running BaseCoroutine" << this;
     }
     if (stack) {
         stack_pool::release(stack, stackSize);
     }
 
     if (currentCoroutine().get(false) == q) {
-        ngWarning() << "do not delete one self.");
+        ngWarning() << "do not delete one self.";
     }
     if (context) {
         delete context;
     }
     if (exception) {
-        ngWarning() << "BaseCoroutine->exception should always be kept null.");
+        ngWarning() << "BaseCoroutine->exception should always be kept null.";
         //delete exception;
     }
 }
@@ -94,7 +99,7 @@ bool BaseCoroutinePrivate::yield()
     NG_Q(BaseCoroutine);
 
     if (bad || (state != BaseCoroutine::Initialized && state != BaseCoroutine::Started)) {
-        ngWarning() << "invalid coroutine state.");
+        ngWarning() << "invalid coroutine state.";
         return false;
     }
 
@@ -103,11 +108,11 @@ bool BaseCoroutinePrivate::yield()
 
     BaseCoroutine *old = currentCoroutine().get();
     if (!old) {
-        ngWarning() << "can not get old coroutine.");
+        ngWarning() << "can not get old coroutine.";
         return false;
     }
     if (old == q) {
-        ngWarning() << "yield to myself. did you call blocking functions in eventloop?");
+        ngWarning() << "yield to myself. did you call blocking functions in eventloop?";
         return false;
     }
 
@@ -136,7 +141,7 @@ bool BaseCoroutinePrivate::initContext()
 
     context = new ucontext_t;
     if (!context) {
-        ngWarning() << "Coroutine can not malloc new memroy.");
+        ngWarning() << "Coroutine can not malloc new memroy.";
         bad = true;
         return false;
     }
@@ -161,23 +166,23 @@ bool BaseCoroutinePrivate::raise(CoroutineException *exception)
 {
     NG_Q(BaseCoroutine);
     if (!exception) {
-        ngWarning() << "can not kill coroutine with null exception.");
+        ngWarning() << "can not kill coroutine with null exception.";
         return false;
     }
     if (currentCoroutine().get() == q) {
-        ngWarning() << "can not kill oneself.");
+        ngWarning() << "can not kill oneself.";
         delete exception;
         return false;
     }
 
     if (this->exception) {
-        ngWarning() << "coroutine had been killed.");
+        ngWarning() << "coroutine had been killed.";
         delete exception;
         return false;
     }
 
     if (state == BaseCoroutine::Stopped || state == BaseCoroutine::Joined) {
-        ngWarning() << "coroutine is stopped.");
+        ngWarning() << "coroutine is stopped.";
         delete exception;
         return false;
     }
@@ -201,7 +206,7 @@ BaseCoroutine* createMainCoroutine()
     BaseCoroutinePrivate *mainPrivate = main->dd_ptr;
     mainPrivate->context = new ucontext_t;
     if (!mainPrivate->context) {
-        ngWarning() << "Coroutine can not malloc new memroy.");
+        ngWarning() << "Coroutine can not malloc new memroy.";
         delete main;
         return nullptr;
     }
