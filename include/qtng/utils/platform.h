@@ -26,7 +26,7 @@ inline unique_ptr<T> make_unique(Args &&... args)
 
 #endif
 
-#if defined(_WIN32) || defined(__CYGWIN__)
+#if defined(_WIN32)
 #  define NG_OS_WIN
 #elif defined(__ANDROID__)
 #  define NG_OS_ANDROID

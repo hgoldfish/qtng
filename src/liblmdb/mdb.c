@@ -332,7 +332,7 @@ union semun {
  */
 #ifndef MDB_USE_ROBUST
 /* Android currently lacks Robust Mutex support. So does glibc < 2.4. */
-# if defined(MDB_USE_POSIX_MUTEX) && (defined(__ANDROID__) || \
+# if defined(MDB_USE_POSIX_MUTEX) && (defined(__ANDROID__) || defined(__CYGWIN__) || \
 	(defined(__GLIBC__) && GLIBC_VER < 0x020004))
 #  define MDB_USE_ROBUST	0
 # else

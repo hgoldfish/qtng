@@ -1178,7 +1178,11 @@ static void convertToLevelAndOption(Socket::SocketOption opt, HostAddress::Netwo
     case Socket::ReceivePacketInformation:
         if (socketProtocol == HostAddress::IPv6Protocol) {
             *level = IPPROTO_IPV6;
+#ifdef IPV6_RECVPKTINFO
             *n = IPV6_RECVPKTINFO;
+#elif defined(IPV6_PKTINFO)
+            *n = IPV6_PKTINFO;
+#endif
         } else {
             *level = IPPROTO_IP;
 #ifdef IP_PKTINFO
@@ -1193,7 +1197,11 @@ static void convertToLevelAndOption(Socket::SocketOption opt, HostAddress::Netwo
     case Socket::ReceiveHopLimit:
         if (socketProtocol == HostAddress::IPv6Protocol) {
             *level = IPPROTO_IPV6;
+#ifdef IPV6_RECVHOPLIMIT
             *n = IPV6_RECVHOPLIMIT;
+#elif defined(IPV6_HOPLIMIT)
+            *n = IPV6_HOPLIMIT;
+#endif
         } else {
 #ifdef IP_RECVTTL  // IP_RECVTTL is a non-standard extension supported on some OS
             *level = IPPROTO_IP;

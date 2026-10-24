@@ -430,7 +430,11 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
         src/network_interface/network_interface_unix.cpp
     )
 elseif(UNIX)
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64")
+    if(CMAKE_SYSTEM_NAME MATCHES "CYGWIN")
+        # Cygwin targets PE/COFF with the Windows x64 ABI; the SysV ELF fcontext
+        # assembly cannot be assembled there. Fall back to POSIX ucontext.
+        set(OS_DEPENDENDED_SRC src/coroutine_unix.cpp)
+    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64")
         set(OS_DEPENDENDED_SRC
             src/context/asm/jump_x86_64_sysv_elf_gas.S
             src/context/asm/make_x86_64_sysv_elf_gas.S
