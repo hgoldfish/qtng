@@ -1,6 +1,7 @@
 #ifndef QTNG_HTTP_H
 #define QTNG_HTTP_H
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -52,11 +53,17 @@ public:
     };
     struct File
     {
-        File(const std::string &name, const std::string &filename, const std::string &data, const std::string &contentType)
+        File(const std::string &name, const std::string &filename, const char *data, size_t dataSize,
+             const std::string &contentType)
             : name_(name)
             , filename_(filename)
-            , data_(data)
+            , data_(data, dataSize)
             , contentType_(contentType)
+        {
+        }
+        inline File(const std::string &name, const std::string &filename, const std::string &data,
+                    const std::string &contentType)
+            : File(name, filename, data.data(), data.size(), contentType)
         {
         }
         std::string name() const { return name_; }
@@ -64,7 +71,8 @@ public:
         std::string filename() const { return filename_; }
         void setFilename(const std::string &filename) { filename_ = filename; }
         std::string data() const { return data_; }
-        void setData(const std::string &data) { data_ = data; }
+        void setData(const char *data, size_t size) { data_.assign(data, size); }
+        inline void setData(const std::string &data) { setData(data.data(), data.size()); }
         std::string contentType() const { return contentType_; }
         void setContentType(const std::string &contentType) { contentType_ = contentType; }
     private:
@@ -74,7 +82,7 @@ public:
         std::string contentType_;
     };
 
-    void addFile(const std::string &name, const std::string &filename, const std::string &data,
+    void addFile(const std::string &name, const std::string &filename, const char *data, size_t dataSize,
                  const std::string &contentType = std::string())
     {
         std::string newContentType;
@@ -88,7 +96,12 @@ public:
         if (newContentType.empty()) {
             newContentType = "application/octet-stream";
         }
-        files_.push_back(File(name, filename, data, newContentType));
+        files_.push_back(File(name, filename, data, dataSize, newContentType));
+    }
+    inline void addFile(const std::string &name, const std::string &filename, const std::string &data,
+                        const std::string &contentType = std::string())
+    {
+        addFile(name, filename, data.data(), data.size(), contentType);
     }
 
     void addQuery(const std::string &key, const std::string &value) { queries_.push_back(Query(key, value)); }
@@ -143,7 +156,8 @@ public:
     std::vector<HttpCookie> cookies() const;
     void setCookies(const std::vector<HttpCookie> &cookies);
     std::shared_ptr<FileLike> body() const;
-    void setBody(const std::string &body);
+    void setBody(const char *body, size_t size);
+    inline void setBody(const std::string &body) { setBody(body.data(), body.size()); }
     void setBody(std::shared_ptr<FileLike> body);
     // Full body content, independent of any read position. Only BytesIO
     // (what setBody(string) and its map/UrlQuery/FormData helpers construct)
@@ -229,7 +243,8 @@ public:
     }
     std::shared_ptr<FileLike> bodyAsFile(bool processGzip, bool processChunked);
     std::string body();
-    void setBody(const std::string &body);
+    void setBody(const char *body, size_t size);
+    inline void setBody(const std::string &body) { setBody(body.data(), body.size()); }
     std::string text();
     std::string html();
 

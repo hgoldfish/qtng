@@ -1,6 +1,7 @@
 #ifndef QTNG_BENCODE_H
 #define QTNG_BENCODE_H
 
+#include <cstddef>
 #include <cstdint>
 #include <list>
 #include <map>
@@ -24,7 +25,11 @@ public:
     BencodeStream();
     BencodeStream(FileLike *d);
     BencodeStream(std::string *a, bool writeMode = false);
-    BencodeStream(const std::string &a);
+    BencodeStream(const char *a, size_t size);
+    inline BencodeStream(const std::string &a)
+        : BencodeStream(a.data(), a.size())
+    {
+    }
     virtual ~BencodeStream();
 
     void setDevice(FileLike *d);
@@ -54,7 +59,8 @@ public:
     bool peekContainerEnd() const;
 
     BencodeStream &operator<<(std::int64_t i);
-    BencodeStream &operator<<(const std::string &str);
+    BencodeStream &writeString(const char *data, size_t size);
+    inline BencodeStream &operator<<(const std::string &str) { return writeString(str.data(), str.size()); }
     BencodeStream &operator<<(const Bencode &v);
     bool writeBytes(const char *data, std::int64_t len);
     // len is accepted for MsgPackStream API parity; bencode encodes only the 'l'/'d' marker.
@@ -300,7 +306,11 @@ public:
 
     Bencode();
     Bencode(std::int64_t i);
-    Bencode(const std::string &s);
+    Bencode(const char *s, size_t size);
+    inline Bencode(const std::string &s)
+        : Bencode(s.data(), s.size())
+    {
+    }
     Bencode(const char *s);
     Bencode(const std::vector<Bencode> &list);
     Bencode(std::vector<Bencode> &&list);
@@ -326,8 +336,13 @@ public:
     const std::map<std::string, Bencode> &toMap() const;
 
     std::string encode() const;
-    static Bencode decode(const std::string &data, std::string *error = nullptr,
+    static Bencode decode(const char *data, size_t size, std::string *error = nullptr,
                           std::uint32_t lengthLimit = 16 * 1024 * 1024);
+    inline static Bencode decode(const std::string &data, std::string *error = nullptr,
+                                 std::uint32_t lengthLimit = 16 * 1024 * 1024)
+    {
+        return decode(data.data(), data.size(), error, lengthLimit);
+    }
     static Bencode decode(FileLike *device, std::string *error = nullptr,
                           std::uint32_t lengthLimit = 16 * 1024 * 1024);
 

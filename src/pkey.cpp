@@ -1,3 +1,4 @@
+#include <climits>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -27,16 +28,17 @@ public:
 
     PublicKey::Algorithm algorithm() const;
     int bits() const;
-    string sign(const string &data, MessageDigest::Algorithm hashAlgo) const;
-    bool verify(const string &data, const string &hash, MessageDigest::Algorithm hashAlgo) const;
-    string encrypt(const string &data) const;
-    string decrypt(const string &data) const;
-    bool checkValidRsaOperation(const string &data, PublicKey::RsaPadding padding, bool requirePrivate,
+    string sign(const char *data, size_t dataSize, MessageDigest::Algorithm hashAlgo) const;
+    bool verify(const char *data, size_t dataSize, const char *hash, size_t hashSize,
+                MessageDigest::Algorithm hashAlgo) const;
+    string encrypt(const char *data, size_t dataSize) const;
+    string decrypt(const char *data, size_t dataSize) const;
+    bool checkValidRsaOperation(const char *data, size_t dataSize, PublicKey::RsaPadding padding, bool requirePrivate,
                                 bool allowOaep) const;
-    string rsaPublicEncrypt(const string &data, PublicKey::RsaPadding padding) const;
-    string rsaPublicDecrypt(const string &data, PublicKey::RsaPadding padding) const;
-    string rsaPrivateEncrypt(const string &data, PublicKey::RsaPadding padding) const;
-    string rsaPrivateDecrypt(const string &data, PublicKey::RsaPadding padding) const;
+    string rsaPublicEncrypt(const char *data, size_t dataSize, PublicKey::RsaPadding padding) const;
+    string rsaPublicDecrypt(const char *data, size_t dataSize, PublicKey::RsaPadding padding) const;
+    string rsaPrivateEncrypt(const char *data, size_t dataSize, PublicKey::RsaPadding padding) const;
+    string rsaPrivateDecrypt(const char *data, size_t dataSize, PublicKey::RsaPadding padding) const;
     static PrivateKey generate(PublicKey::Algorithm algo, int bits);
     static bool setPkey(PublicKey *key, EVP_PKEY *pkey, bool hasPrivate);
     static bool adoptRawPkey(PublicKeyPrivate *d, EVP_PKEY *rawPkey, bool hasPrivate);
@@ -161,9 +163,9 @@ PrivateKey PublicKeyPrivate::generate(PublicKey::Algorithm algo, int bits)
     return key;
 }
 
-string PublicKeyPrivate::sign(const string &data, MessageDigest::Algorithm hashAlgo) const
+string PublicKeyPrivate::sign(const char *data, size_t dataSize, MessageDigest::Algorithm hashAlgo) const
 {
-    if (!pkey || !hasPrivate) {
+    if (!pkey || !hasPrivate || dataSize > static_cast<size_t>(UINT_MAX) || (dataSize > 0 && !data)) {
         return string();
     }
 
@@ -181,7 +183,7 @@ string PublicKeyPrivate::sign(const string &data, MessageDigest::Algorithm hashA
     if (!rvalue) {
         return string();
     }
-    rvalue = EVP_DigestSignUpdate(mctx.get(), data.data(), static_cast<unsigned int>(data.size()));
+    rvalue = EVP_DigestSignUpdate(mctx.get(), data, static_cast<unsigned int>(dataSize));
     if (!rvalue) {
         return string();
     }
@@ -200,9 +202,10 @@ string PublicKeyPrivate::sign(const string &data, MessageDigest::Algorithm hashA
     return result;
 }
 
-bool PublicKeyPrivate::verify(const string &data, const string &hash, MessageDigest::Algorithm hashAlgo) const
+bool PublicKeyPrivate::verify(const char *data, size_t dataSize, const char *hash, size_t hashSize,
+                              MessageDigest::Algorithm hashAlgo) const
 {
-    if (!pkey) {
+    if (!pkey || dataSize > static_cast<size_t>(UINT_MAX) || (dataSize > 0 && !data) || (hashSize > 0 && !hash)) {
         return false;
     }
 
@@ -221,35 +224,34 @@ bool PublicKeyPrivate::verify(const string &data, const string &hash, MessageDig
     if (!rvalue) {
         return false;
     }
-    rvalue = EVP_DigestVerifyUpdate(mctx.get(), data.data(), static_cast<unsigned int>(data.size()));
+    rvalue = EVP_DigestVerifyUpdate(mctx.get(), data, static_cast<unsigned int>(dataSize));
     if (!rvalue) {
         return false;
     }
-    rvalue = EVP_DigestVerifyFinal(mctx.get(), reinterpret_cast<const unsigned char *>(hash.data()),
-                                   static_cast<size_t>(hash.size()));
+    rvalue = EVP_DigestVerifyFinal(mctx.get(), reinterpret_cast<const unsigned char *>(hash), hashSize);
     return rvalue != 0;
 }
 
-string PublicKeyPrivate::encrypt(const string &data) const
+string PublicKeyPrivate::encrypt(const char *data, size_t dataSize) const
 {
     if (algorithm() == PublicKey::Rsa) {
-        return rsaPublicEncrypt(data, PublicKey::PKCS1_PADDING);
+        return rsaPublicEncrypt(data, dataSize, PublicKey::PKCS1_PADDING);
     }
-    if (!pkey || !context || data.empty()) {
+    if (!pkey || !context || dataSize == 0 || !data || dataSize > static_cast<size_t>(UINT_MAX)) {
         return string();
     }
 
     int rvalue = EVP_PKEY_encrypt_init(context.get());
     if (rvalue) {
         size_t outlen = 0;
-        rvalue = EVP_PKEY_encrypt(context.get(), nullptr, &outlen, reinterpret_cast<const unsigned char *>(data.data()),
-                                  static_cast<unsigned int>(data.size()));
+        rvalue = EVP_PKEY_encrypt(context.get(), nullptr, &outlen, reinterpret_cast<const unsigned char *>(data),
+                                  static_cast<unsigned int>(dataSize));
         if (rvalue && outlen) {
             string result;
             result.resize(static_cast<int>(outlen));
             rvalue = EVP_PKEY_encrypt(context.get(), reinterpret_cast<unsigned char *>(&result[0]), &outlen,
-                                      reinterpret_cast<const unsigned char *>(data.data()),
-                                      static_cast<unsigned int>(data.size()));
+                                      reinterpret_cast<const unsigned char *>(data),
+                                      static_cast<unsigned int>(dataSize));
             if (rvalue) {
                 result.resize(static_cast<int>(outlen));
                 return result;
@@ -260,26 +262,26 @@ string PublicKeyPrivate::encrypt(const string &data) const
     return string();
 }
 
-string PublicKeyPrivate::decrypt(const string &data) const
+string PublicKeyPrivate::decrypt(const char *data, size_t dataSize) const
 {
     if (algorithm() == PublicKey::Rsa) {
-        return rsaPrivateDecrypt(data, PublicKey::PKCS1_PADDING);
+        return rsaPrivateDecrypt(data, dataSize, PublicKey::PKCS1_PADDING);
     }
-    if (!pkey || !context || data.empty() || !hasPrivate) {
+    if (!pkey || !context || dataSize == 0 || !data || !hasPrivate || dataSize > static_cast<size_t>(UINT_MAX)) {
         return string();
     }
     int rvalue;
     rvalue = EVP_PKEY_decrypt_init(context.get());
     if (rvalue) {
         size_t outlen;
-        rvalue = EVP_PKEY_decrypt(context.get(), nullptr, &outlen, reinterpret_cast<const unsigned char *>(data.data()),
-                                  static_cast<unsigned int>(data.size()));
+        rvalue = EVP_PKEY_decrypt(context.get(), nullptr, &outlen, reinterpret_cast<const unsigned char *>(data),
+                                  static_cast<unsigned int>(dataSize));
         if (rvalue && outlen) {
             string result;
             result.resize(static_cast<int>(outlen));
             rvalue = EVP_PKEY_decrypt(context.get(), reinterpret_cast<unsigned char *>(&result[0]), &outlen,
-                                      reinterpret_cast<const unsigned char *>(data.data()),
-                                      static_cast<unsigned int>(data.size()));
+                                      reinterpret_cast<const unsigned char *>(data),
+                                      static_cast<unsigned int>(dataSize));
             if (rvalue) {
                 result.resize(static_cast<int>(outlen));
                 return result;
@@ -290,10 +292,10 @@ string PublicKeyPrivate::decrypt(const string &data) const
     return string();
 }
 
-bool PublicKeyPrivate::checkValidRsaOperation(const string &data, PublicKey::RsaPadding padding, bool requirePrivate,
-                                              bool allowOaep) const
+bool PublicKeyPrivate::checkValidRsaOperation(const char *data, size_t dataSize, PublicKey::RsaPadding padding,
+                                              bool requirePrivate, bool allowOaep) const
 {
-    if (!pkey || !context || data.empty()) {
+    if (!pkey || !context || dataSize == 0 || !data) {
         ngDebug() << "invalid key or data";
         return false;
     }
@@ -314,9 +316,10 @@ bool PublicKeyPrivate::checkValidRsaOperation(const string &data, PublicKey::Rsa
     return true;
 }
 
-static string rsaEvpCrypt(EVP_PKEY_CTX *ctx, const string &data, PublicKey::RsaPadding padding, bool encrypt)
+static string rsaEvpCrypt(EVP_PKEY_CTX *ctx, const char *data, size_t dataSize, PublicKey::RsaPadding padding,
+                          bool encrypt)
 {
-    if (!ctx) {
+    if (!ctx || !data || dataSize == 0) {
         return string();
     }
 
@@ -325,19 +328,18 @@ static string rsaEvpCrypt(EVP_PKEY_CTX *ctx, const string &data, PublicKey::RsaP
         return string();
     }
 
-    const unsigned char *in = reinterpret_cast<const unsigned char *>(data.data());
-    const size_t inlen = static_cast<size_t>(data.size());
+    const unsigned char *in = reinterpret_cast<const unsigned char *>(data);
     size_t outlen = 0;
-    rvalue = encrypt ? EVP_PKEY_encrypt(ctx, nullptr, &outlen, in, inlen)
-                     : EVP_PKEY_decrypt(ctx, nullptr, &outlen, in, inlen);
+    rvalue = encrypt ? EVP_PKEY_encrypt(ctx, nullptr, &outlen, in, dataSize)
+                     : EVP_PKEY_decrypt(ctx, nullptr, &outlen, in, dataSize);
     if (rvalue <= 0 || outlen == 0) {
         return string();
     }
 
     string result;
     result.resize(static_cast<int>(outlen));
-    rvalue = encrypt ? EVP_PKEY_encrypt(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, inlen)
-                     : EVP_PKEY_decrypt(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, inlen);
+    rvalue = encrypt ? EVP_PKEY_encrypt(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, dataSize)
+                     : EVP_PKEY_decrypt(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, dataSize);
     if (rvalue <= 0) {
         return string();
     }
@@ -345,9 +347,10 @@ static string rsaEvpCrypt(EVP_PKEY_CTX *ctx, const string &data, PublicKey::RsaP
     return result;
 }
 
-static string rsaEvpSignOrRecover(EVP_PKEY_CTX *ctx, const string &data, PublicKey::RsaPadding padding, bool sign)
+static string rsaEvpSignOrRecover(EVP_PKEY_CTX *ctx, const char *data, size_t dataSize, PublicKey::RsaPadding padding,
+                                  bool sign)
 {
-    if (!ctx) {
+    if (!ctx || !data || dataSize == 0) {
         return string();
     }
 
@@ -356,19 +359,18 @@ static string rsaEvpSignOrRecover(EVP_PKEY_CTX *ctx, const string &data, PublicK
         return string();
     }
 
-    const unsigned char *in = reinterpret_cast<const unsigned char *>(data.data());
-    const size_t inlen = static_cast<size_t>(data.size());
+    const unsigned char *in = reinterpret_cast<const unsigned char *>(data);
     size_t outlen = 0;
-    rvalue = sign ? EVP_PKEY_sign(ctx, nullptr, &outlen, in, inlen)
-                  : EVP_PKEY_verify_recover(ctx, nullptr, &outlen, in, inlen);
+    rvalue = sign ? EVP_PKEY_sign(ctx, nullptr, &outlen, in, dataSize)
+                  : EVP_PKEY_verify_recover(ctx, nullptr, &outlen, in, dataSize);
     if (rvalue <= 0 || outlen == 0) {
         return string();
     }
 
     string result;
     result.resize(static_cast<int>(outlen));
-    rvalue = sign ? EVP_PKEY_sign(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, inlen)
-                  : EVP_PKEY_verify_recover(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, inlen);
+    rvalue = sign ? EVP_PKEY_sign(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, dataSize)
+                  : EVP_PKEY_verify_recover(ctx, reinterpret_cast<unsigned char *>(&result[0]), &outlen, in, dataSize);
     if (rvalue <= 0) {
         return string();
     }
@@ -376,50 +378,48 @@ static string rsaEvpSignOrRecover(EVP_PKEY_CTX *ctx, const string &data, PublicK
     return result;
 }
 
-string PublicKeyPrivate::rsaPublicEncrypt(const string &data, PublicKey::RsaPadding padding) const
+string PublicKeyPrivate::rsaPublicEncrypt(const char *data, size_t dataSize, PublicKey::RsaPadding padding) const
 {
-    if (!checkValidRsaOperation(data, padding, false, true)) {
+    if (!checkValidRsaOperation(data, dataSize, padding, false, true)) {
         return string();
     }
-    const string &result = rsaEvpCrypt(context.get(), data, padding, true);
+    string result = rsaEvpCrypt(context.get(), data, dataSize, padding, true);
     if (result.empty()) {
         ngDebug() << "can not public encrypt data.";
     }
     return result;
 }
 
-string PublicKeyPrivate::rsaPublicDecrypt(const string &data, PublicKey::RsaPadding padding) const
+string PublicKeyPrivate::rsaPublicDecrypt(const char *data, size_t dataSize, PublicKey::RsaPadding padding) const
 {
-    // RSA_public_decrypt equivalent: recover data encrypted/signed with the private key.
-    if (!checkValidRsaOperation(data, padding, false, false)) {
+    if (!checkValidRsaOperation(data, dataSize, padding, false, false)) {
         return string();
     }
-    const string &result = rsaEvpSignOrRecover(context.get(), data, padding, false);
+    string result = rsaEvpSignOrRecover(context.get(), data, dataSize, padding, false);
     if (result.empty()) {
         ngDebug() << "can not public decrypt data.";
     }
     return result;
 }
 
-string PublicKeyPrivate::rsaPrivateEncrypt(const string &data, PrivateKey::RsaPadding padding) const
+string PublicKeyPrivate::rsaPrivateEncrypt(const char *data, size_t dataSize, PrivateKey::RsaPadding padding) const
 {
-    // RSA_private_encrypt equivalent: raw private-key operation (sign without digest).
-    if (!checkValidRsaOperation(data, padding, true, false)) {
+    if (!checkValidRsaOperation(data, dataSize, padding, true, false)) {
         return string();
     }
-    const string &result = rsaEvpSignOrRecover(context.get(), data, padding, true);
+    string result = rsaEvpSignOrRecover(context.get(), data, dataSize, padding, true);
     if (result.empty()) {
         ngDebug() << "can not private encrypt data.";
     }
     return result;
 }
 
-string PublicKeyPrivate::rsaPrivateDecrypt(const string &data, PrivateKey::RsaPadding padding) const
+string PublicKeyPrivate::rsaPrivateDecrypt(const char *data, size_t dataSize, PrivateKey::RsaPadding padding) const
 {
-    if (!checkValidRsaOperation(data, padding, true, true)) {
+    if (!checkValidRsaOperation(data, dataSize, padding, true, true)) {
         return string();
     }
-    const string &result = rsaEvpCrypt(context.get(), data, padding, false);
+    string result = rsaEvpCrypt(context.get(), data, dataSize, padding, false);
     if (result.empty()) {
         ngDebug() << "can not private decrypt data.";
     }
@@ -561,9 +561,9 @@ string PrivateKeyWriterPrivate::save(Ssl::EncodingFormat format)
 class PrivateKeyReaderPrivate
 {
 public:
-    PrivateKey read(const string &data);
+    PrivateKey read(const char *data, size_t dataSize);
     PrivateKey readFile(const string &filePath);
-    PublicKey readPublic(const string &data);
+    PublicKey readPublic(const char *data, size_t dataSize);
     PublicKey readPublicFile(const string &filePath);
 
     shared_ptr<PasswordCallback> callback;
@@ -571,14 +571,20 @@ public:
     Ssl::EncodingFormat format;
 };
 
-PrivateKey PrivateKeyReaderPrivate::read(const string &data)
+PrivateKey PrivateKeyReaderPrivate::read(const char *data, size_t dataSize)
 {
     PrivateKey key;
-    if (format != Ssl::Pem) {
+    if (format != Ssl::Pem || dataSize > static_cast<size_t>(INT_MAX) || (dataSize > 0 && !data)) {
         return key;
     }
+    if (!data) {
+        data = "";
+    }
 
-    BIO *bio = BIO_new_mem_buf(data.data(), data.size());
+    BIO *bio = BIO_new_mem_buf(data, static_cast<int>(dataSize));
+    if (!bio) {
+        return key;
+    }
     EVP_PKEY *rawPkey = nullptr;
     if (!password.empty()) {
         shared_ptr<SimplePasswordCallback> cb = make_shared<SimplePasswordCallback>(password);
@@ -603,13 +609,22 @@ PrivateKey PrivateKeyReaderPrivate::read(const string &data)
 PrivateKey PrivateKeyReaderPrivate::readFile(const string &filePath)
 {
     string data = PosixPath(filePath).readall(nullptr);
-    return read(data);
+    return read(data.data(), data.size());
 }
 
-PublicKey PrivateKeyReaderPrivate::readPublic(const string &data)
+PublicKey PrivateKeyReaderPrivate::readPublic(const char *data, size_t dataSize)
 {
     PublicKey key;
-    BIO *bio = BIO_new_mem_buf(data.data(), data.size());
+    if (dataSize > static_cast<size_t>(INT_MAX) || (dataSize > 0 && !data)) {
+        return key;
+    }
+    if (!data) {
+        data = "";
+    }
+    BIO *bio = BIO_new_mem_buf(data, static_cast<int>(dataSize));
+    if (!bio) {
+        return key;
+    }
     EVP_PKEY *rawPkey = nullptr;
     if (format == Ssl::Pem) {
         if (!password.empty()) {
@@ -642,7 +657,7 @@ PublicKey PrivateKeyReaderPrivate::readPublic(const string &data)
 PublicKey PrivateKeyReaderPrivate::readPublicFile(const string &filePath)
 {
     string data = PosixPath(filePath).readall(nullptr);
-    return readPublic(data);
+    return readPublic(data.data(), data.size());
 }
 
 PublicKey::PublicKey()
@@ -741,16 +756,17 @@ int PublicKey::bits() const
     return d->bits();
 }
 
-bool PublicKey::verify(const string &data, const string &hash, MessageDigest::Algorithm hashAlgo)
+bool PublicKey::verify(const char *data, size_t dataSize, const char *hash, size_t hashSize,
+                       MessageDigest::Algorithm hashAlgo)
 {
     NG_D(PublicKey);
-    return d->verify(data, hash, hashAlgo);
+    return d->verify(data, dataSize, hash, hashSize, hashAlgo);
 }
 
-string PublicKey::encrypt(const string &data) const
+string PublicKey::encrypt(const char *data, size_t dataSize) const
 {
     NG_D(const PublicKey);
-    return d->encrypt(data);
+    return d->encrypt(data, dataSize);
 }
 
 string PublicKey::digest(MessageDigest::Algorithm algorithm) const
@@ -763,16 +779,16 @@ string PublicKey::digest(MessageDigest::Algorithm algorithm) const
     }
 }
 
-string PublicKey::rsaPublicEncrypt(const string &data, PrivateKey::RsaPadding padding) const
+string PublicKey::rsaPublicEncrypt(const char *data, size_t dataSize, PrivateKey::RsaPadding padding) const
 {
     NG_D(const PublicKey);
-    return d->rsaPublicEncrypt(data, padding);
+    return d->rsaPublicEncrypt(data, dataSize, padding);
 }
 
-string PublicKey::rsaPublicDecrypt(const string &data, PrivateKey::RsaPadding padding) const
+string PublicKey::rsaPublicDecrypt(const char *data, size_t dataSize, PrivateKey::RsaPadding padding) const
 {
     NG_D(const PublicKey);
-    return d->rsaPublicDecrypt(data, padding);
+    return d->rsaPublicDecrypt(data, dataSize, padding);
 }
 
 bool PrivateKey::operator==(const PrivateKey &other) const
@@ -816,28 +832,28 @@ PublicKey PrivateKey::publicKey() const
     return *this;
 }
 
-string PrivateKey::sign(const string &data, MessageDigest::Algorithm hashAlgo)
+string PrivateKey::sign(const char *data, size_t dataSize, MessageDigest::Algorithm hashAlgo)
 {
     NG_D(PublicKey);
-    return d->sign(data, hashAlgo);
+    return d->sign(data, dataSize, hashAlgo);
 }
 
-string PrivateKey::decrypt(const string &data) const
+string PrivateKey::decrypt(const char *data, size_t dataSize) const
 {
     NG_D(const PublicKey);
-    return d->decrypt(data);
+    return d->decrypt(data, dataSize);
 }
 
-string PrivateKey::rsaPrivateEncrypt(const string &data, PrivateKey::RsaPadding padding) const
+string PrivateKey::rsaPrivateEncrypt(const char *data, size_t dataSize, PrivateKey::RsaPadding padding) const
 {
     NG_D(const PublicKey);
-    return d->rsaPrivateEncrypt(data, padding);
+    return d->rsaPrivateEncrypt(data, dataSize, padding);
 }
 
-string PrivateKey::rsaPrivateDecrypt(const string &data, PrivateKey::RsaPadding padding) const
+string PrivateKey::rsaPrivateDecrypt(const char *data, size_t dataSize, PrivateKey::RsaPadding padding) const
 {
     NG_D(const PublicKey);
-    return d->rsaPrivateDecrypt(data, padding);
+    return d->rsaPrivateDecrypt(data, dataSize, padding);
 }
 
 PrivateKeyWriter::PrivateKeyWriter(const PrivateKey &key)
@@ -947,16 +963,16 @@ PrivateKeyReader &PrivateKeyReader::setFormat(Ssl::EncodingFormat format)
     return *this;
 }
 
-PrivateKey PrivateKeyReader::read(const string &data)
+PrivateKey PrivateKeyReader::read(const char *data, size_t dataSize)
 {
     NG_D(PrivateKeyReader);
-    return d->read(data);
+    return d->read(data, dataSize);
 }
 
-PublicKey PrivateKeyReader::readPublic(const string &data)
+PublicKey PrivateKeyReader::readPublic(const char *data, size_t dataSize)
 {
     NG_D(PrivateKeyReader);
-    return d->readPublic(data);
+    return d->readPublic(data, dataSize);
 }
 
 PrivateKey PrivateKeyReader::readFile(const string &filePath)

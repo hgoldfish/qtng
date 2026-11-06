@@ -1,6 +1,7 @@
 #ifndef QTNG_HTTP3_H
 #define QTNG_HTTP3_H
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -33,7 +34,11 @@ enum Http3FrameType {
 int qpackStaticTableIndex(const std::string &name);
 // QPACK encode/decode of a header field section (RFC 9204, static table + literal only).
 std::string qpackEncodeHeaders(const std::vector<std::pair<std::string, std::string>> &headers);
-bool qpackDecodeHeaders(const std::string &data, std::vector<std::pair<std::string, std::string>> *headers);
+bool qpackDecodeHeaders(const char *data, size_t size, std::vector<std::pair<std::string, std::string>> *headers);
+inline bool qpackDecodeHeaders(const std::string &data, std::vector<std::pair<std::string, std::string>> *headers)
+{
+    return qpackDecodeHeaders(data.data(), data.size(), headers);
+}
 
 // A single HTTP/3 request/response stream, carrying HTTP/3 frames over a
 // QUIC bidirectional stream.
@@ -85,8 +90,13 @@ public:
 
     // QPACK helpers.
     std::string encodeHeaders(const std::vector<std::pair<std::string, std::string>> &headers) const;
-    bool decodeHeaders(const std::string &payload,
+    bool decodeHeaders(const char *payload, size_t size,
                        std::vector<std::pair<std::string, std::string>> *headers) const;
+    inline bool decodeHeaders(const std::string &payload,
+                              std::vector<std::pair<std::string, std::string>> *headers) const
+    {
+        return decodeHeaders(payload.data(), payload.size(), headers);
+    }
 
     void close();
 private:

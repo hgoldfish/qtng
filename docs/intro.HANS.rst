@@ -393,7 +393,7 @@ qtng使用LibreSSL或OpenSSL提供加密功能。
     :caption: 生成RSA密钥
 
     PrivateKey key = PrivateKey::generate(PrivateKey::Rsa, 2048);
-    ngDebug() << key.sign("fish is here.", MessageDigest::Sha256);
+    ngDebug() << key.sign(std::string("fish is here."), MessageDigest::Sha256);
     ngDebug() << key.save();
     PrivateKey clonedKey = PrivateKey::load(key.save());
 

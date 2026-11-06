@@ -118,9 +118,9 @@ MsgPackExtData::MsgPackExtData()
 {
 }
 
-MsgPackExtData::MsgPackExtData(uint8_t type, string payload)
+MsgPackExtData::MsgPackExtData(uint8_t type, const char *payload, size_t size)
     : type_(type)
-    , payload_(std::move(payload))
+    , payload_(payload, size)
 {
 }
 
@@ -139,9 +139,9 @@ const string &MsgPackExtData::payload() const
     return payload_;
 }
 
-void MsgPackExtData::setPayload(const string &payload)
+void MsgPackExtData::setPayload(const char *payload, size_t size)
 {
-    payload_ = payload;
+    payload_.assign(payload, size);
 }
 
 class MsgPackStreamPrivate
@@ -150,7 +150,7 @@ public:
     MsgPackStreamPrivate();
     MsgPackStreamPrivate(FileLike *d);
     MsgPackStreamPrivate(string *a, bool writeMode);
-    MsgPackStreamPrivate(const string &a);
+    MsgPackStreamPrivate(const char *a, size_t size);
     ~MsgPackStreamPrivate();
 public:
     bool readRawBytes(char *data, int64_t len);
@@ -225,9 +225,9 @@ MsgPackStreamPrivate::MsgPackStreamPrivate(string *a, bool writeMode)
     }
 }
 
-MsgPackStreamPrivate::MsgPackStreamPrivate(const string &a)
+MsgPackStreamPrivate::MsgPackStreamPrivate(const char *a, size_t size)
     : status(MsgPackStream::Ok)
-    , limit(a.size())
+    , limit(static_cast<uint32_t>(size))
     , pos(0)
     , version(0)
     , owndev(true)
@@ -235,7 +235,7 @@ MsgPackStreamPrivate::MsgPackStreamPrivate(const string &a)
     , hasPeekByte(false)
     , peekByteCache(0)
 {
-    dev = new BytesIO(a);
+    dev = new BytesIO(a, size);
 }
 
 MsgPackStreamPrivate::~MsgPackStreamPrivate()
@@ -832,8 +832,8 @@ MsgPackStream::MsgPackStream(string *a, bool writeMode)
 {
 }
 
-MsgPackStream::MsgPackStream(const string &a)
-    : d_ptr(new MsgPackStreamPrivate(a))
+MsgPackStream::MsgPackStream(const char *a, size_t size)
+    : d_ptr(new MsgPackStreamPrivate(a, size))
 {
 }
 

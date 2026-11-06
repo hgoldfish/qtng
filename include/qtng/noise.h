@@ -1,6 +1,7 @@
 #ifndef QTNG_NOISE_H
 #define QTNG_NOISE_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -18,14 +19,39 @@ public:
     NoiseKey() = default;
 
     const std::string &privateKey() const { return privateKey_; }  // 32 bytes
-    void setPrivateKey(const std::string &privateKey) { privateKey_ = privateKey; }
+    void setPrivateKey(const char *privateKey, size_t size)
+    {
+        if (!privateKey) {
+            privateKey_.clear();
+            return;
+        }
+        privateKey_.assign(privateKey, size);
+    }
+    inline void setPrivateKey(const std::string &privateKey) { setPrivateKey(privateKey.data(), privateKey.size()); }
     const std::string &publicKey() const { return publicKey_; }  // 32 bytes
-    void setPublicKey(const std::string &publicKey) { publicKey_ = publicKey; }
+    void setPublicKey(const char *publicKey, size_t size)
+    {
+        if (!publicKey) {
+            publicKey_.clear();
+            return;
+        }
+        publicKey_.assign(publicKey, size);
+    }
+    inline void setPublicKey(const std::string &publicKey) { setPublicKey(publicKey.data(), publicKey.size()); }
 
     bool isValid() const { return privateKey_.size() == 32 && publicKey_.size() == 32; }
     static NoiseKey generate();
-    static NoiseKey fromPrivateKey(const std::string &privateKey32);
-    static std::string dh(const std::string &privateKey32, const std::string &peerPublicKey32);
+    static NoiseKey fromPrivateKey(const char *privateKey32, size_t size);
+    inline static NoiseKey fromPrivateKey(const std::string &privateKey32)
+    {
+        return fromPrivateKey(privateKey32.data(), privateKey32.size());
+    }
+    static std::string dh(const char *privateKey32, size_t privateKeySize, const char *peerPublicKey32,
+                          size_t peerPublicKeySize);
+    inline static std::string dh(const std::string &privateKey32, const std::string &peerPublicKey32)
+    {
+        return dh(privateKey32.data(), privateKey32.size(), peerPublicKey32.data(), peerPublicKey32.size());
+    }
 
 private:
     std::string privateKey_;
@@ -56,7 +82,8 @@ public:
     ~NoiseCipherState();
 
     Aead::Algorithm algorithm() const;
-    void initializeKey(const std::string &key32);
+    void initializeKey(const char *key32, size_t size);
+    inline void initializeKey(const std::string &key32) { initializeKey(key32.data(), key32.size()); }
     bool hasKey() const;
     std::uint64_t nonce() const;
     // Transport counter only: ``0 .. MaxNonce``. Values above ``MaxNonce`` are ignored.
@@ -67,14 +94,32 @@ public:
 
     // Encrypt: ciphertext || 16-byte tag. Uses and increments nonce.
     // Returns empty on failure. outNonce receives the nonce used (for wire header).
-    std::string encryptWithAd(const std::string &ad, const std::string &plaintext);
-    std::string encryptWithAd(const std::string &ad, const std::string &plaintext, std::uint64_t *outNonce);
+    std::string encryptWithAd(const char *ad, size_t adSize, const char *plaintext, size_t plaintextSize);
+    inline std::string encryptWithAd(const std::string &ad, const std::string &plaintext)
+    {
+        return encryptWithAd(ad.data(), ad.size(), plaintext.data(), plaintext.size());
+    }
+    std::string encryptWithAd(const char *ad, size_t adSize, const char *plaintext, size_t plaintextSize,
+                              std::uint64_t *outNonce);
+    inline std::string encryptWithAd(const std::string &ad, const std::string &plaintext, std::uint64_t *outNonce)
+    {
+        return encryptWithAd(ad.data(), ad.size(), plaintext.data(), plaintext.size(), outNonce);
+    }
 
     // Sequential decrypt: uses and increments nonce (handshake / in-order streams).
-    std::string decryptWithAd(const std::string &ad, const std::string &ciphertextAndTag);
+    std::string decryptWithAd(const char *ad, size_t adSize, const char *ciphertextAndTag, size_t ciphertextSize);
+    inline std::string decryptWithAd(const std::string &ad, const std::string &ciphertextAndTag)
+    {
+        return decryptWithAd(ad.data(), ad.size(), ciphertextAndTag.data(), ciphertextAndTag.size());
+    }
     // Decrypt with the packet nonce and do not advance the sequential counter.
     // Replay filtering is NoiseDatagram's job (WireGuard / RFC 6479 window).
-    std::string decryptWithAd(const std::string &ad, const std::string &ciphertextAndTag, std::uint64_t nonce);
+    std::string decryptWithAd(const char *ad, size_t adSize, const char *ciphertextAndTag, size_t ciphertextSize,
+                              std::uint64_t nonce);
+    inline std::string decryptWithAd(const std::string &ad, const std::string &ciphertextAndTag, std::uint64_t nonce)
+    {
+        return decryptWithAd(ad.data(), ad.size(), ciphertextAndTag.data(), ciphertextAndTag.size(), nonce);
+    }
     bool lastDecryptOk() const;
 private:
     NoiseCipherStatePrivate *d_ptr;
@@ -121,7 +166,12 @@ enum class NoiseRole {
 struct NoiseConfig
 {
 public:
-    explicit NoiseConfig(const std::string &localPrivateKey = std::string());
+    NoiseConfig();
+    explicit NoiseConfig(const char *localPrivateKey, size_t localPrivateKeySize);
+    inline explicit NoiseConfig(const std::string &localPrivateKey)
+        : NoiseConfig(localPrivateKey.data(), localPrivateKey.size())
+    {
+    }
     explicit NoiseConfig(const NoiseKey &key);
 
     const NoiseKey &localStatic() const { return localStatic_; }
@@ -131,13 +181,40 @@ public:
     NoiseRole role() const { return role_; }
     void setRole(NoiseRole role) { role_ = role; }
     const std::string &remoteStaticPublic() const { return remoteStaticPublic_; }
-    void setRemoteStaticPublic(const std::string &remoteStaticPublic) { remoteStaticPublic_ = remoteStaticPublic; }
+    void setRemoteStaticPublic(const char *remoteStaticPublic, size_t size)
+    {
+        if (!remoteStaticPublic) {
+            remoteStaticPublic_.clear();
+            return;
+        }
+        remoteStaticPublic_.assign(remoteStaticPublic, size);
+    }
+    inline void setRemoteStaticPublic(const std::string &remoteStaticPublic)
+    {
+        setRemoteStaticPublic(remoteStaticPublic.data(), remoteStaticPublic.size());
+    }
     const std::string &psk() const { return psk_; }
-    void setPsk(const std::string &psk) { psk_ = psk; }
+    void setPsk(const char *psk, size_t size)
+    {
+        if (!psk) {
+            psk_.clear();
+            return;
+        }
+        psk_.assign(psk, size);
+    }
+    inline void setPsk(const std::string &psk) { setPsk(psk.data(), psk.size()); }
     NoisePskModifier pskModifier() const { return pskModifier_; }
     void setPskModifier(NoisePskModifier pskModifier) { pskModifier_ = pskModifier; }
     const std::string &prologue() const { return prologue_; }
-    void setPrologue(const std::string &prologue) { prologue_ = prologue; }
+    void setPrologue(const char *prologue, size_t size)
+    {
+        if (!prologue) {
+            prologue_.clear();
+            return;
+        }
+        prologue_.assign(prologue, size);
+    }
+    inline void setPrologue(const std::string &prologue) { setPrologue(prologue.data(), prologue.size()); }
     Aead::Algorithm cipher() const { return cipher_; }
     void setCipher(Aead::Algorithm cipher) { cipher_ = cipher; }
     NoiseHash hash() const { return hash_; }
@@ -185,8 +262,16 @@ public:
     bool initialize(const NoiseConfig &config);
 
     bool isComplete() const;
-    bool writeMessage(const std::string &payload, std::string *outMessage);
-    bool readMessage(const std::string &message, std::string *outPayload);
+    bool writeMessage(const char *payload, size_t payloadSize, std::string *outMessage);
+    inline bool writeMessage(const std::string &payload, std::string *outMessage)
+    {
+        return writeMessage(payload.data(), payload.size(), outMessage);
+    }
+    bool readMessage(const char *message, size_t messageSize, std::string *outPayload);
+    inline bool readMessage(const std::string &message, std::string *outPayload)
+    {
+        return readMessage(message.data(), message.size(), outPayload);
+    }
 
     // After handshake: initiator gets (send=c1, recv=c2), responder reverse.
     bool split(NoiseCipherState *send, NoiseCipherState *recv);
@@ -218,8 +303,16 @@ public:
 
     bool initialize(const NoiseConfig &config);
 
-    bool writeHandshake(const std::string &payload, std::string *outMessage);
-    bool readHandshake(const std::string &message, std::string *outPayload);
+    bool writeHandshake(const char *payload, size_t payloadSize, std::string *outMessage);
+    inline bool writeHandshake(const std::string &payload, std::string *outMessage)
+    {
+        return writeHandshake(payload.data(), payload.size(), outMessage);
+    }
+    bool readHandshake(const char *message, size_t messageSize, std::string *outPayload);
+    inline bool readHandshake(const std::string &message, std::string *outPayload)
+    {
+        return readHandshake(message.data(), message.size(), outPayload);
+    }
     bool isHandshakeComplete() const;
     std::string peerHandshakePayload() const;
     std::string remoteStaticPublic() const;
@@ -227,8 +320,13 @@ public:
     std::string errorString() const;
 
     // Transport: one Noise message per call. Empty plaintext still yields a tag.
-    std::string encrypt(const std::string &plaintext);
-    std::string decrypt(const std::string &packet);
+    std::string encrypt(const char *plaintext, size_t plaintextSize);
+    inline std::string encrypt(const std::string &plaintext)
+    {
+        return encrypt(plaintext.data(), plaintext.size());
+    }
+    std::string decrypt(const char *packet, size_t packetSize);
+    inline std::string decrypt(const std::string &packet) { return decrypt(packet.data(), packet.size()); }
     bool lastDecryptOk() const;
 private:
     NoiseDatagramPrivate *d_ptr;
@@ -250,7 +348,9 @@ public:
 
     bool initialize(const NoiseConfig &config);
 
-    bool handshake(const std::string &payload = std::string());
+    bool handshake();
+    bool handshake(const char *payload, size_t payloadSize);
+    inline bool handshake(const std::string &payload) { return handshake(payload.data(), payload.size()); }
     bool isHandshakeComplete() const;
     std::string peerHandshakePayload() const;
     std::string remoteStaticPublic() const;

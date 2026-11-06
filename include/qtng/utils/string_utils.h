@@ -115,8 +115,10 @@ std::string formatMessage(const std::string &pattern, const std::vector<std::str
 bool isValidUtf8(const std::string &text);
 std::string toAce(const std::string &domain);
 std::string fromAce(const std::string &domain);
-std::string bytesToHex(const std::string &data);
-std::string bytesToBase64(const std::string &data);
+std::string bytesToHex(const char *data, size_t size);
+inline std::string bytesToHex(const std::string &data) { return bytesToHex(data.data(), data.size()); }
+std::string bytesToBase64(const char *data, size_t size);
+inline std::string bytesToBase64(const std::string &data) { return bytesToBase64(data.data(), data.size()); }
 // Decode base64; whitespace and invalid characters in the input are tolerated and skipped, returning the
 // decoded result (possibly empty).
 std::string base64ToBytes(const std::string &data);

@@ -35,7 +35,7 @@ public:
     BencodeStreamPrivate();
     BencodeStreamPrivate(FileLike *d);
     BencodeStreamPrivate(string *a, bool writeMode);
-    BencodeStreamPrivate(const string &a);
+    BencodeStreamPrivate(const char *a, size_t size);
     ~BencodeStreamPrivate();
 
     bool readBytes(char *data, int64_t len);
@@ -48,7 +48,7 @@ public:
     bool readInteger(int64_t &i);
     bool writeInteger(int64_t i);
     bool readString(string &s);
-    bool writeString(const string &s);
+    bool writeString(const char *data, size_t size);
     bool readValue(Bencode &v);
     bool writeValue(const Bencode &v);
 
@@ -105,9 +105,9 @@ BencodeStreamPrivate::BencodeStreamPrivate(string *a, bool writeMode)
     }
 }
 
-BencodeStreamPrivate::BencodeStreamPrivate(const string &a)
+BencodeStreamPrivate::BencodeStreamPrivate(const char *a, size_t size)
     : status(BencodeStream::Ok)
-    , limit(static_cast<uint32_t>(a.size()))
+    , limit(static_cast<uint32_t>(size))
     , allocLimit(16 * 1024 * 1024)
     , pos(0)
     , owndev(true)
@@ -115,7 +115,7 @@ BencodeStreamPrivate::BencodeStreamPrivate(const string &a)
     , hasPeekByte(false)
     , peekByteCache(0)
 {
-    dev = new BytesIO(a);
+    dev = new BytesIO(a, size);
 }
 
 BencodeStreamPrivate::~BencodeStreamPrivate()
@@ -372,11 +372,11 @@ bool BencodeStreamPrivate::readString(string &s)
     return true;
 }
 
-bool BencodeStreamPrivate::writeString(const string &s)
+bool BencodeStreamPrivate::writeString(const char *data, size_t size)
 {
-    string out = to_string(s.size());
+    string out = to_string(size);
     out.push_back(':');
-    out.append(s);
+    out.append(data, size);
     return writeBytes(out.data(), static_cast<int64_t>(out.size()));
 }
 
@@ -467,7 +467,7 @@ bool BencodeStreamPrivate::writeValue(const Bencode &v)
     case Bencode::Integer:
         return writeInteger(v.m_integer);
     case Bencode::String:
-        return writeString(v.m_string);
+        return writeString(v.m_string.data(), v.m_string.size());
     case Bencode::List:
         if (!writeBytes("l", 1)) {
             return false;
@@ -483,7 +483,7 @@ bool BencodeStreamPrivate::writeValue(const Bencode &v)
             return false;
         }
         for (map<string, Bencode>::const_iterator it = v.m_dict.begin(); it != v.m_dict.end(); ++it) {
-            if (!writeString(it->first)) {
+            if (!writeString(it->first.data(), it->first.size())) {
                 return false;
             }
             if (!writeValue(it->second)) {
@@ -513,8 +513,8 @@ BencodeStream::BencodeStream(string *a, bool writeMode)
 {
 }
 
-BencodeStream::BencodeStream(const string &a)
-    : d_ptr(new BencodeStreamPrivate(a))
+BencodeStream::BencodeStream(const char *a, size_t size)
+    : d_ptr(new BencodeStreamPrivate(a, size))
 {
 }
 
@@ -632,10 +632,10 @@ BencodeStream &BencodeStream::operator<<(int64_t i)
     return *this;
 }
 
-BencodeStream &BencodeStream::operator<<(const string &str)
+BencodeStream &BencodeStream::writeString(const char *data, size_t size)
 {
     CHECK_STREAM_PRECOND(*this);
-    if (!d->writeString(str)) {
+    if (!d->writeString(data, size)) {
         if (d->status == Ok) {
             d->status = WriteFailed;
         }
@@ -761,10 +761,10 @@ Bencode::Bencode(int64_t i)
 {
 }
 
-Bencode::Bencode(const string &s)
+Bencode::Bencode(const char *s, size_t size)
     : m_type(String)
     , m_integer(0)
-    , m_string(s)
+    , m_string(s, size)
 {
 }
 
@@ -865,9 +865,9 @@ string Bencode::encode() const
     return stream.data();
 }
 
-Bencode Bencode::decode(const string &data, string *error, uint32_t lengthLimit)
+Bencode Bencode::decode(const char *data, size_t size, string *error, uint32_t lengthLimit)
 {
-    BencodeStream stream(data);
+    BencodeStream stream(data, size);
     stream.setLengthLimit(lengthLimit);
     Bencode value;
     stream >> value;

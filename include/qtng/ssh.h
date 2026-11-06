@@ -1,6 +1,7 @@
 #ifndef QTNG_SSH_H
 #define QTNG_SSH_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -53,7 +54,8 @@ public:
 
     // Send data to the peer (blocking, coroutine-safe). Returns bytes sent or
     // -1 on failure. Empty data returns 0.
-    std::int32_t send(const std::string &data);
+    std::int32_t send(const char *data, size_t size);
+    inline std::int32_t send(const std::string &data) { return send(data.data(), data.size()); }
     // Receive data from the peer (blocking). Returns an empty string on EOF or
     // when the channel/connection is closed. At most maxSize bytes are returned.
     std::string recv(std::int32_t maxSize);
@@ -98,7 +100,11 @@ public:
     virtual ~SshAuthenticator() = default;
     virtual bool checkPassword(const std::string &user, const std::string &password) = 0;
     // keyBlob is the raw SSH public key blob (e.g. "ssh-rsa" || e || n).
-    virtual bool checkPublicKey(const std::string &user, const std::string &keyBlob) = 0;
+    virtual bool checkPublicKey(const std::string &user, const char *keyBlob, size_t keyBlobSize) = 0;
+    inline bool checkPublicKey(const std::string &user, const std::string &keyBlob)
+    {
+        return checkPublicKey(user, keyBlob.data(), keyBlob.size());
+    }
 };
 
 // Callback invoked with the server host key blob (raw "ssh-rsa" blob) so a
@@ -107,7 +113,11 @@ class SshHostKeyVerifier
 {
 public:
     virtual ~SshHostKeyVerifier() = default;
-    virtual bool verify(const std::string &host, const std::string &keyBlob) = 0;
+    virtual bool verify(const std::string &host, const char *keyBlob, size_t keyBlobSize) = 0;
+    inline bool verify(const std::string &host, const std::string &keyBlob)
+    {
+        return verify(host, keyBlob.data(), keyBlob.size());
+    }
 };
 
 // An SSH server that hosts interactive applications over "session" channels.

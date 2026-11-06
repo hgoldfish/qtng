@@ -47,13 +47,31 @@ public:
     bool isValid() const;
     Algorithm algorithm() const;
     int bits() const;
-    bool verify(const std::string &data, const std::string &hash, MessageDigest::Algorithm hashAlgo);
-    std::string encrypt(const std::string &data) const;
+    bool verify(const char *data, size_t dataSize, const char *hash, size_t hashSize,
+                MessageDigest::Algorithm hashAlgo);
+    inline bool verify(const std::string &data, const std::string &hash, MessageDigest::Algorithm hashAlgo)
+    {
+        return verify(data.data(), data.size(), hash.data(), hash.size(), hashAlgo);
+    }
+    bool verify(const char *, const std::string &, MessageDigest::Algorithm) = delete;
+    bool verify(const std::string &, const char *, MessageDigest::Algorithm) = delete;
+    std::string encrypt(const char *data, size_t dataSize) const;
+    inline std::string encrypt(const std::string &data) const { return encrypt(data.data(), data.size()); }
+    std::string encrypt(const char *) const = delete;
     std::string digest(MessageDigest::Algorithm algorithm = MessageDigest::Sha256) const;
 public:
-    std::string rsaPublicEncrypt(const std::string &data,
-                                RsaPadding padding = PKCS1_PADDING) const;  // RSA_PKCS1_OAEP_PADDING?
-    std::string rsaPublicDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const;
+    std::string rsaPublicEncrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const;
+    inline std::string rsaPublicEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
+    {
+        return rsaPublicEncrypt(data.data(), data.size(), padding);
+    }
+    std::string rsaPublicEncrypt(const char *, RsaPadding) const = delete;
+    std::string rsaPublicDecrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const;
+    inline std::string rsaPublicDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
+    {
+        return rsaPublicDecrypt(data.data(), data.size(), padding);
+    }
+    std::string rsaPublicDecrypt(const char *, RsaPadding) const = delete;
 public:
     static PublicKey load(const std::string &data, Ssl::EncodingFormat format = Ssl::Pem);
     std::string save(Ssl::EncodingFormat format = Ssl::Pem) const;
@@ -101,12 +119,28 @@ public:
     bool operator!=(const PublicKey &) const { return true; }
 public:
     PublicKey publicKey() const;
-    std::string sign(const std::string &data, MessageDigest::Algorithm hashAlgo);
-    std::string decrypt(const std::string &data) const;
+    std::string sign(const char *data, size_t dataSize, MessageDigest::Algorithm hashAlgo);
+    inline std::string sign(const std::string &data, MessageDigest::Algorithm hashAlgo)
+    {
+        return sign(data.data(), data.size(), hashAlgo);
+    }
+    std::string sign(const char *, MessageDigest::Algorithm) = delete;
+    std::string decrypt(const char *data, size_t dataSize) const;
+    inline std::string decrypt(const std::string &data) const { return decrypt(data.data(), data.size()); }
+    std::string decrypt(const char *) const = delete;
 public:
-    std::string rsaPrivateEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const;
-    std::string rsaPrivateDecrypt(const std::string &data,
-                                 RsaPadding padding = PKCS1_PADDING) const;  // RSA_PKCS1_OAEP_PADDING?
+    std::string rsaPrivateEncrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const;
+    inline std::string rsaPrivateEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
+    {
+        return rsaPrivateEncrypt(data.data(), data.size(), padding);
+    }
+    std::string rsaPrivateEncrypt(const char *, RsaPadding) const = delete;
+    std::string rsaPrivateDecrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const;
+    inline std::string rsaPrivateDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
+    {
+        return rsaPrivateDecrypt(data.data(), data.size(), padding);
+    }
+    std::string rsaPrivateDecrypt(const char *, RsaPadding) const = delete;
 public:
     static PrivateKey generate(Algorithm algo, int bits);
     static PrivateKey load(const std::string &data, Ssl::EncodingFormat format = Ssl::Pem,
@@ -155,8 +189,10 @@ public:
     PrivateKeyReader &setPassword(const std::string &password);
     PrivateKeyReader &setPassword(std::shared_ptr<PasswordCallback> callback);
     PrivateKeyReader &setFormat(Ssl::EncodingFormat format);
-    PrivateKey read(const std::string &data);
-    PublicKey readPublic(const std::string &data);
+    PrivateKey read(const char *data, size_t dataSize);
+    inline PrivateKey read(const std::string &data) { return read(data.data(), data.size()); }
+    PublicKey readPublic(const char *data, size_t dataSize);
+    inline PublicKey readPublic(const std::string &data) { return readPublic(data.data(), data.size()); }
     PrivateKey readFile(const std::string &filePath);
     PublicKey readPublicFile(const std::string &filePath);
 private:

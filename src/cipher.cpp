@@ -1,9 +1,10 @@
+#include <climits>
+#include <cstring>
 #include <string>
 #include <utility>
 
 #include "qtng/cipher.h"
 #include "qtng/private/crypto_p.h"
-#include "qtng/utils/string_utils.h"
 #include "qtng/random.h"
 #include "qtng/utils/logging.h"
 
@@ -197,7 +198,7 @@ class CipherPrivate
 public:
     CipherPrivate(Cipher::Algorithm algo, Cipher::Mode mode, Cipher::Operation operation);
     ~CipherPrivate();
-    string addData(const char *data, int len);
+    string addData(const char *data, size_t len);
     string finalData();
     pair<string, string> bytesToKey(const string &password, MessageDigest::Algorithm hashAlgo,
                                              const string &salt, int i);
@@ -323,18 +324,22 @@ pair<string, string> CipherPrivate::PBKDF2_HMAC(const string &password, const st
     return make_pair(string(), string());
 }
 
-string CipherPrivate::addData(const char *data, int len)
+string CipherPrivate::addData(const char *data, size_t len)
 {
     if (!context || !inited || hasError) {
         return string();
     }
+    if (len > static_cast<size_t>(INT_MAX) || (len > 0 && !data)) {
+        hasError = true;
+        return string();
+    }
     string out;
-    out.resize(len + EVP_MAX_BLOCK_LENGTH);
+    out.resize(len + static_cast<size_t>(EVP_MAX_BLOCK_LENGTH));
     int outl = 0;
     int rvalue = EVP_CipherUpdate(context, reinterpret_cast<unsigned char *>(&out[0]), &outl,
-                                  reinterpret_cast<const unsigned char *>(data), len);
+                                  reinterpret_cast<const unsigned char *>(data), static_cast<int>(len));
     if (rvalue) {
-        out.resize(outl);
+        out.resize(static_cast<size_t>(outl));
         return out;
     } else {
         hasError = true;
@@ -478,7 +483,7 @@ bool Cipher::isStream() const
     return false;
 }
 
-string Cipher::addData(const char *data, int len)
+string Cipher::addData(const char *data, size_t len)
 {
     NG_D(Cipher);
     return d->addData(data, len);
@@ -490,17 +495,29 @@ string Cipher::finalData()
     return d->finalData();
 }
 
-bool Cipher::setInitialVector(const string &iv)
+bool Cipher::setInitialVector(const char *iv, size_t ivSize)
 {
     NG_D(Cipher);
-    d->iv = iv;
+    if (ivSize == 0) {
+        d->iv.clear();
+    } else if (!iv) {
+        return false;
+    } else {
+        d->iv.assign(iv, ivSize);
+    }
     return d->init();
 }
 
-bool Cipher::setKey(const string &key)
+bool Cipher::setKey(const char *key, size_t keySize)
 {
     NG_D(Cipher);
-    d->key = key;
+    if (keySize == 0) {
+        d->key.clear();
+    } else if (!key) {
+        return false;
+    } else {
+        d->key.assign(key, keySize);
+    }
     return d->init();
 }
 
@@ -535,15 +552,12 @@ string Cipher::salt() const
     return d->salt;
 }
 
-pair<string, string> Cipher::parseSalt(const string &header)
+pair<string, string> Cipher::parseSalt(const char *header, size_t headerSize)
 {
-    if (utils::startsWith(header, "Salted_") && header.size() >= 15) {
-        const string &salt = header.substr(7, 8);
-        const string &other = header.substr(15);
-        return make_pair(salt, other);
-    } else {
-        return make_pair(string(), string());
+    if (header && headerSize >= 16 && memcmp(header, "Salted__", 8) == 0) {
+        return make_pair(string(header + 8, 8), string(header + 16, headerSize - 16));
     }
+    return make_pair(string(), string());
 }
 
 bool Cipher::setPadding(bool padding)

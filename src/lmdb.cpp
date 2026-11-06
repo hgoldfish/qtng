@@ -299,22 +299,22 @@ Database::~Database()
     delete d_ptr;
 }
 
-Database::iterator Database::insert(const string &key, const string &value)
+Database::iterator Database::insert(const char *key, size_t keySize, const char *value, size_t valueSize)
 {
-    Database::iterator itor = reserve(key, value.size());
+    Database::iterator itor = reserve(key, keySize, valueSize);
 
     if (itor.isEnd()) {
         return itor;
     }
-    if (static_cast<size_t>(value.size()) != itor.d_ptr->mdbValue.mv_size) {
+    if (valueSize != itor.d_ptr->mdbValue.mv_size) {
         ngWarning() << "setting value size mismatch for lmdb reserved key-value.";
     }
-    size_t minSize = min(static_cast<size_t>(value.size()), itor.d_ptr->mdbValue.mv_size);
-    memcpy(itor.d_ptr->mdbValue.mv_data, value.data(), minSize);
+    size_t minSize = min(valueSize, itor.d_ptr->mdbValue.mv_size);
+    memcpy(itor.d_ptr->mdbValue.mv_data, value, minSize);
     return itor;
 }
 
-Database::iterator Database::reserve(const string &key, size_t size)
+Database::iterator Database::reserve(const char *key, size_t keySize, size_t size)
 {
     if (isNull() || d_ptr->readOnly) {
         return LmdbIterator(nullptr);
@@ -330,8 +330,8 @@ Database::iterator Database::reserve(const string &key, size_t size)
     }
 
     MDB_val mdbKey, mdbData;
-    mdbKey.mv_size = key.size();
-    mdbKey.mv_data = (void *) key.data();
+    mdbKey.mv_size = keySize;
+    mdbKey.mv_data = const_cast<char *>(key);
     mdbData.mv_size = size;
     mdbData.mv_data = NULL;
 
@@ -344,7 +344,7 @@ Database::iterator Database::reserve(const string &key, size_t size)
         mdb_cursor_close(cursor);
         return LmdbIterator(nullptr);
     }
-    LmdbIteratorPrivate *d = new LmdbIteratorPrivate(key, cursor, mdbData);
+    LmdbIteratorPrivate *d = new LmdbIteratorPrivate(string(key, keySize), cursor, mdbData);
     return LmdbIterator(d);
 }
 
@@ -442,14 +442,14 @@ vector<string> Database::strKeys() const
     return sl;
 }
 
-int Database::remove(const string &key)
+int Database::remove(const char *key, size_t keySize)
 {
     if (isNull() || d_ptr->readOnly) {
         return -1;
     }
 
     MDB_val mdbKey, mdbData;
-    string newKey(key);
+    string newKey(key, keySize);
     MDB_cursor *cursor = d_ptr->setCursor(newKey, mdbKey, mdbData, MDB_SET);
     if (!cursor) {
         return -1;
@@ -501,14 +501,14 @@ Database::iterator Database::erase(Database::iterator &itor)
     return LmdbIterator(d);
 }
 
-string Database::take(const string &key)
+string Database::take(const char *key, size_t keySize)
 {
     if (isNull() || d_ptr->readOnly) {
         return string();
     }
 
     MDB_val mdbKey, mdbData;
-    string newKey(key);
+    string newKey(key, keySize);
     MDB_cursor *cursor = d_ptr->setCursor(newKey, mdbKey, mdbData, MDB_SET);
     if (!cursor) {
         return string();
@@ -527,12 +527,12 @@ string Database::take(const string &key)
     return value;
 }
 
-bool Database::contains(const string &key) const
+bool Database::contains(const char *key, size_t keySize) const
 {
     if (isNull()) {
         return false;
     }
-    return find(key) != end();
+    return find(key, keySize) != end();
 }
 
 bool Database::isNull() const
@@ -631,14 +631,14 @@ Database::const_iterator Database::constEnd() const
     return ConstLmdbIterator(d);
 }
 
-Database::iterator Database::find(const string &key)
+Database::iterator Database::find(const char *key, size_t keySize)
 {
     if (isNull() || d_ptr->readOnly) {
         return LmdbIterator(nullptr);
     }
 
     MDB_val mdbKey, mdbData;
-    string newKey(key);
+    string newKey(key, keySize);
     MDB_cursor *cursor = d_ptr->setCursor(newKey, mdbKey, mdbData, MDB_SET);
     if (!cursor) {
         return LmdbIterator(nullptr);
@@ -648,14 +648,14 @@ Database::iterator Database::find(const string &key)
     return LmdbIterator(d);
 }
 
-Database::const_iterator Database::constFind(const string &key) const
+Database::const_iterator Database::constFind(const char *key, size_t keySize) const
 {
     if (isNull()) {
         return ConstLmdbIterator(nullptr);
     }
 
     MDB_val mdbKey, mdbData;
-    string newKey(key);
+    string newKey(key, keySize);
     MDB_cursor *cursor = d_ptr->setCursor(newKey, mdbKey, mdbData, MDB_SET);
     if (!cursor) {
         return ConstLmdbIterator(nullptr);
@@ -665,14 +665,14 @@ Database::const_iterator Database::constFind(const string &key) const
     return ConstLmdbIterator(d);
 }
 
-Database::const_iterator Database::lowerBound(const string &key) const
+Database::const_iterator Database::lowerBound(const char *key, size_t keySize) const
 {
     if (isNull()) {
         return ConstLmdbIterator(nullptr);
     }
 
     MDB_val mdbKey, mdbData;
-    string newKey(key);
+    string newKey(key, keySize);
     MDB_cursor *cursor = d_ptr->setCursor(newKey, mdbKey, mdbData, MDB_SET_RANGE);
     if (!cursor) {
         return ConstLmdbIterator(nullptr);
@@ -683,14 +683,14 @@ Database::const_iterator Database::lowerBound(const string &key) const
     return ConstLmdbIterator(d);
 }
 
-Database::iterator Database::lowerBound(const string &key)
+Database::iterator Database::lowerBound(const char *key, size_t keySize)
 {
     if (isNull() || d_ptr->readOnly) {
         return LmdbIterator(nullptr);
     }
 
     MDB_val mdbKey, mdbData;
-    string newKey(key);
+    string newKey(key, keySize);
     MDB_cursor *cursor = d_ptr->setCursor(newKey, mdbKey, mdbData, MDB_SET_RANGE);
     if (!cursor) {
         return LmdbIterator(nullptr);
@@ -701,19 +701,19 @@ Database::iterator Database::lowerBound(const string &key)
     return LmdbIterator(d);
 }
 
-Database::const_iterator Database::upperBound(const string &key) const
+Database::const_iterator Database::upperBound(const char *key, size_t keySize) const
 {
-    Database::const_iterator itor = lowerBound(key);
-    if (itor.key() == key) {
+    Database::const_iterator itor = lowerBound(key, keySize);
+    if (itor.key().size() == keySize && memcmp(itor.key().data(), key, keySize) == 0) {
         ++itor;
     }
     return itor;
 }
 
-Database::iterator Database::upperBound(const string &key)
+Database::iterator Database::upperBound(const char *key, size_t keySize)
 {
-    Database::iterator itor = lowerBound(key);
-    if (itor.key() == key) {
+    Database::iterator itor = lowerBound(key, keySize);
+    if (itor.key().size() == keySize && memcmp(itor.key().data(), key, keySize) == 0) {
         ++itor;
     }
     return itor;

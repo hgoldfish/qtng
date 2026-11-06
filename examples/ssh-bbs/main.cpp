@@ -74,7 +74,7 @@ public:
 
     bool checkPassword(const string &u, const string &p) override { return u == user && p == password; }
 
-    bool checkPublicKey(const string &, const string &) override { return false; }
+    bool checkPublicKey(const string &, const char *, size_t) override { return false; }
 };
 
 // ---- ANSI terminal screen over one SSH session channel ----

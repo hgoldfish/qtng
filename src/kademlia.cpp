@@ -122,8 +122,8 @@ struct DistanceLess {
 
 NodeId::NodeId() { }
 
-NodeId::NodeId(const string &raw20)
-    : m_raw(raw20.size() == static_cast<size_t>(Size) ? raw20 : string())
+NodeId::NodeId(const char *raw20, size_t size)
+    : m_raw((raw20 && size == static_cast<size_t>(Size)) ? string(raw20, size) : string())
 {
 }
 
@@ -132,9 +132,9 @@ NodeId NodeId::random()
     return NodeId(randomBytes(Size));
 }
 
-NodeId NodeId::fromBytes(const string &raw20)
+NodeId NodeId::fromBytes(const char *raw20, size_t size)
 {
-    return NodeId(raw20);
+    return NodeId(raw20, size);
 }
 
 NodeId NodeId::fromHex(const string &hex40)
@@ -245,18 +245,18 @@ string encodeCompactNodes6(const vector<DhtNodeInfo> &nodes)
     return out;
 }
 
-vector<DhtNodeInfo> decodeCompactNodes(const string &data)
+vector<DhtNodeInfo> decodeCompactNodes(const char *data, size_t size)
 {
     vector<DhtNodeInfo> out;
-    if (data.size() % 26 != 0) {
+    if (!data || size % 26 != 0) {
         return out;
     }
-    for (size_t i = 0; i + 26 <= data.size(); i += 26) {
+    for (size_t i = 0; i + 26 <= size; i += 26) {
         DhtNodeInfo n;
-        n.setId(NodeId::fromBytes(data.substr(i, 20)));
+        n.setId(NodeId::fromBytes(data + i, 20));
         HostAddress addr;
         uint16_t port = 0;
-        readIpv4(data.data() + i + 20, &addr, &port);
+        readIpv4(data + i + 20, &addr, &port);
         n.setEndpoint(DhtEndpoint(addr, port));
         if (n.isValid()) {
             out.push_back(n);
@@ -265,18 +265,18 @@ vector<DhtNodeInfo> decodeCompactNodes(const string &data)
     return out;
 }
 
-vector<DhtNodeInfo> decodeCompactNodes6(const string &data)
+vector<DhtNodeInfo> decodeCompactNodes6(const char *data, size_t size)
 {
     vector<DhtNodeInfo> out;
-    if (data.size() % 38 != 0) {
+    if (!data || size % 38 != 0) {
         return out;
     }
-    for (size_t i = 0; i + 38 <= data.size(); i += 38) {
+    for (size_t i = 0; i + 38 <= size; i += 38) {
         DhtNodeInfo n;
-        n.setId(NodeId::fromBytes(data.substr(i, 20)));
+        n.setId(NodeId::fromBytes(data + i, 20));
         HostAddress addr;
         uint16_t port = 0;
-        readIpv6(data.data() + i + 20, &addr, &port);
+        readIpv6(data + i + 20, &addr, &port);
         n.setEndpoint(DhtEndpoint(addr, port));
         if (n.isValid()) {
             out.push_back(n);
@@ -315,17 +315,17 @@ string encodeCompactPeers6(const vector<DhtPeer> &peers)
     return out;
 }
 
-vector<DhtPeer> decodeCompactPeers(const string &data)
+vector<DhtPeer> decodeCompactPeers(const char *data, size_t size)
 {
     vector<DhtPeer> out;
-    if (data.size() % 6 != 0) {
+    if (!data || size % 6 != 0) {
         return out;
     }
-    for (size_t i = 0; i + 6 <= data.size(); i += 6) {
+    for (size_t i = 0; i + 6 <= size; i += 6) {
         DhtPeer p;
         HostAddress addr;
         uint16_t port = 0;
-        readIpv4(data.data() + i, &addr, &port);
+        readIpv4(data + i, &addr, &port);
         p.setAddress(addr);
         p.setPort(port);
         if (p.isValid()) {
@@ -335,17 +335,17 @@ vector<DhtPeer> decodeCompactPeers(const string &data)
     return out;
 }
 
-vector<DhtPeer> decodeCompactPeers6(const string &data)
+vector<DhtPeer> decodeCompactPeers6(const char *data, size_t size)
 {
     vector<DhtPeer> out;
-    if (data.size() % 18 != 0) {
+    if (!data || size % 18 != 0) {
         return out;
     }
-    for (size_t i = 0; i + 18 <= data.size(); i += 18) {
+    for (size_t i = 0; i + 18 <= size; i += 18) {
         DhtPeer p;
         HostAddress addr;
         uint16_t port = 0;
-        readIpv6(data.data() + i, &addr, &port);
+        readIpv6(data + i, &addr, &port);
         p.setAddress(addr);
         p.setPort(port);
         if (p.isValid()) {
@@ -520,11 +520,14 @@ bool MemoryDhtStore::loadMeta(NodeId *id, string *tokenSecret)
     return true;
 }
 
-bool MemoryDhtStore::saveMeta(const NodeId &id, const string &tokenSecret)
+bool MemoryDhtStore::saveMeta(const NodeId &id, const char *tokenSecret, size_t size)
 {
     NG_D(MemoryDhtStore);
+    if (!tokenSecret || size == 0) {
+        return false;
+    }
     d->id = id;
-    d->tokenSecret = tokenSecret;
+    d->tokenSecret.assign(tokenSecret, size);
     return true;
 }
 
@@ -682,11 +685,15 @@ bool LmdbDhtStore::loadMeta(NodeId *id, string *tokenSecret)
     return true;
 }
 
-bool LmdbDhtStore::saveMeta(const NodeId &id, const string &tokenSecret)
+bool LmdbDhtStore::saveMeta(const NodeId &id, const char *tokenSecret, size_t size)
 {
     NG_D(LmdbDhtStore);
     if (!d->db || !id.isValid()) {
         d->error = "LMDB not open or invalid id";
+        return false;
+    }
+    if (!tokenSecret || size == 0) {
+        d->error = "null or empty token secret";
         return false;
     }
     shared_ptr<Transaction> txn = d->db->toWrite();
@@ -699,8 +706,15 @@ bool LmdbDhtStore::saveMeta(const NodeId &id, const string &tokenSecret)
         d->error = "LMDB meta db open failed";
         return false;
     }
-    meta->insert("id", id.toBytes());
-    meta->insert("token_secret", tokenSecret);
+    if (meta->insert("id", id.toBytes()).isEnd()) {
+        d->error = "LMDB insert id failed";
+        return false;
+    }
+    static const char kTokenSecret[] = "token_secret";
+    if (meta->insert(kTokenSecret, sizeof(kTokenSecret) - 1, tokenSecret, size).isEnd()) {
+        d->error = "LMDB insert token_secret failed";
+        return false;
+    }
     if (!txn->commit()) {
         d->error = "LMDB commit failed";
         return false;
@@ -1461,14 +1475,18 @@ vector<DhtPeer> DhtNodePrivate::getPeers(const NodeId &infoHash)
     return unique;
 }
 
-bool DhtNodePrivate::announcePeer(const NodeId &infoHash, uint16_t peerPort, const string &token)
+bool DhtNodePrivate::announcePeer(const NodeId &infoHash, uint16_t peerPort, const char *token, size_t tokenSize)
 {
     if (!opened || !infoHash.isValid() || peerPort == 0) {
         error = "invalid announce args";
         return false;
     }
+    if (tokenSize > 0 && !token) {
+        error = "null announce token";
+        return false;
+    }
     LookupResult r = iterativeLookup(infoHash, true);
-    string useToken = token.empty() ? r.token : token;
+    string useToken = (tokenSize == 0) ? r.token : string(token, tokenSize);
     DhtEndpoint ep = r.tokenFrom;
     if (useToken.empty() || !ep.isValid()) {
         // announce to closest nodes after get_peers-style queries
@@ -1588,10 +1606,10 @@ vector<DhtPeer> DhtNode::getPeers(const NodeId &infoHash)
     return d->getPeers(infoHash);
 }
 
-bool DhtNode::announcePeer(const NodeId &infoHash, uint16_t peerPort, const string &token)
+bool DhtNode::announcePeer(const NodeId &infoHash, uint16_t peerPort, const char *token, size_t tokenSize)
 {
     NG_D(DhtNode);
-    return d->announcePeer(infoHash, peerPort, token);
+    return d->announcePeer(infoHash, peerPort, token, tokenSize);
 }
 
 int DhtNode::routingTableSize() const

@@ -1,6 +1,7 @@
 #ifndef QTNG_DATA_CHANNEL_H
 #define QTNG_DATA_CHANNEL_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -69,9 +70,19 @@ public:
     std::string name() const;
 
     bool isBroken() const;
-    bool sendPacket(const std::string &packet, bool waitSent = true);
+    bool sendPacket(const char *packet, size_t size, bool waitSent = true);
+    inline bool sendPacket(const std::string &packet, bool waitSent = true)
+    {
+        return sendPacket(packet.data(), packet.size(), waitSent);
+    }
+    bool sendPacket(const char *, bool) = delete;
     bool sendPacket(std::string &&packet, bool waitSent = true);
-    bool sendPacketAsync(const std::string &packet);
+    bool sendPacketAsync(const char *packet, size_t size);
+    inline bool sendPacketAsync(const std::string &packet)
+    {
+        return sendPacketAsync(packet.data(), packet.size());
+    }
+    bool sendPacketAsync(const char *) = delete;
     bool sendPacketAsync(std::string &&packet);
     std::string recvPacket();
     void abort();

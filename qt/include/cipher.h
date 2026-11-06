@@ -63,12 +63,12 @@ public:
     int ivSize() const;  // in bytes.
     int blockSize() const;  // in bytes.
 public:
-    QByteArray addData(const QByteArray &data) { return addData(data.constData(), data.size()); }
-    QByteArray addData(const char *data, int len);
+    QByteArray addData(const QByteArray &data) { return addData(data.constData(), static_cast<size_t>(data.size())); }
+    QByteArray addData(const char *data, size_t len);
     QByteArray finalData();
 public:
-    QByteArray update(const QByteArray &data) { return addData(data.constData(), data.size()); }
-    QByteArray update(const char *data, int len) { return addData(data, len); }
+    QByteArray update(const QByteArray &data) { return addData(data.constData(), static_cast<size_t>(data.size())); }
+    QByteArray update(const char *data, size_t len) { return addData(data, len); }
     QByteArray final() { return finalData(); }
 public:
     static QPair<QByteArray, QByteArray> parseSalt(const QByteArray &header);  // parse salt from `openssl enc` header

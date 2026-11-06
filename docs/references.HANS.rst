@@ -2042,9 +2042,10 @@ KCP 协议的服务器实现。
     这里返回空字符串,调用方需自行倒回流位置后再重试。该方法使会话在跟随
     重定向时能够重新发送 QUERY/POST 请求体。
 
+    .. method:: void setBody(const char *body, size_t size)
     .. method:: void setBody(const std::string &body)
 
-    设置请求的正文。
+    设置请求的正文。``std::string`` 重载转发到指针/长度形式。
     
     包含多个重载函数：
     
@@ -2130,6 +2131,7 @@ KCP 协议的服务器实现。
 
 注意：请参考 ``void HttpRequest::setBody(const FormData &formData)``。
 
+.. method:: void addFile(const std::string &name, const std::string &filename, const char *data, size_t dataSize, const std::string &contentType = std::string())
 .. method:: void addFile(const std::string &name, const std::string &filename, const std::string &data, const std::string &contentType = std::string())
     
     向表单的 ``name`` 字段添加文件。
@@ -2424,27 +2426,22 @@ MessageDigest
 
     初始化指定哈希算法的上下文
 
-.. method:: addData(const char *data, int len)
+.. method:: addData(const char *data, size_t len)
+.. method:: addData(const std::string &data)
     :no-index:
 
     将原始字节数据添加到哈希计算，调用 EVP_DigestUpdate 更新上下文，失败则标记错误。
-
-.. method:: addData(const char *data)
-    :no-index:
-
-    addData的重载，内部计算data长度后调用上一个addData
+    ``std::string`` 重载转发到指针/长度形式。
 
 .. method:: std::string result()
 
     结束哈希计算并返回最终摘要，若首次调用，调用 EVP_DigestFinal_ex 结束计算，缓存结果，后续调用直接返回缓存结果，失败返回空 std::string。
 
+.. method:: void update(const char *data, size_t len)
 .. method:: void update(const std::string &data)
 
-    同 addData，提供兼容常见哈希接口的方法。    
-
-.. method:: void update(const char *data, int len)
-
     同 addData，提供兼容常见哈希接口的方法。
+    ``std::string`` 重载转发到指针/长度形式。
 
 .. method:: std::string hexDigest()
 
@@ -2454,21 +2451,25 @@ MessageDigest
 
     返回十六进制字符串形式的摘要。
 
+.. method:: static std::string hash(const char *data, size_t dataSize, Algorithm algo)
 .. method:: static std::string hash(const std::string &data, Algorithm algo)
 
-    一次性计算数据的哈希值（十六进制）。
+    一次性计算数据的哈希值（十六进制）。``std::string`` 重载转发到指针/长度形式。
 
+.. method:: static std::string digest(const char *data, size_t dataSize, Algorithm algo)
 .. method:: static std::string digest(const std::string &data, Algorithm algo)
 
-    一次性计算数据的哈希值（原始字节）。
+    一次性计算数据的哈希值（原始字节）。``std::string`` 重载转发到指针/长度形式。
 
 .. method:: std::string PBKDF2_HMAC(int keylen, const std::string &password, const std::string &salt,  const MessageDigest::Algorithm hashAlgo = MessageDigest::Sha256, int i = 10000)
 
     调用 OpenSSL 的 PKCS5_PBKDF2_HMAC 函数生成密钥。
 
+.. function:: std::string hmac(const MessageDigest::Algorithm hashAlgo, const char *key, size_t keySize, const char *data, size_t dataSize)
 .. function:: std::string hmac(const MessageDigest::Algorithm hashAlgo, const std::string &key, const std::string &data)
 
     使用指定摘要算法计算 ``data`` 的 HMAC（RFC 2104）。失败时（摘要不受支持或密钥为空）返回空字符串。需要 OpenSSL/LibreSSL；``QTNG_NO_CRYPTO`` 软件实现中不可用。
+    ``std::string`` 重载转发到指针/长度形式。
 
 5.2 对称加密和解密
 ^^^^^^^^^^^^^^^^^^^^
@@ -2497,18 +2498,21 @@ Clipher
     
     判断是否使用分组加密模式（如 ECB、CBC 等），直接返回 !isStream()。
 
-.. method:: void setKey(const std::string &key)
+.. method:: bool setKey(const char *key, size_t keySize)
+.. method:: bool setKey(const std::string &key)
 
-    设置原始密钥。
+    设置原始密钥。``std::string`` 重载转发到指针/长度形式。
 
 .. method:: std::string key()
 
     返回当前密钥
 
-.. method:: setInitialVector(const std::string &iv)
+.. method:: bool setInitialVector(const char *iv, size_t ivSize)
+.. method:: bool setInitialVector(const std::string &iv)
     :no-index:
 
     设置初始化向量（IV）,存储 IV 并初始化上下文。
+    ``std::string`` 重载转发到指针/长度形式。
 
 .. method:: std::string initialVector()
 
@@ -2526,21 +2530,15 @@ Clipher
 
     兼容 OpenSSL 的密钥派生（EVP_BytesToKey）。参数：密码、盐值（必须 8 字节）、哈希算法、迭代次数。使用传统方法生成密钥，适合解密历史上 ``openssl enc`` 加密的数据（默认 MD5）。OpenSSL 3 命令行默认已改为 SHA-256，需要时传入 ``MessageDigest::Sha256``。
 
+.. method:: std::string addData(const char *data, size_t len)
 .. method:: std::string addData(const std::string &data)
 
-    分块处理数据，返回加密/解密后的结果。
+    分块处理数据，返回加密/解密后的结果。``std::string`` 重载转发到指针/长度形式。
 
-.. method:: std::string addData(const char *data, int len)
-
-    分块处理数据，返回加密/解密后的结果。
-
+.. method:: std::string update(const char *data, size_t len)
 .. method:: std::string update(const std::string &data)
 
-    分块处理数据，返回加密/解密后的结果。
-
-.. method:: std::string update(const char *data, int len)
-
-    分块处理数据，返回加密/解密后的结果。
+    分块处理数据，返回加密/解密后的结果。``std::string`` 重载转发到指针/长度形式。
 
 .. method:: std::string finalData();
 
@@ -2554,9 +2552,11 @@ Clipher
 
     生成 OpenSSL 格式的盐值头部（Salted__ + 8字节盐）,加密时保存盐值，供解密时使用。
 
-.. method:: std::string parseSalt()
+.. method:: static std::pair<std::string, std::string> parseSalt(const char *header, size_t headerSize)
+.. method:: static std::pair<std::string, std::string> parseSalt(const std::string &header)
 
-    从 OpenSSL 头部解析盐值,返回值：std::pair<std::string, std::string>（盐值 + 剩余数据）。
+    从 OpenSSL ``Salted__`` 头部解析盐值，返回 ``(盐值, 剩余数据)``。
+    ``std::string`` 重载转发到指针/长度形式。
 
 .. method:: bool setPadding(bool padding)
 
@@ -2629,24 +2629,31 @@ RSA 在数学上允许四种不同的原始运算（对应旧版 ``RSA_public_en
 
     通过PEM_write_bio_PUBKEY将密钥写入BIO对象
 
+.. method:: std::string encrypt(const char *data, size_t dataSize) const
 .. method:: std::string encrypt(const std::string &data) const
 
     使用对象内的 ``EVP_PKEY_CTX`` 做公钥加密（``EVP_PKEY_encrypt``）。RSA 上固定 ``PKCS1_PADDING``（PKCS#1 v1.5 type 2），与默认的 ``rsaPublicEncrypt`` 语义相同。
+    ``std::string`` 重载转发到指针/长度形式。
 
-.. method:: std::string rsaPublicEncrypt(const std::string &data,RsaPadding padding = PKCS1_PADDING)
+.. method:: std::string rsaPublicEncrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const
+.. method:: std::string rsaPublicEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
     :no-index:
 
     使用 RSA 公钥加密（``EVP_PKEY_encrypt``），复用对象内的 ``EVP_PKEY_CTX``。``PKCS1_PADDING`` 兼容性最好（默认）；``PKCS1_OAEP_PADDING`` 更安全，推荐新协议使用；``NO_PADDING`` 需自行处理填充。
+    ``std::string`` 重载转发到指针/长度形式。
 
-.. method:: std::string rsaPublicDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING)
+.. method:: std::string rsaPublicDecrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const
+.. method:: std::string rsaPublicDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
     :no-index:
 
     使用 RSA 公钥做原始解密/恢复（``EVP_PKEY_verify_recover``），复用对象内的 ``EVP_PKEY_CTX``。对应旧版 ``RSA_public_decrypt``，以及私钥侧的 ``rsaPrivateEncrypt``。``PKCS1_PADDING`` 是签名用的 PKCS#1 v1.5 **type 1**（``00 01 FF..00``），不是加密用的 type 2；未设置 ``signature_md``，因此不会封装或剥离 DigestInfo。支持 ``PKCS1_PADDING``（默认）与 ``NO_PADDING``。
-    
+    ``std::string`` 重载转发到指针/长度形式。
 
+.. method:: bool verify(const char *data, size_t dataSize, const char *hash, size_t hashSize, MessageDigest::Algorithm hashAlgo)
 .. method:: bool verify(const std::string &data, const std::string &hash, MessageDigest::Algorithm hashAlgo)
 
-    使用指定哈希算法（如SHA256）处理数据,对比签名哈希值与计算值,返回true表示验证通过
+    使用指定哈希算法（如SHA256）处理数据,对比签名哈希值与计算值,返回true表示验证通过。
+    ``std::string`` 重载转发到指针/长度形式。
 
 .. method:: Algorithm algorithm()
 
@@ -2734,23 +2741,30 @@ RSA 在数学上允许四种不同的原始运算（对应旧版 ``RSA_public_en
 
     提取当前私钥对应的公钥。
 
+.. method:: std::string sign(const char *data, size_t dataSize, MessageDigest::Algorithm hashAlgo)
 .. method:: std::string sign(const std::string &data, MessageDigest::Algorithm hashAlgo)
 
-    使用私钥对数据进行签名。
+    使用私钥对数据进行签名。``std::string`` 重载转发到指针/长度形式。
 
+.. method:: std::string decrypt(const char *data, size_t dataSize) const
 .. method:: std::string decrypt(const std::string &data) const
 
     使用私钥解密数据。初始化解密上下文：EVP_PKEY_decrypt_init。RSA 上固定 ``PKCS1_PADDING``，对应 ``encrypt()``。
+    ``std::string`` 重载转发到指针/长度形式。
 
+.. method:: std::string rsaPrivateEncrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const
 .. method:: std::string rsaPrivateEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
     :no-index:
 
     使用 RSA 私钥做原始加密（``EVP_PKEY_sign``，无摘要），复用对象内的 ``EVP_PKEY_CTX``。对应旧版 ``RSA_private_encrypt``，以及公钥侧的 ``rsaPublicDecrypt``。支持 ``PKCS1_PADDING``（默认）与 ``NO_PADDING``。
+    ``std::string`` 重载转发到指针/长度形式。
 
+.. method:: std::string rsaPrivateDecrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const
 .. method:: std::string rsaPrivateDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
     :no-index:
 
     使用 RSA 私钥解密（``EVP_PKEY_decrypt``），复用对象内的 ``EVP_PKEY_CTX``。支持 ``PKCS1_PADDING``（默认）、``PKCS1_OAEP_PADDING`` 与 ``NO_PADDING``。
+    ``std::string`` 重载转发到指针/长度形式。
 
 .. method:: static PrivateKey generate(Algorithm algo, int bits)
 
@@ -2839,13 +2853,15 @@ RSA 在数学上允许四种不同的原始运算（对应旧版 ``RSA_public_en
 
     指定输入数据的编码格式。``readPublic()`` 同时支持 ``Ssl::Pem`` 与 ``Ssl::Der``；私钥读取仍仅支持 PEM。
 
+.. method:: PrivateKey read(const char *data, size_t dataSize)
 .. method:: PrivateKey read(const std::string &data)
 
-    从内存中的字节数组读取私钥（PEM）。
+    从内存中的字节数组读取私钥（PEM）。``std::string`` 重载转发到指针/长度形式。
 
+.. method:: PublicKey readPublic(const char *data, size_t dataSize)
 .. method:: PublicKey readPublic(const std::string &data)
 
-    从内存中的字节数组读取公钥（PEM 或 DER）。
+    从内存中的字节数组读取公钥（PEM 或 DER）。``std::string`` 重载转发到指针/长度形式。
 
 .. method:: PrivateKey read(const std::string &filePath)
 
@@ -3301,9 +3317,10 @@ OpenSSL 和 LibreSSL 会在首次使用时自行初始化，并在整个进程�
 
     打开文件并返回 FileLike 实例。
 
+.. method:: static std::shared_ptr<FileLike> bytes(const char *data, size_t size)
 .. method:: static std::shared_ptr<FileLike> bytes(const std::string &data)
 
-    创建基于内存的 BytesIO 实例。
+    创建基于内存的 BytesIO 实例。``std::string`` 重载转发到指针/长度形式。
 
 .. method:: static std::shared_ptr<FileLike> bytes(std::string *data)
 
@@ -3572,6 +3589,7 @@ Bencode 只有四种类型：
     .. method:: BencodeStream()
     .. method:: BencodeStream(FileLike *d)
     .. method:: BencodeStream(std::string *a, bool writeMode = false)
+    .. method:: BencodeStream(const char *a, size_t size)
     .. method:: BencodeStream(const std::string &a)
 
         构造空流、绑定设备，或以字符串为后端。
@@ -3644,6 +3662,7 @@ Bencode 只有四种类型：
 
     .. method:: Bencode()
     .. method:: Bencode(std::int64_t i)
+    .. method:: Bencode(const char *s, size_t size)
     .. method:: Bencode(const std::string &s)
     .. method:: Bencode(const char *s)
     .. method:: Bencode(const std::vector<Bencode> &list)
@@ -3674,6 +3693,7 @@ Bencode 只有四种类型：
 
         序列化，字典键已排序。
 
+    .. method:: static Bencode decode(const char *data, size_t size, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
     .. method:: static Bencode decode(const std::string &data, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
     .. method:: static Bencode decode(FileLike *device, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
 
@@ -3823,6 +3843,14 @@ API 对齐 ``WebSocketConnection``：协程阻塞式 ``publish`` / ``subscribe``
 处理协程）必须比从它取出的每一个通道活得更久，包括那些仍阻塞在 ``sendPacket()`` /
 ``recvPacket()`` 里的协程。若无法保证，请用「每条连接一个 ``CoroutineGroup``，``abort()``
 后 ``joinall()``」的写法。
+
+.. method:: bool DataChannel::sendPacket(const char *packet, size_t size, bool waitSent = true)
+.. method:: bool DataChannel::sendPacket(const std::string &packet, bool waitSent = true)
+.. method:: bool DataChannel::sendPacketAsync(const char *packet, size_t size)
+.. method:: bool DataChannel::sendPacketAsync(const std::string &packet)
+
+    发送一个数据包。``std::string`` 重载转发到指针/长度形式。
+    另有右值 ``std::string&&`` 重载。
 
 .. method:: void DataChannel::abort()
 
@@ -4298,6 +4326,7 @@ BEP-5 将联系人打包进 bencode 字段 ``nodes``、``nodes6``、``values`` �
         固定为 ``20``。
 
     .. method:: static NodeId random()
+    .. method:: static NodeId fromBytes(const char *raw20, size_t size)
     .. method:: static NodeId fromBytes(const std::string &raw20)
     .. method:: static NodeId fromHex(const std::string &hex40)
 
@@ -4339,7 +4368,8 @@ BEP-5 将联系人打包进 bencode 字段 ``nodes``、``nodes6``、``values`` �
         ``DhtPeer peer`` 与 ``expireUnix``（Unix 秒；``<= now`` 时删除）。
 
     .. method:: virtual bool loadMeta(NodeId *id, std::string *tokenSecret) = 0
-    .. method:: virtual bool saveMeta(const NodeId &id, const std::string &tokenSecret) = 0
+    .. method:: virtual bool saveMeta(const NodeId &id, const char *tokenSecret, size_t size) = 0
+    .. method:: bool saveMeta(const NodeId &id, const std::string &tokenSecret)
 
         本机节点 id 与用于签发 announce token 的密钥。首次启动（尚无数据）时
         ``loadMeta`` 返回 false。
@@ -4405,6 +4435,7 @@ API 相同）。
 
         迭代 ``get_peers``，并与本地已存的该 infohash peer 合并（去重）。
 
+    .. method:: bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const char *token, size_t tokenSize)
     .. method:: bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const std::string &token = std::string())
 
         为 ``infoHash`` 宣告 ``peerPort``。``token`` 为空时，通过对最近节点的

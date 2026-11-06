@@ -1884,12 +1884,12 @@ SshChannel::~SshChannel()
 {
 }
 
-int32_t SshChannel::send(const string &data)
+int32_t SshChannel::send(const char *data, size_t size)
 {
-    if (!d->send(data)) {
+    if (!d->send(string(data, size))) {
         return -1;
     }
-    return static_cast<int32_t>(data.size());
+    return static_cast<int32_t>(size);
 }
 
 string SshChannel::recv(int32_t maxSize)

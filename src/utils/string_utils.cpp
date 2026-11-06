@@ -414,26 +414,27 @@ string fromAce(const string &domain)
     return result;
 }
 
-string bytesToHex(const string &data)
+string bytesToHex(const char *data, size_t size)
 {
     static const char hex[] = "0123456789abcdef";
     string result;
-    result.reserve(data.size() * 2);
-    for (unsigned char ch : data) {
+    result.reserve(size * 2);
+    for (size_t i = 0; i < size; ++i) {
+        unsigned char ch = static_cast<unsigned char>(data[i]);
         result.push_back(hex[ch >> 4]);
         result.push_back(hex[ch & 0x0f]);
     }
     return result;
 }
 
-string bytesToBase64(const string &data)
+string bytesToBase64(const char *data, size_t size)
 {
     static const char table[] =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     string result;
-    result.reserve(((data.size() + 2) / 3) * 4);
+    result.reserve(((size + 2) / 3) * 4);
     size_t i = 0;
-    while (i + 2 < data.size()) {
+    while (i + 2 < size) {
         unsigned int n = (static_cast<unsigned char>(data[i]) << 16)
                 | (static_cast<unsigned char>(data[i + 1]) << 8)
                 | static_cast<unsigned char>(data[i + 2]);
@@ -443,14 +444,14 @@ string bytesToBase64(const string &data)
         result.push_back(table[n & 63]);
         i += 3;
     }
-    if (i < data.size()) {
+    if (i < size) {
         unsigned int n = static_cast<unsigned char>(data[i]) << 16;
-        if (i + 1 < data.size()) {
+        if (i + 1 < size) {
             n |= static_cast<unsigned char>(data[i + 1]) << 8;
         }
         result.push_back(table[(n >> 18) & 63]);
         result.push_back(table[(n >> 12) & 63]);
-        if (i + 1 < data.size()) {
+        if (i + 1 < size) {
             result.push_back(table[(n >> 6) & 63]);
             result.push_back('=');
         } else {

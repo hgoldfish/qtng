@@ -29,7 +29,7 @@ MessageDigest::~MessageDigest()
     delete d_ptr;
 }
 
-void MessageDigest::addData(const char *data, int len)
+void MessageDigest::addData(const char *data, size_t len)
 {
     Q_D(MessageDigest);
     d->core.addData(data, len);

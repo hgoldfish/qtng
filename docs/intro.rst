@@ -395,7 +395,7 @@ qtng can generate and manipulate RSA/DSA keys.
     :caption: generate rsa key
 
     PrivateKey key = PrivateKey::generate(PrivateKey::Rsa, 2048);
-    ngDebug() << key.sign("fish is here.", MessageDigest::Sha256);
+    ngDebug() << key.sign(std::string("fish is here."), MessageDigest::Sha256);
     ngDebug() << key.save();
     PrivateKey clonedKey = PrivateKey::load(key.save());
 

@@ -572,10 +572,10 @@ TorrentMeta &TorrentMeta::operator=(const TorrentMeta &other)
 
 TorrentMeta::~TorrentMeta() { }
 
-TorrentMeta TorrentMeta::fromBytes(const string &data)
+TorrentMeta TorrentMeta::fromBytes(const char *data, size_t size)
 {
     TorrentMeta m;
-    parseTorrentMeta(data, m.d);
+    parseTorrentMeta(string(data, size), m.d);
     return m;
 }
 
@@ -591,10 +591,10 @@ TorrentMeta TorrentMeta::fromFile(const string &path)
     return fromBytes(data);
 }
 
-TorrentMeta TorrentMeta::fromInfoDict(const string &infoDict, const vector<string> &trackers)
+TorrentMeta TorrentMeta::fromInfoDict(const char *infoDict, size_t size, const vector<string> &trackers)
 {
     TorrentMeta m;
-    parseInfoDictBytes(infoDict, m.d, trackers);
+    parseInfoDictBytes(string(infoDict, size), m.d, trackers);
     return m;
 }
 
@@ -2721,9 +2721,9 @@ std::uint16_t TorrentSession::listenPort() const
     return d_ptr->effectiveListenPort();
 }
 
-void TorrentSession::setPeerId(const string &peerId20)
+void TorrentSession::setPeerId(const char *peerId20, size_t size)
 {
-    d_ptr->peerId = peerId20;
+    d_ptr->peerId.assign(peerId20, size);
 }
 
 string TorrentSession::peerId() const

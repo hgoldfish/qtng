@@ -234,13 +234,13 @@ string packTransport(uint64_t n, const string &ct)
     return out;
 }
 
-bool unpackTransport(const string &wire, uint64_t *n, string *ct)
+bool unpackTransport(const char *wire, size_t wireSize, uint64_t *n, string *ct)
 {
-    if (!n || !ct || wire.size() < kWireNonceLen + kTagLen) {
+    if (!n || !ct || !wire || wireSize < kWireNonceLen + kTagLen) {
         return false;
     }
-    *n = ngFromBigEndian<uint64_t>(wire.data());
-    *ct = wire.substr(kWireNonceLen);
+    *n = ngFromBigEndian<uint64_t>(wire);
+    ct->assign(wire + kWireNonceLen, wireSize - kWireNonceLen);
     return true;
 }
 
@@ -294,15 +294,15 @@ NoiseKey NoiseKey::generate()
     return key;
 }
 
-NoiseKey NoiseKey::fromPrivateKey(const string &privateKey32)
+NoiseKey NoiseKey::fromPrivateKey(const char *privateKey32, size_t size)
 {
     NoiseKey key;
-    if (privateKey32.size() != kDhLen) {
-        ngWarning() << "NoiseKey::fromPrivateKey: key must be 32 bytes, got" << privateKey32.size();
+    if (size != kDhLen) {
+        ngWarning() << "NoiseKey::fromPrivateKey: key must be 32 bytes, got" << size;
         return key;
     }
     EvpPkeyPtr pkey(EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
-                                                  reinterpret_cast<const uint8_t *>(privateKey32.data()),
+                                                  reinterpret_cast<const uint8_t *>(privateKey32),
                                                   kDhLen));
     if (!pkey) {
         ngWarning() << "NoiseKey::fromPrivateKey: EVP_PKEY_new_raw_private_key failed";
@@ -315,22 +315,23 @@ NoiseKey NoiseKey::fromPrivateKey(const string &privateKey32)
         ngWarning() << "NoiseKey::fromPrivateKey: failed to export public key";
         return NoiseKey();
     }
-    key.setPrivateKey(privateKey32);
+    key.setPrivateKey(privateKey32, size);
     key.setPublicKey(pub);
     return key;
 }
 
-string NoiseKey::dh(const string &privateKey32, const string &peerPublicKey32)
+string NoiseKey::dh(const char *privateKey32, size_t privateKeySize, const char *peerPublicKey32,
+                    size_t peerPublicKeySize)
 {
-    if (privateKey32.size() != kDhLen || peerPublicKey32.size() != kDhLen) {
+    if (privateKeySize != kDhLen || peerPublicKeySize != kDhLen) {
         ngWarning() << "NoiseKey::dh: keys must be 32 bytes";
         return string();
     }
     EvpPkeyPtr priv(EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
-                                                 reinterpret_cast<const uint8_t *>(privateKey32.data()),
+                                                 reinterpret_cast<const uint8_t *>(privateKey32),
                                                  kDhLen));
     EvpPkeyPtr peer(EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr,
-                                                reinterpret_cast<const uint8_t *>(peerPublicKey32.data()),
+                                                reinterpret_cast<const uint8_t *>(peerPublicKey32),
                                                 kDhLen));
     if (!priv || !peer) {
         ngWarning() << "NoiseKey::dh: failed to import X25519 keys";
@@ -351,8 +352,14 @@ string NoiseKey::dh(const string &privateKey32, const string &peerPublicKey32)
     return shared;
 }
 
-NoiseConfig::NoiseConfig(const string &localPrivateKey)
-    : localStatic_(localPrivateKey.empty() ? NoiseKey::generate() : NoiseKey::fromPrivateKey(localPrivateKey))
+NoiseConfig::NoiseConfig()
+    : localStatic_(NoiseKey::generate())
+{
+}
+
+NoiseConfig::NoiseConfig(const char *localPrivateKey, size_t localPrivateKeySize)
+    : localStatic_(localPrivateKeySize == 0 ? NoiseKey::generate()
+                                            : NoiseKey::fromPrivateKey(localPrivateKey, localPrivateKeySize))
 {
 }
 
@@ -546,11 +553,11 @@ Aead::Algorithm NoiseCipherState::algorithm() const
     return d->aead.algorithm();
 }
 
-void NoiseCipherState::initializeKey(const string &key32)
+void NoiseCipherState::initializeKey(const char *key32, size_t size)
 {
     NG_D(NoiseCipherState);
     const Aead::Algorithm algo = d->aead.algorithm();
-    d->key = (isNoiseAead(algo) && key32.size() == kCipherKeyLen) ? key32 : string();
+    d->key = (isNoiseAead(algo) && key32 && size == kCipherKeyLen) ? string(key32, size) : string();
     d->nonce = 0;
     if (!d->key.empty()) {
         d->syncAeadKey();
@@ -558,8 +565,8 @@ void NoiseCipherState::initializeKey(const string &key32)
     if (d->key.empty()) {
         if (!isNoiseAead(algo)) {
             ngDebug() << "NoiseCipherState::initializeKey: unsupported AEAD";
-        } else if (key32.size() != kCipherKeyLen) {
-            ngWarning() << "NoiseCipherState::initializeKey: key must be 32 bytes, got" << key32.size();
+        } else if (!key32 || size != kCipherKeyLen) {
+            ngWarning() << "NoiseCipherState::initializeKey: key must be non-null and 32 bytes, got" << size;
         }
     }
 }
@@ -607,13 +614,14 @@ bool NoiseCipherState::rekey()
     return !d->key.empty();
 }
 
-string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext)
+string NoiseCipherState::encryptWithAd(const char *ad, size_t adSize, const char *plaintext, size_t plaintextSize)
 {
     uint64_t used = 0;
-    return encryptWithAd(ad, plaintext, &used);
+    return encryptWithAd(ad, adSize, plaintext, plaintextSize, &used);
 }
 
-string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext, uint64_t *outNonce)
+string NoiseCipherState::encryptWithAd(const char *ad, size_t adSize, const char *plaintext, size_t plaintextSize,
+                                       uint64_t *outNonce)
 {
     NG_D(NoiseCipherState);
     if (d->key.empty()) {
@@ -626,8 +634,9 @@ string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext
     }
     const uint64_t n = d->nonce;
     const Aead::Algorithm algo = d->aead.algorithm();
+    const string nonce = encodeNonce(algo, n);
     string out;
-    if (!d->aead.seal(encodeNonce(algo, n), ad, plaintext, &out)) {
+    if (!d->aead.seal(nonce.data(), nonce.size(), ad, adSize, plaintext, plaintextSize, &out)) {
         ngWarning() << "NoiseCipherState::encryptWithAd: AEAD seal failed n=" << n;
         return string();
     }
@@ -638,17 +647,19 @@ string NoiseCipherState::encryptWithAd(const string &ad, const string &plaintext
     return out;
 }
 
-string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertextAndTag)
+string NoiseCipherState::decryptWithAd(const char *ad, size_t adSize, const char *ciphertextAndTag,
+                                       size_t ciphertextSize)
 {
     NG_D(NoiseCipherState);
-    const string out = decryptWithAd(ad, ciphertextAndTag, d->nonce);
+    const string out = decryptWithAd(ad, adSize, ciphertextAndTag, ciphertextSize, d->nonce);
     if (d->lastDecryptOk) {
         ++d->nonce;
     }
     return out;
 }
 
-string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertextAndTag, uint64_t nonce)
+string NoiseCipherState::decryptWithAd(const char *ad, size_t adSize, const char *ciphertextAndTag,
+                                       size_t ciphertextSize, uint64_t nonce)
 {
     NG_D(NoiseCipherState);
     d->lastDecryptOk = false;
@@ -656,7 +667,7 @@ string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertex
         ngDebug() << "NoiseCipherState::decryptWithAd: no key";
         return string();
     }
-    if (ciphertextAndTag.size() < kTagLen) {
+    if (ciphertextSize < kTagLen) {
         ngDebug() << "NoiseCipherState::decryptWithAd: truncated";
         return string();
     }
@@ -665,8 +676,9 @@ string NoiseCipherState::decryptWithAd(const string &ad, const string &ciphertex
         return string();
     }
     const Aead::Algorithm algo = d->aead.algorithm();
+    const string nonceBuf = encodeNonce(algo, nonce);
     string out;
-    if (!d->aead.open(encodeNonce(algo, nonce), ad, ciphertextAndTag, &out)) {
+    if (!d->aead.open(nonceBuf.data(), nonceBuf.size(), ad, adSize, ciphertextAndTag, ciphertextSize, &out)) {
         ngDebug() << "NoiseCipherState::decryptWithAd: AEAD open failed n=" << nonce;
         return string();
     }
@@ -693,15 +705,17 @@ public:
     {
     }
 
-    bool mixHash(const string &data);
+    bool mixHash(const char *data, size_t dataSize);
+    inline bool mixHash(const string &data) { return mixHash(data.data(), data.size()); }
     bool mixKey(const string &material);
     bool mixKeyAndHash(const string &material);
     bool dhMix(const string &priv, const string &pub);
-    string encryptAndHash(const string &plaintext);
-    string decryptAndHash(const string &ciphertextAndTag);
+    string encryptAndHash(const char *plaintext, size_t plaintextSize);
+    string decryptAndHash(const char *ciphertextAndTag, size_t ciphertextSize);
     string hkdf(const string &chainingKey, const string &inputKeyMaterial, int numOutputs);
     bool checkRemoteStatic(const string &expectedRs);
-    bool applyToken(Token token, bool writing, string *outMessage, const string *inMessage, size_t *pos);
+    bool applyToken(Token token, bool writing, string *outMessage, const char *inMessage, size_t inMessageSize,
+                    size_t *pos);
 
     NoiseRole role;
     PatternTokens tokens;
@@ -852,13 +866,18 @@ bool NoiseHandshakeState::isComplete() const
     return d->complete;
 }
 
-bool NoiseHandshakeState::writeMessage(const string &payload, string *outMessage)
+bool NoiseHandshakeState::writeMessage(const char *payload, size_t payloadSize, string *outMessage)
 {
     NG_D(NoiseHandshakeState);
     d->error.clear();
     if (!outMessage) {
         ngWarning() << "writeMessage requires non-null output";
         d->error = "writeMessage requires non-null output";
+        return false;
+    }
+    if (payloadSize > 0 && !payload) {
+        ngWarning() << "writeMessage requires non-null payload";
+        d->error = "writeMessage requires non-null payload";
         return false;
     }
     if (d->complete) {
@@ -875,11 +894,11 @@ bool NoiseHandshakeState::writeMessage(const string &payload, string *outMessage
 
     string message;
     for (Token token : d->tokens.messages[static_cast<size_t>(d->msgIndex)]) {
-        if (!d->applyToken(token, true, &message, nullptr, nullptr)) {
+        if (!d->applyToken(token, true, &message, nullptr, 0, nullptr)) {
             return false;
         }
     }
-    const string cipherPayload = d->encryptAndHash(payload);
+    const string cipherPayload = d->encryptAndHash(payload, payloadSize);
     if (!d->error.empty()) {
         return false;
     }
@@ -892,13 +911,18 @@ bool NoiseHandshakeState::writeMessage(const string &payload, string *outMessage
     return true;
 }
 
-bool NoiseHandshakeState::readMessage(const string &message, string *outPayload)
+bool NoiseHandshakeState::readMessage(const char *message, size_t messageSize, string *outPayload)
 {
     NG_D(NoiseHandshakeState);
     d->error.clear();
     if (!outPayload) {
         ngWarning() << "readMessage requires non-null output";
         d->error = "readMessage requires non-null output";
+        return false;
+    }
+    if (messageSize > 0 && !message) {
+        ngWarning() << "readMessage requires non-null message";
+        d->error = "readMessage requires non-null message";
         return false;
     }
     if (d->complete) {
@@ -915,11 +939,16 @@ bool NoiseHandshakeState::readMessage(const string &message, string *outPayload)
 
     size_t pos = 0;
     for (Token token : d->tokens.messages[static_cast<size_t>(d->msgIndex)]) {
-        if (!d->applyToken(token, false, nullptr, &message, &pos)) {
+        if (!d->applyToken(token, false, nullptr, message, messageSize, &pos)) {
             return false;
         }
     }
-    *outPayload = d->decryptAndHash(message.substr(pos));
+    if (pos > messageSize) {
+        ngDebug() << "readMessage truncated after tokens";
+        d->error = "readMessage truncated after tokens";
+        return false;
+    }
+    *outPayload = d->decryptAndHash(message ? message + pos : nullptr, messageSize - pos);
     if (!d->error.empty()) {
         return false;
     }
@@ -987,9 +1016,19 @@ string NoiseHandshakeState::errorString() const
     return d->error;
 }
 
-bool NoiseHandshakeStatePrivate::mixHash(const string &data)
+bool NoiseHandshakeStatePrivate::mixHash(const char *data, size_t dataSize)
 {
-    const string next = MessageDigest::digest(h + data, hashAlgo);
+    if (dataSize > 0 && !data) {
+        ngWarning() << "mixHash failed";
+        error = "mixHash failed";
+        return false;
+    }
+    MessageDigest md(hashAlgo);
+    md.addData(h.data(), h.size());
+    if (dataSize > 0) {
+        md.addData(data, dataSize);
+    }
+    const string next = md.result();
     if (next.size() != hashLen) {
         ngWarning() << "mixHash failed";
         error = "mixHash failed";
@@ -1049,18 +1088,9 @@ bool NoiseHandshakeStatePrivate::dhMix(const string &priv, const string &pub)
     return mixKey(secret);
 }
 
-bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *outMessage, const string *inMessage,
-                                            size_t *pos)
+bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *outMessage, const char *inMessage,
+                                            size_t inMessageSize, size_t *pos)
 {
-    auto take = [&](size_t n) -> string {
-        if (!inMessage || !pos || *pos + n > inMessage->size()) {
-            return string();
-        }
-        string part = inMessage->substr(*pos, n);
-        *pos += n;
-        return part;
-    };
-
     switch (token) {
     case Token::E:
         if (writing) {
@@ -1080,12 +1110,13 @@ bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *o
                 return false;
             }
         } else {
-            re = take(kDhLen);
-            if (re.size() != kDhLen) {
+            if (!inMessage || !pos || kDhLen > inMessageSize || *pos > inMessageSize - kDhLen) {
                 ngDebug() << "missing remote ephemeral";
                 error = "missing remote ephemeral";
                 return false;
             }
+            re.assign(inMessage + *pos, kDhLen);
+            *pos += kDhLen;
             if (!mixHash(re)) {
                 return false;
             }
@@ -1096,7 +1127,8 @@ bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *o
         return true;
     case Token::S:
         if (writing) {
-            const string encS = encryptAndHash(s.publicKey());
+            const string &spk = s.publicKey();
+            const string encS = encryptAndHash(spk.data(), spk.size());
             if (!error.empty()) {
                 return false;
             }
@@ -1110,14 +1142,15 @@ bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *o
             }
         } else {
             const size_t n = cs.hasKey() ? (kDhLen + kTagLen) : kDhLen;
-            const string encS = take(n);
-            if (encS.size() != n) {
+            if (!inMessage || !pos || n > inMessageSize || *pos > inMessageSize - n) {
                 ngDebug() << "missing remote static";
                 error = "missing remote static";
                 return false;
             }
+            const char *encS = inMessage + *pos;
+            *pos += n;
             const string expectedRs = rs;
-            rs = decryptAndHash(encS);
+            rs = decryptAndHash(encS, n);
             if (!error.empty()) {
                 return false;
             }
@@ -1155,43 +1188,53 @@ bool NoiseHandshakeStatePrivate::applyToken(Token token, bool writing, string *o
     return false;
 }
 
-string NoiseHandshakeStatePrivate::encryptAndHash(const string &plaintext)
+string NoiseHandshakeStatePrivate::encryptAndHash(const char *plaintext, size_t plaintextSize)
 {
+    if (plaintextSize > 0 && !plaintext) {
+        ngWarning() << "encryptAndHash failed";
+        error = "encryptAndHash failed";
+        return string();
+    }
     string ciphertext;
     if (cs.hasKey()) {
-        ciphertext = cs.encryptWithAd(h, plaintext);
+        ciphertext = cs.encryptWithAd(h.data(), h.size(), plaintext, plaintextSize);
         if (ciphertext.empty()) {
             ngWarning() << "encryptAndHash failed";
             error = "encryptAndHash failed";
             return string();
         }
-    } else {
-        ciphertext = plaintext;
+    } else if (plaintextSize > 0) {
+        ciphertext.assign(plaintext, plaintextSize);
     }
-    if (!mixHash(ciphertext)) {
+    if (!mixHash(ciphertext.data(), ciphertext.size())) {
         return string();
     }
     return ciphertext;
 }
 
-string NoiseHandshakeStatePrivate::decryptAndHash(const string &ciphertextAndTag)
+string NoiseHandshakeStatePrivate::decryptAndHash(const char *ciphertextAndTag, size_t ciphertextSize)
 {
+    if (ciphertextSize > 0 && !ciphertextAndTag) {
+        ngDebug() << "decryptAndHash truncated";
+        error = "decryptAndHash truncated";
+        return string();
+    }
     string plaintext;
     if (cs.hasKey()) {
-        if (ciphertextAndTag.size() < kTagLen) {
+        if (ciphertextSize < kTagLen) {
             ngDebug() << "decryptAndHash truncated";
             error = "decryptAndHash truncated";
             return string();
         }
-        plaintext = cs.decryptWithAd(h, ciphertextAndTag);
+        plaintext = cs.decryptWithAd(h.data(), h.size(), ciphertextAndTag, ciphertextSize);
         if (!cs.lastDecryptOk()) {
             error = "decryptAndHash failed";
             return string();
         }
-    } else {
-        plaintext = ciphertextAndTag;
+    } else if (ciphertextSize > 0) {
+        plaintext.assign(ciphertextAndTag, ciphertextSize);
     }
-    if (!mixHash(ciphertextAndTag)) {
+    if (!mixHash(ciphertextAndTag, ciphertextSize)) {
         return string();
     }
     return plaintext;
@@ -1270,7 +1313,12 @@ bool NoiseSocket::initialize(const NoiseConfig &config)
     return true;
 }
 
-bool NoiseSocket::handshake(const string &payload)
+bool NoiseSocket::handshake()
+{
+    return handshake("", 0);
+}
+
+bool NoiseSocket::handshake(const char *payload, size_t payloadSize)
 {
     NG_D(NoiseSocket);
     d->error.clear();
@@ -1282,10 +1330,15 @@ bool NoiseSocket::handshake(const string &payload)
     if (d->ready) {
         return true;
     }
+    if (payloadSize > 0 && !payload) {
+        ngWarning() << "NoiseSocket::handshake: null payload with nonzero size";
+        d->error = "null handshake payload";
+        return false;
+    }
 
-    auto sendHandshake = [&](const string &hsPayload) -> bool {
+    auto sendHandshake = [&](const char *hsPayload, size_t hsPayloadSize) -> bool {
         string msg;
-        if (!d->hs.writeMessage(hsPayload, &msg)) {
+        if (!d->hs.writeMessage(hsPayload, hsPayloadSize, &msg)) {
             d->error = d->hs.errorString();
             return false;
         }
@@ -1313,7 +1366,7 @@ bool NoiseSocket::handshake(const string &payload)
 
     // Length-prefix each handshake message. Initiator writes first; remaining
     // turns follow ready so 2-message (IK/KK) and 3-message (XX/XK) patterns share one loop.
-    if (d->role == NoiseRole::Initiator && !sendHandshake(payload)) {
+    if (d->role == NoiseRole::Initiator && !sendHandshake(payload, payloadSize)) {
         return false;
     }
     bool sentLocalPayload = (d->role == NoiseRole::Initiator);
@@ -1324,9 +1377,10 @@ bool NoiseSocket::handshake(const string &payload)
         if (d->ready) {
             break;
         }
-        const string outPayload = sentLocalPayload ? string() : payload;
+        const char *outPayload = sentLocalPayload ? nullptr : payload;
+        const size_t outPayloadSize = sentLocalPayload ? 0 : payloadSize;
         sentLocalPayload = true;
-        if (!sendHandshake(outPayload)) {
+        if (!sendHandshake(outPayload, outPayloadSize)) {
             return false;
         }
     }
@@ -1614,7 +1668,7 @@ int32_t NoiseSocket::sendall(const char *data, int32_t size)
         d->error = "handshake not complete";
         return -1;
     }
-    const string wire = d->send.encryptWithAd(string(), string(data, static_cast<size_t>(size)));
+    const string wire = d->send.encryptWithAd(nullptr, 0, data, static_cast<size_t>(size));
     if (wire.size() < kTagLen) {
         ngWarning() << "encrypt failed";
         d->error = "encrypt failed";
@@ -1809,7 +1863,7 @@ bool NoiseDatagramPrivate::finishIfComplete()
     return true;
 }
 
-bool NoiseDatagram::writeHandshake(const string &payload, string *outMessage)
+bool NoiseDatagram::writeHandshake(const char *payload, size_t payloadSize, string *outMessage)
 {
     NG_D(NoiseDatagram);
     d->error.clear();
@@ -1818,14 +1872,14 @@ bool NoiseDatagram::writeHandshake(const string &payload, string *outMessage)
         d->error = "not handshaking";
         return false;
     }
-    if (!d->hs.writeMessage(payload, outMessage)) {
+    if (!d->hs.writeMessage(payload, payloadSize, outMessage)) {
         d->error = d->hs.errorString();
         return false;
     }
     return d->finishIfComplete();
 }
 
-bool NoiseDatagram::readHandshake(const string &message, string *outPayload)
+bool NoiseDatagram::readHandshake(const char *message, size_t messageSize, string *outPayload)
 {
     NG_D(NoiseDatagram);
     d->error.clear();
@@ -1835,7 +1889,7 @@ bool NoiseDatagram::readHandshake(const string &message, string *outPayload)
         return false;
     }
     string payload;
-    if (!d->hs.readMessage(message, &payload)) {
+    if (!d->hs.readMessage(message, messageSize, &payload)) {
         d->error = d->hs.errorString();
         return false;
     }
@@ -1879,7 +1933,7 @@ string NoiseDatagram::errorString() const
     return d->error;
 }
 
-string NoiseDatagram::encrypt(const string &plaintext)
+string NoiseDatagram::encrypt(const char *plaintext, size_t plaintextSize)
 {
     NG_D(NoiseDatagram);
     d->error.clear();
@@ -1894,7 +1948,7 @@ string NoiseDatagram::encrypt(const string &plaintext)
         return string();
     }
     uint64_t n = 0;
-    const string cipher = d->send.encryptWithAd(string(), plaintext, &n);
+    const string cipher = d->send.encryptWithAd("", 0, plaintext, plaintextSize, &n);
     if (cipher.size() < kTagLen) {
         ngWarning() << "encrypt failed";
         d->error = "encrypt failed";
@@ -1903,7 +1957,7 @@ string NoiseDatagram::encrypt(const string &plaintext)
     return packTransport(n, cipher);
 }
 
-string NoiseDatagram::decrypt(const string &packet)
+string NoiseDatagram::decrypt(const char *packet, size_t packetSize)
 {
     NG_D(NoiseDatagram);
     d->error.clear();
@@ -1915,7 +1969,7 @@ string NoiseDatagram::decrypt(const string &packet)
     }
     uint64_t n = 0;
     string ct;
-    if (!unpackTransport(packet, &n, &ct)) {
+    if (!unpackTransport(packet, packetSize, &n, &ct)) {
         d->error = "truncated datagram";
         return string();
     }
@@ -1924,7 +1978,7 @@ string NoiseDatagram::decrypt(const string &packet)
         d->error = "nonce exhausted";
         return string();
     }
-    const string plain = d->recv.decryptWithAd(string(), ct, n);
+    const string plain = d->recv.decryptWithAd(nullptr, 0, ct.data(), ct.size(), n);
     if (!d->recv.lastDecryptOk()) {
         d->error = "decrypt failed";
         return string();

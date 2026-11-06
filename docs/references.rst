@@ -2338,9 +2338,11 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
     before retrying. This lets the session re-send a QUERY/POST body when
     following a redirect.
 
+.. method:: void setBody(const char *body, size_t size)
 .. method:: void setBody(const std::string &body)
 
-    Set the body of request.
+    Set the body of request. The ``std::string`` overload forwards to the
+    pointer/size form.
 
     There are serveral variant functions:
 
@@ -2426,6 +2428,7 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
 
 Note: see ``void HttpRequest::setBody(const FormData &formData)``.
 
+.. method:: void addFile(const std::string &name, const std::string &filename, const char *data, size_t dataSize, const std::string &contentType = std::string())
 .. method:: void addFile(const std::string &name, const std::string &filename, const std::string &data, const std::string &contentType = std::string())
 
     Add a file to the field in ``name`` of form.
@@ -2721,25 +2724,21 @@ MD4 and Whirlpool are not provided. SHA-3, SHA-512/224, SHA-512/256, BLAKE2, SM3
 
     Initializes the context with the specified hash algorithm.
 
-.. method:: addData(const char *data, int len)
+.. method:: addData(const char *data, size_t len)
+.. method:: addData(const std::string &data)
 
     Adds raw byte data to the hash calculation. Calls EVP_DigestUpdate to update the context. Marks error on failure.
-
-.. method:: addData(const char *data)
-
-    Overload of addData. Internally calculates data length and calls the previous addData.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: std::string result()
 
     Finalizes the hash calculation and returns the final digest. If called for the first time, calls EVP_DigestFinal_ex to finalize the calculation and caches the result. Subsequent calls return the cached result directly. Returns empty std::string on failure.
 
+.. method:: void update(const char *data, size_t len)
 .. method:: void update(const std::string &data)
 
     Same as addData, provides compatibility with common hash interfaces.
-
-.. method:: void update(const char *data, int len)
-
-    Same as addData, provides compatibility with common hash interfaces.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: std::string hexDigest()
 
@@ -2749,21 +2748,27 @@ MD4 and Whirlpool are not provided. SHA-3, SHA-512/224, SHA-512/256, BLAKE2, SM3
 
     Returns the digest in hexadecimal string form.
 
+.. method:: static std::string hash(const char *data, size_t dataSize, Algorithm algo)
 .. method:: static std::string hash(const std::string &data, Algorithm algo)
 
     One-time calculation of the hash value (hexadecimal) of the data.
+    The ``std::string`` overload forwards to the pointer/size form.
 
+.. method:: static std::string digest(const char *data, size_t dataSize, Algorithm algo)
 .. method:: static std::string digest(const std::string &data, Algorithm algo)
 
     One-time calculation of the hash value (raw bytes) of the data.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: std::string PBKDF2_HMAC(int keylen, const std::string &password, const std::string &salt, const MessageDigest::Algorithm hashAlgo = MessageDigest::Sha256, int i = 10000)
 
     Calls OpenSSL's PKCS5_PBKDF2_HMAC function to generate the key.
 
+.. function:: std::string hmac(const MessageDigest::Algorithm hashAlgo, const char *key, size_t keySize, const char *data, size_t dataSize)
 .. function:: std::string hmac(const MessageDigest::Algorithm hashAlgo, const std::string &key, const std::string &data)
 
     Computes an HMAC (RFC 2104) of ``data`` with the given ``key`` using the specified digest. Returns an empty string on failure (unsupported digest or empty key). Requires OpenSSL/LibreSSL; not available in the ``QTNG_NO_CRYPTO`` software fallback.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 5.2 Symmetric Encryption and Decryption
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -2791,17 +2796,20 @@ Provides symmetric encryption/decryption functionality. Supports multiple algori
 
     Determines if block cipher mode is used (e.g. ECB, CBC). Directly returns !isStream().
 
-.. method:: void setKey(const std::string &key)
+.. method:: bool setKey(const char *key, size_t keySize)
+.. method:: bool setKey(const std::string &key)
 
-    Sets the raw key.
+    Sets the raw key. The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: std::string key()
 
     Returns the current key.
 
-.. method:: setInitialVector(const std::string &iv)
+.. method:: bool setInitialVector(const char *iv, size_t ivSize)
+.. method:: bool setInitialVector(const std::string &iv)
 
     Sets the initialization vector (IV). Stores the IV and initializes the context.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: std::string initialVector()
 
@@ -2819,21 +2827,17 @@ Provides symmetric encryption/decryption functionality. Supports multiple algori
 
     Compatible with OpenSSL's key derivation (EVP_BytesToKey). Parameters: password, salt (must be 8 bytes), hash algorithm, iteration count. Uses the legacy method to generate keys, suitable for decrypting data produced by historic ``openssl enc`` (MD5 by default). OpenSSL 3's CLI default is SHA-256; pass ``MessageDigest::Sha256`` for that.
 
+.. method:: std::string addData(const char *data, size_t len)
 .. method:: std::string addData(const std::string &data)
 
     Processes data in chunks and returns encrypted/decrypted result.
+    The ``std::string`` overload forwards to the pointer/size form.
 
-.. method:: std::string addData(const char *data, int len)
-
-    Processes data in chunks and returns encrypted/decrypted result.
-
+.. method:: std::string update(const char *data, size_t len)
 .. method:: std::string update(const std::string &data)
 
     Processes data in chunks and returns encrypted/decrypted result.
-
-.. method:: std::string update(const char *data, int len)
-
-    Processes data in chunks and returns encrypted/decrypted result.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: std::string finalData()
 
@@ -2847,9 +2851,11 @@ Provides symmetric encryption/decryption functionality. Supports multiple algori
 
     Generates OpenSSL-style salt header ("Salted__" + 8-byte salt). Saves salt during encryption for decryption use.
 
-.. method:: std::string parseSalt()
+.. method:: static std::pair<std::string, std::string> parseSalt(const char *header, size_t headerSize)
+.. method:: static std::pair<std::string, std::string> parseSalt(const std::string &header)
 
-    Parses salt value from OpenSSL header. Return value: std::pair<std::string, std::string> (salt + remaining data).
+    Parses salt value from OpenSSL ``Salted__`` header. Returns ``(salt, remaining data)``.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: bool setPadding(bool padding)
 
@@ -2920,21 +2926,29 @@ Core class in the encryption system, used for managing public key operations.
 
     Writes the key to BIO object via PEM_write_bio_PUBKEY.
 
+.. method:: std::string encrypt(const char *data, size_t dataSize) const
 .. method:: std::string encrypt(const std::string &data) const
 
     Public-key encrypt via the object's ``EVP_PKEY_CTX`` (``EVP_PKEY_encrypt``). For RSA this always uses ``PKCS1_PADDING`` (PKCS#1 v1.5 type 2), matching default ``rsaPublicEncrypt``.
+    The ``std::string`` overload forwards to the pointer/size form.
 
-.. method:: std::string rsaPublicEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING)
+.. method:: std::string rsaPublicEncrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const
+.. method:: std::string rsaPublicEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
 
     Encrypt with an RSA public key (``EVP_PKEY_encrypt``), reusing the object's ``EVP_PKEY_CTX``. ``PKCS1_PADDING`` has the best compatibility (default); ``PKCS1_OAEP_PADDING`` is preferred for new protocols; ``NO_PADDING`` requires manual padding.
+    The ``std::string`` overload forwards to the pointer/size form.
 
-.. method:: std::string rsaPublicDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING)
+.. method:: std::string rsaPublicDecrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const
+.. method:: std::string rsaPublicDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
 
     Raw public-key decrypt/recover (``EVP_PKEY_verify_recover``), reusing the object's ``EVP_PKEY_CTX``. Equivalent to legacy ``RSA_public_decrypt`` and matching ``rsaPrivateEncrypt`` on the private side. ``PKCS1_PADDING`` is PKCS#1 v1.5 **type 1** (signature block ``00 01 FF..00``), not encryption type 2; ``signature_md`` is not set, so DigestInfo is neither wrapped nor stripped. Supports ``PKCS1_PADDING`` (default) and ``NO_PADDING``.
+    The ``std::string`` overload forwards to the pointer/size form.
 
+.. method:: bool verify(const char *data, size_t dataSize, const char *hash, size_t hashSize, MessageDigest::Algorithm hashAlgo)
 .. method:: bool verify(const std::string &data, const std::string &hash, MessageDigest::Algorithm hashAlgo)
 
     Processes data with specified hash algorithm (e.g. SHA256). Compares signature hash value with computed value. Returns true if verification passes.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: Algorithm algorithm()
 
@@ -3020,21 +3034,28 @@ Encapsulates private key operations including key generation, signing, decryptio
 
     Extracts the public key corresponding to current private key.
 
+.. method:: std::string sign(const char *data, size_t dataSize, MessageDigest::Algorithm hashAlgo)
 .. method:: std::string sign(const std::string &data, MessageDigest::Algorithm hashAlgo)
 
-    Signs data using private key.
+    Signs data using private key. The ``std::string`` overload forwards to the pointer/size form.
 
+.. method:: std::string decrypt(const char *data, size_t dataSize) const
 .. method:: std::string decrypt(const std::string &data) const
 
     Decrypts with the private key (``EVP_PKEY_decrypt``). For RSA this always uses ``PKCS1_PADDING``, matching ``encrypt()``.
+    The ``std::string`` overload forwards to the pointer/size form.
 
+.. method:: std::string rsaPrivateEncrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const
 .. method:: std::string rsaPrivateEncrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
 
     Raw private-key encrypt (``EVP_PKEY_sign`` without digest), reusing the object's ``EVP_PKEY_CTX``. Equivalent to legacy ``RSA_private_encrypt`` and matching ``rsaPublicDecrypt`` on the public side. Supports ``PKCS1_PADDING`` (default) and ``NO_PADDING``.
+    The ``std::string`` overload forwards to the pointer/size form.
 
+.. method:: std::string rsaPrivateDecrypt(const char *data, size_t dataSize, RsaPadding padding = PKCS1_PADDING) const
 .. method:: std::string rsaPrivateDecrypt(const std::string &data, RsaPadding padding = PKCS1_PADDING) const
 
     Decrypt with an RSA private key (``EVP_PKEY_decrypt``), reusing the object's ``EVP_PKEY_CTX``. Supports ``PKCS1_PADDING`` (default), ``PKCS1_OAEP_PADDING``, and ``NO_PADDING``.
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: static PrivateKey generate(Algorithm algo, int bits)
 
@@ -3120,13 +3141,17 @@ Responsible for loading private/public keys from files or memory data. Supports 
 
     Specifies the input data encoding format. ``readPublic()`` accepts both ``Ssl::Pem`` and ``Ssl::Der``; private-key reads remain PEM-only.
 
+.. method:: PrivateKey read(const char *data, size_t dataSize)
 .. method:: PrivateKey read(const std::string &data)
 
     Reads private key from in-memory byte array (PEM).
+    The ``std::string`` overload forwards to the pointer/size form.
 
+.. method:: PublicKey readPublic(const char *data, size_t dataSize)
 .. method:: PublicKey readPublic(const std::string &data)
 
     Reads public key from in-memory byte array (PEM or DER).
+    The ``std::string`` overload forwards to the pointer/size form.
 
 .. method:: PrivateKey read(const std::string &filePath)
 
@@ -3617,9 +3642,11 @@ Every implementation honours the same contracts:
 
     Open file as FileLike instance.
 
+.. method:: static std::shared_ptr<FileLike> bytes(const char *data, size_t size)
 .. method:: static std::shared_ptr<FileLike> bytes(const std::string &data)
 
-    Create memory-based BytesIO.
+    Create memory-based BytesIO. The ``std::string`` overload forwards to the
+    pointer/size form.
 
 .. method:: static std::shared_ptr<FileLike> bytes(std::string *data)
 
@@ -3897,6 +3924,7 @@ Rules that matter for interoperability:
     .. method:: BencodeStream()
     .. method:: BencodeStream(FileLike *d)
     .. method:: BencodeStream(std::string *a, bool writeMode = false)
+    .. method:: BencodeStream(const char *a, size_t size)
     .. method:: BencodeStream(const std::string &a)
 
         Construct empty, bound to a device, or backed by a string.
@@ -3971,6 +3999,7 @@ Rules that matter for interoperability:
 
     .. method:: Bencode()
     .. method:: Bencode(std::int64_t i)
+    .. method:: Bencode(const char *s, size_t size)
     .. method:: Bencode(const std::string &s)
     .. method:: Bencode(const char *s)
     .. method:: Bencode(const std::vector<Bencode> &list)
@@ -4001,6 +4030,7 @@ Rules that matter for interoperability:
 
         Serialize with sorted dictionary keys.
 
+    .. method:: static Bencode decode(const char *data, size_t size, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
     .. method:: static Bencode decode(const std::string &data, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
     .. method:: static Bencode decode(FileLike *device, std::string *error = nullptr, std::uint32_t lengthLimit = 16 * 1024 * 1024)
 
@@ -4152,6 +4182,14 @@ A ``VirtualChannel`` holds only a raw pointer to the ``DataChannel`` it came fro
 any connection handler coroutine that owns it) must outlive every channel taken from it, including
 coroutines still parked in their ``sendPacket()`` / ``recvPacket()``. Use a per-connection
 ``CoroutineGroup`` and ``joinall()`` after ``abort()`` if the handlers cannot be sure of that.
+
+.. method:: bool DataChannel::sendPacket(const char *packet, size_t size, bool waitSent = true)
+.. method:: bool DataChannel::sendPacket(const std::string &packet, bool waitSent = true)
+.. method:: bool DataChannel::sendPacketAsync(const char *packet, size_t size)
+.. method:: bool DataChannel::sendPacketAsync(const std::string &packet)
+
+    Send one packet. The ``std::string`` overloads forward to the pointer/size form.
+    Rvalue ``std::string&&`` overloads are also available.
 
 .. method:: void DataChannel::abort()
 
@@ -4721,6 +4759,7 @@ Helpers: ``encodeCompactNodes`` / ``decodeCompactNodes`` (and ``*6`` /
         Always ``20``.
 
     .. method:: static NodeId random()
+    .. method:: static NodeId fromBytes(const char *raw20, size_t size)
     .. method:: static NodeId fromBytes(const std::string &raw20)
     .. method:: static NodeId fromHex(const std::string &hex40)
 
@@ -4763,7 +4802,8 @@ Helpers: ``encodeCompactNodes`` / ``decodeCompactNodes`` (and ``*6`` /
         ``DhtPeer peer`` and ``expireUnix`` (unix seconds; drop when ``<= now``).
 
     .. method:: virtual bool loadMeta(NodeId *id, std::string *tokenSecret) = 0
-    .. method:: virtual bool saveMeta(const NodeId &id, const std::string &tokenSecret) = 0
+    .. method:: virtual bool saveMeta(const NodeId &id, const char *tokenSecret, size_t size) = 0
+    .. method:: bool saveMeta(const NodeId &id, const std::string &tokenSecret)
 
         Local node id and secret used to mint announce tokens. ``loadMeta``
         returns false on first boot (nothing stored yet).
@@ -4835,6 +4875,7 @@ qtng network APIs).
         Iterative ``get_peers``, merged with any locally stored peers for that
         infohash (deduplicated).
 
+    .. method:: bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const char *token, size_t tokenSize)
     .. method:: bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const std::string &token = std::string())
 
         Announce ``peerPort`` for ``infoHash``. If ``token`` is empty, tokens are

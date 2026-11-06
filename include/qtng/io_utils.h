@@ -1,6 +1,7 @@
 #ifndef QTNG_IO_UTILS_H
 #define QTNG_IO_UTILS_H
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -41,7 +42,11 @@ public:
     std::int32_t write(const std::string &data);
 public:
     static std::shared_ptr<FileLike> open(const std::string &filepath, const std::string &mode = std::string());
-    static std::shared_ptr<FileLike> bytes(const std::string &data);
+    static std::shared_ptr<FileLike> bytes(const char *data, size_t size);
+    inline static std::shared_ptr<FileLike> bytes(const std::string &data)
+    {
+        return bytes(data.data(), data.size());
+    }
     static std::shared_ptr<FileLike> bytes(std::string *data);
 };
 
@@ -49,7 +54,11 @@ class BytesIOPrivate;
 class BytesIO : public FileLike
 {
 public:
-    BytesIO(const std::string &buf, std::int32_t pos = 0);
+    BytesIO(const char *buf, size_t size, std::int32_t pos = 0);
+    inline BytesIO(const std::string &buf, std::int32_t pos = 0)
+        : BytesIO(buf.data(), buf.size(), pos)
+    {
+    }
     BytesIO(std::string *buf, std::int32_t pos = 0);
     BytesIO();
     virtual ~BytesIO() override;

@@ -1,6 +1,7 @@
 #ifndef QTNG_KADEMLIA_H
 #define QTNG_KADEMLIA_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -19,10 +20,15 @@ public:
     static const int Size = 20;
 
     NodeId();
-    explicit NodeId(const std::string &raw20);
+    explicit NodeId(const char *raw20, size_t size);
+    inline explicit NodeId(const std::string &raw20)
+        : NodeId(raw20.data(), raw20.size())
+    {
+    }
 
     static NodeId random();
-    static NodeId fromBytes(const std::string &raw20);
+    static NodeId fromBytes(const char *raw20, size_t size);
+    inline static NodeId fromBytes(const std::string &raw20) { return fromBytes(raw20.data(), raw20.size()); }
     static NodeId fromHex(const std::string &hex40);
 
     bool isValid() const { return m_raw.size() == static_cast<std::size_t>(Size); }
@@ -121,12 +127,28 @@ private:
 // IPv4 peer = 4-byte IP + 2-byte port (6); IPv6 peer = 18.
 std::string encodeCompactNodes(const std::vector<DhtNodeInfo> &nodes);
 std::string encodeCompactNodes6(const std::vector<DhtNodeInfo> &nodes);
-std::vector<DhtNodeInfo> decodeCompactNodes(const std::string &data);
-std::vector<DhtNodeInfo> decodeCompactNodes6(const std::string &data);
+std::vector<DhtNodeInfo> decodeCompactNodes(const char *data, size_t size);
+inline std::vector<DhtNodeInfo> decodeCompactNodes(const std::string &data)
+{
+    return decodeCompactNodes(data.data(), data.size());
+}
+std::vector<DhtNodeInfo> decodeCompactNodes6(const char *data, size_t size);
+inline std::vector<DhtNodeInfo> decodeCompactNodes6(const std::string &data)
+{
+    return decodeCompactNodes6(data.data(), data.size());
+}
 std::string encodeCompactPeers(const std::vector<DhtPeer> &peers);
 std::string encodeCompactPeers6(const std::vector<DhtPeer> &peers);
-std::vector<DhtPeer> decodeCompactPeers(const std::string &data);
-std::vector<DhtPeer> decodeCompactPeers6(const std::string &data);
+std::vector<DhtPeer> decodeCompactPeers(const char *data, size_t size);
+inline std::vector<DhtPeer> decodeCompactPeers(const std::string &data)
+{
+    return decodeCompactPeers(data.data(), data.size());
+}
+std::vector<DhtPeer> decodeCompactPeers6(const char *data, size_t size);
+inline std::vector<DhtPeer> decodeCompactPeers6(const std::string &data)
+{
+    return decodeCompactPeers6(data.data(), data.size());
+}
 
 // Pluggable persistence for local id, routing contacts, and announced peers.
 // DhtNode keeps hot data in memory and calls this on load / save.
@@ -150,7 +172,11 @@ public:
     // Local node id and token secret used to mint announce tokens.
     // Returns false if nothing stored yet (first boot).
     virtual bool loadMeta(NodeId *id, std::string *tokenSecret) = 0;
-    virtual bool saveMeta(const NodeId &id, const std::string &tokenSecret) = 0;
+    virtual bool saveMeta(const NodeId &id, const char *tokenSecret, size_t size) = 0;
+    inline bool saveMeta(const NodeId &id, const std::string &tokenSecret)
+    {
+        return saveMeta(id, tokenSecret.data(), tokenSecret.size());
+    }
 
     virtual std::vector<DhtNodeInfo> loadNodes() = 0;
     virtual bool saveNodes(const std::vector<DhtNodeInfo> &nodes) = 0;
@@ -170,8 +196,9 @@ public:
     MemoryDhtStore();
     ~MemoryDhtStore() override;
 
+    using DhtStore::saveMeta;
     bool loadMeta(NodeId *id, std::string *tokenSecret) override;
-    bool saveMeta(const NodeId &id, const std::string &tokenSecret) override;
+    bool saveMeta(const NodeId &id, const char *tokenSecret, size_t size) override;
     std::vector<DhtNodeInfo> loadNodes() override;
     bool saveNodes(const std::vector<DhtNodeInfo> &nodes) override;
     std::vector<StoredPeer> loadPeers(const NodeId &infoHash) override;
@@ -194,8 +221,9 @@ public:
     ~LmdbDhtStore() override;
 
     bool isOpen() const;
+    using DhtStore::saveMeta;
     bool loadMeta(NodeId *id, std::string *tokenSecret) override;
-    bool saveMeta(const NodeId &id, const std::string &tokenSecret) override;
+    bool saveMeta(const NodeId &id, const char *tokenSecret, size_t size) override;
     std::vector<DhtNodeInfo> loadNodes() override;
     bool saveNodes(const std::vector<DhtNodeInfo> &nodes) override;
     std::vector<StoredPeer> loadPeers(const NodeId &infoHash) override;
@@ -238,7 +266,12 @@ public:
     // Iterative get_peers for an infohash (also merges locally stored peers).
     std::vector<DhtPeer> getPeers(const NodeId &infoHash);
     // Announce this peer port for infoHash (fetches tokens via get_peers if needed).
-    bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const std::string &token = std::string());
+    bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const char *token, size_t tokenSize);
+    inline bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort,
+                             const std::string &token = std::string())
+    {
+        return announcePeer(infoHash, peerPort, token.data(), token.size());
+    }
 
     int routingTableSize() const;
     std::string errorString() const;

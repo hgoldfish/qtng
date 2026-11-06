@@ -1,6 +1,7 @@
 #ifndef QTNG_CIPHER_H
 #define QTNG_CIPHER_H
 
+#include <cstddef>
 #include <string>
 #include <utility>
 
@@ -47,9 +48,11 @@ public:
     bool isValid() const;
     bool isStream() const;
     bool isBlock() const { return !isStream(); }
-    bool setKey(const std::string &key);
+    bool setKey(const char *key, size_t keySize);
+    inline bool setKey(const std::string &key) { return setKey(key.data(), key.size()); }
     std::string key() const;
-    bool setInitialVector(const std::string &iv);
+    bool setInitialVector(const char *iv, size_t ivSize);
+    inline bool setInitialVector(const std::string &iv) { return setInitialVector(iv.data(), iv.size()); }
     std::string initialVector() const;
     inline std::string iv() const { return initialVector(); }
     bool setPassword(const std::string &password, const std::string &salt,
@@ -67,14 +70,18 @@ public:
     int blockSize() const;  // in bytes.
 public:
     std::string addData(const std::string &data) { return addData(data.data(), data.size()); }
-    std::string addData(const char *data, int len);
+    std::string addData(const char *data, size_t len);
     std::string finalData();
 public:
     std::string update(const std::string &data) { return addData(data.data(), data.size()); }
-    std::string update(const char *data, int len) { return addData(data, len); }
+    std::string update(const char *data, size_t len) { return addData(data, len); }
     std::string final() { return finalData(); }
 public:
-    static std::pair<std::string, std::string> parseSalt(const std::string &header);  // parse salt from `openssl enc` header
+    static std::pair<std::string, std::string> parseSalt(const char *header, size_t headerSize);
+    inline static std::pair<std::string, std::string> parseSalt(const std::string &header)
+    {
+        return parseSalt(header.data(), header.size());
+    }
 private:
     CipherPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(Cipher)

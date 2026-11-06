@@ -1,5 +1,6 @@
 #include "qtng/aead.h"
 
+#include <climits>
 #include <cstring>
 
 #include <openssl/evp.h>
@@ -104,18 +105,22 @@ int Aead::tagSize() const
     return d->tagLen;
 }
 
-bool Aead::setKey(const string &key)
+bool Aead::setKey(const char *key, size_t keySize)
 {
-    if (!d->valid || static_cast<int>(key.size()) != d->keyLen) {
+    if (!d->valid || !key || keySize != static_cast<size_t>(d->keyLen)) {
         return false;
     }
-    d->key = key;
+    d->key.assign(key, keySize);
     return true;
 }
 
-bool Aead::seal(const string &nonce, const string &aad, const string &plaintext, string *ciphertextAndTag) const
+bool Aead::seal(const char *nonce, size_t nonceSize, const char *aad, size_t aadSize, const char *plaintext,
+                size_t plaintextSize, string *ciphertextAndTag) const
 {
-    if (!ciphertextAndTag || !d->valid || d->key.empty() || static_cast<int>(nonce.size()) != d->nonceLen) {
+    if (!ciphertextAndTag || !d->valid || d->key.empty() || !nonce
+        || nonceSize != static_cast<size_t>(d->nonceLen) || aadSize > static_cast<size_t>(INT_MAX)
+        || plaintextSize > static_cast<size_t>(INT_MAX) || (aadSize > 0 && !aad)
+        || (plaintextSize > 0 && !plaintext)) {
         return false;
     }
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
@@ -131,25 +136,25 @@ bool Aead::seal(const string &nonce, const string &aad, const string &plaintext,
             break;
         }
         if (EVP_EncryptInit_ex(ctx, nullptr, nullptr, reinterpret_cast<const unsigned char *>(d->key.data()),
-                               reinterpret_cast<const unsigned char *>(nonce.data()))
+                               reinterpret_cast<const unsigned char *>(nonce))
             != 1) {
             break;
         }
         int len = 0;
-        if (!aad.empty()) {
-            if (EVP_EncryptUpdate(ctx, nullptr, &len, reinterpret_cast<const unsigned char *>(aad.data()),
-                                  static_cast<int>(aad.size()))
+        if (aadSize > 0) {
+            if (EVP_EncryptUpdate(ctx, nullptr, &len, reinterpret_cast<const unsigned char *>(aad),
+                                  static_cast<int>(aadSize))
                 != 1) {
                 break;
             }
         }
         string out;
-        out.resize(plaintext.size() + static_cast<size_t>(d->tagLen));
+        out.resize(plaintextSize + static_cast<size_t>(d->tagLen));
         unsigned char *outPtr = reinterpret_cast<unsigned char *>(&out[0]);
         int outLen = 0;
-        if (!plaintext.empty()) {
-            if (EVP_EncryptUpdate(ctx, outPtr, &outLen, reinterpret_cast<const unsigned char *>(plaintext.data()),
-                                  static_cast<int>(plaintext.size()))
+        if (plaintextSize > 0) {
+            if (EVP_EncryptUpdate(ctx, outPtr, &outLen, reinterpret_cast<const unsigned char *>(plaintext),
+                                  static_cast<int>(plaintextSize))
                 != 1) {
                 break;
             }
@@ -170,13 +175,16 @@ bool Aead::seal(const string &nonce, const string &aad, const string &plaintext,
     return ok;
 }
 
-bool Aead::open(const string &nonce, const string &aad, const string &ciphertextAndTag, string *plaintext) const
+bool Aead::open(const char *nonce, size_t nonceSize, const char *aad, size_t aadSize, const char *ciphertextAndTag,
+                size_t ciphertextAndTagSize, string *plaintext) const
 {
-    if (!plaintext || !d->valid || d->key.empty() || static_cast<int>(nonce.size()) != d->nonceLen
-        || ciphertextAndTag.size() < static_cast<size_t>(d->tagLen)) {
+    if (!plaintext || !d->valid || d->key.empty() || !nonce || !ciphertextAndTag
+        || nonceSize != static_cast<size_t>(d->nonceLen) || ciphertextAndTagSize < static_cast<size_t>(d->tagLen)
+        || aadSize > static_cast<size_t>(INT_MAX) || ciphertextAndTagSize > static_cast<size_t>(INT_MAX)
+        || (aadSize > 0 && !aad)) {
         return false;
     }
-    const size_t ctLen = ciphertextAndTag.size() - static_cast<size_t>(d->tagLen);
+    const size_t ctLen = ciphertextAndTagSize - static_cast<size_t>(d->tagLen);
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if (!ctx) {
         return false;
@@ -190,14 +198,14 @@ bool Aead::open(const string &nonce, const string &aad, const string &ciphertext
             break;
         }
         if (EVP_DecryptInit_ex(ctx, nullptr, nullptr, reinterpret_cast<const unsigned char *>(d->key.data()),
-                               reinterpret_cast<const unsigned char *>(nonce.data()))
+                               reinterpret_cast<const unsigned char *>(nonce))
             != 1) {
             break;
         }
         int len = 0;
-        if (!aad.empty()) {
-            if (EVP_DecryptUpdate(ctx, nullptr, &len, reinterpret_cast<const unsigned char *>(aad.data()),
-                                  static_cast<int>(aad.size()))
+        if (aadSize > 0) {
+            if (EVP_DecryptUpdate(ctx, nullptr, &len, reinterpret_cast<const unsigned char *>(aad),
+                                  static_cast<int>(aadSize))
                 != 1) {
                 break;
             }
@@ -207,14 +215,14 @@ bool Aead::open(const string &nonce, const string &aad, const string &ciphertext
         unsigned char *outPtr = ctLen ? reinterpret_cast<unsigned char *>(&out[0]) : nullptr;
         int outLen = 0;
         if (ctLen > 0) {
-            if (EVP_DecryptUpdate(ctx, outPtr, &outLen, reinterpret_cast<const unsigned char *>(ciphertextAndTag.data()),
+            if (EVP_DecryptUpdate(ctx, outPtr, &outLen, reinterpret_cast<const unsigned char *>(ciphertextAndTag),
                                   static_cast<int>(ctLen))
                 != 1) {
                 break;
             }
         }
         unsigned char tag[16];
-        memcpy(tag, ciphertextAndTag.data() + ctLen, static_cast<size_t>(d->tagLen));
+        memcpy(tag, ciphertextAndTag + ctLen, static_cast<size_t>(d->tagLen));
         if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, d->tagLen, tag) != 1) {
             break;
         }
@@ -230,30 +238,34 @@ bool Aead::open(const string &nonce, const string &aad, const string &ciphertext
     return ok;
 }
 
-string hkdfExtract(MessageDigest::Algorithm hash, const string &salt, const string &ikm)
+string hkdfExtract(MessageDigest::Algorithm hash, const char *salt, size_t saltSize, const char *ikm, size_t ikmSize)
 {
     const EVP_MD *md = mdFor(hash);
-    if (!md) {
+    if (!md || saltSize > static_cast<size_t>(INT_MAX) || (saltSize > 0 && !salt) || (ikmSize > 0 && !ikm)) {
         return string();
     }
     const int hlen = EVP_MD_size(md);
-    string realSalt = salt;
-    if (realSalt.empty()) {
+    string realSalt;
+    if (saltSize == 0) {
         realSalt.assign(static_cast<size_t>(hlen), '\0');
+        salt = realSalt.data();
+        saltSize = realSalt.size();
     }
     unsigned int prkLen = 0;
     unsigned char prk[EVP_MAX_MD_SIZE];
-    if (!HMAC(md, realSalt.data(), static_cast<int>(realSalt.size()),
-              reinterpret_cast<const unsigned char *>(ikm.data()), ikm.size(), prk, &prkLen)) {
+    if (!HMAC(md, salt, static_cast<int>(saltSize), reinterpret_cast<const unsigned char *>(ikm), ikmSize, prk,
+              &prkLen)) {
         return string();
     }
     return string(reinterpret_cast<char *>(prk), prkLen);
 }
 
-string hkdfExpand(MessageDigest::Algorithm hash, const string &prk, const string &info, size_t outLen)
+string hkdfExpand(MessageDigest::Algorithm hash, const char *prk, size_t prkSize, const char *info, size_t infoSize,
+                  size_t outLen)
 {
     const EVP_MD *md = mdFor(hash);
-    if (!md || prk.empty() || outLen == 0) {
+    if (!md || !prk || prkSize == 0 || prkSize > static_cast<size_t>(INT_MAX) || outLen == 0
+        || (infoSize > 0 && !info)) {
         return string();
     }
     string out;
@@ -262,11 +274,13 @@ string hkdfExpand(MessageDigest::Algorithm hash, const string &prk, const string
     unsigned char counter = 1;
     while (out.size() < outLen) {
         string blockIn = t;
-        blockIn.append(info);
+        if (infoSize > 0) {
+            blockIn.append(info, infoSize);
+        }
         blockIn.push_back(static_cast<char>(counter++));
         unsigned int mdLen = 0;
         unsigned char block[EVP_MAX_MD_SIZE];
-        if (!HMAC(md, prk.data(), static_cast<int>(prk.size()), reinterpret_cast<const unsigned char *>(blockIn.data()),
+        if (!HMAC(md, prk, static_cast<int>(prkSize), reinterpret_cast<const unsigned char *>(blockIn.data()),
                   blockIn.size(), block, &mdLen)) {
             return string();
         }
@@ -277,19 +291,22 @@ string hkdfExpand(MessageDigest::Algorithm hash, const string &prk, const string
     return out;
 }
 
-string hkdf(MessageDigest::Algorithm hash, const string &ikm, const string &salt, const string &info, size_t outLen)
+string hkdf(MessageDigest::Algorithm hash, const char *ikm, size_t ikmSize, const char *salt, size_t saltSize,
+            const char *info, size_t infoSize, size_t outLen)
 {
-    return hkdfExpand(hash, hkdfExtract(hash, salt, ikm), info, outLen);
+    const string prk = hkdfExtract(hash, salt, saltSize, ikm, ikmSize);
+    return hkdfExpand(hash, prk.data(), prk.size(), info, infoSize, outLen);
 }
 
-string hkdfExpandLabel(MessageDigest::Algorithm hash, const string &secret, const string &label, const string &context,
-                       size_t outLen)
+string hkdfExpandLabel(MessageDigest::Algorithm hash, const char *secret, size_t secretSize, const string &label,
+                       const char *context, size_t contextSize, size_t outLen)
 {
-    // HkdfLabel: uint16 length || opaque label<7..255> || opaque context<0..255>
-    // label_bytes = "tls13 " || label
+    if (!secret || (contextSize > 0 && !context)) {
+        return string();
+    }
     string fullLabel = "tls13 ";
     fullLabel.append(label);
-    if (fullLabel.size() < 7 || fullLabel.size() > 255 || context.size() > 255 || outLen > 65535) {
+    if (fullLabel.size() < 7 || fullLabel.size() > 255 || contextSize > 255 || outLen > 65535) {
         return string();
     }
     string info;
@@ -297,27 +314,29 @@ string hkdfExpandLabel(MessageDigest::Algorithm hash, const string &secret, cons
     info.push_back(static_cast<char>(outLen & 0xff));
     info.push_back(static_cast<char>(fullLabel.size()));
     info.append(fullLabel);
-    info.push_back(static_cast<char>(context.size()));
-    info.append(context);
-    return hkdfExpand(hash, secret, info, outLen);
+    info.push_back(static_cast<char>(contextSize));
+    if (contextSize > 0) {
+        info.append(context, contextSize);
+    }
+    return hkdfExpand(hash, secret, secretSize, info.data(), info.size(), outLen);
 }
 
-string aesEcbEncryptBlock(const string &key, const string &block16)
+string aesEcbEncryptBlock(const char *key, size_t keySize, const char *block16, size_t blockSize)
 {
-    if ((key.size() != 16 && key.size() != 32) || block16.size() != 16) {
+    if (!key || !block16 || (keySize != 16 && keySize != 32) || blockSize != 16) {
         return string();
     }
-    const EVP_CIPHER *cipher = (key.size() == 16) ? EVP_aes_128_ecb() : EVP_aes_256_ecb();
+    const EVP_CIPHER *cipher = (keySize == 16) ? EVP_aes_128_ecb() : EVP_aes_256_ecb();
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if (!ctx) {
         return string();
     }
     string out(16, '\0');
     int outLen = 0;
-    bool ok = EVP_EncryptInit_ex(ctx, cipher, nullptr, reinterpret_cast<const unsigned char *>(key.data()), nullptr) == 1
+    bool ok = EVP_EncryptInit_ex(ctx, cipher, nullptr, reinterpret_cast<const unsigned char *>(key), nullptr) == 1
             && EVP_CIPHER_CTX_set_padding(ctx, 0) == 1
             && EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char *>(&out[0]), &outLen,
-                                reinterpret_cast<const unsigned char *>(block16.data()), 16)
+                                reinterpret_cast<const unsigned char *>(block16), 16)
                     == 1;
     EVP_CIPHER_CTX_free(ctx);
     if (!ok || outLen != 16) {

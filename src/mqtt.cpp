@@ -290,9 +290,9 @@ MqttMessage::MqttMessage()
 {
 }
 
-MqttMessage::MqttMessage(const string &topic, const string &payload, MqttQos qos, bool retain)
+MqttMessage::MqttMessage(const string &topic, const char *payload, size_t payloadSize, MqttQos qos, bool retain)
     : m_topic(topic)
-    , m_payload(payload)
+    , m_payload(payload, payloadSize)
     , m_qos(qos)
     , m_retain(retain)
     , m_dup(false)
@@ -314,9 +314,9 @@ string MqttMessage::payload() const
     return m_payload;
 }
 
-void MqttMessage::setPayload(const string &payload)
+void MqttMessage::setPayload(const char *payload, size_t size)
 {
-    m_payload = payload;
+    m_payload.assign(payload, size);
 }
 
 MqttQos MqttMessage::qos() const

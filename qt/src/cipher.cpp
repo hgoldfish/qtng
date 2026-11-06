@@ -54,9 +54,17 @@ Cipher *Cipher::copy(Operation operation)
 
 bool Cipher::isValid() const { Q_D(const Cipher); return d->core->isValid(); }
 bool Cipher::isStream() const { Q_D(const Cipher); return d->core->isStream(); }
-bool Cipher::setKey(const QByteArray &key) { Q_D(Cipher); return d->core->setKey(toStdString(key)); }
+bool Cipher::setKey(const QByteArray &key)
+{
+    Q_D(Cipher);
+    return d->core->setKey(key.constData(), static_cast<size_t>(key.size()));
+}
 QByteArray Cipher::key() const { Q_D(const Cipher); return toQByteArray(d->core->key()); }
-bool Cipher::setInitialVector(const QByteArray &iv) { Q_D(Cipher); return d->core->setInitialVector(toStdString(iv)); }
+bool Cipher::setInitialVector(const QByteArray &iv)
+{
+    Q_D(Cipher);
+    return d->core->setInitialVector(iv.constData(), static_cast<size_t>(iv.size()));
+}
 QByteArray Cipher::initialVector() const { Q_D(const Cipher); return toQByteArray(d->core->initialVector()); }
 bool Cipher::setPassword(const QByteArray &password, const QByteArray &salt, MessageDigest::Algorithm hashAlgo, int i)
 {
@@ -77,12 +85,13 @@ bool Cipher::padding() const { Q_D(const Cipher); return d->core->padding(); }
 int Cipher::keySize() const { Q_D(const Cipher); return d->core->keySize(); }
 int Cipher::ivSize() const { Q_D(const Cipher); return d->core->ivSize(); }
 int Cipher::blockSize() const { Q_D(const Cipher); return d->core->blockSize(); }
-QByteArray Cipher::addData(const char *data, int len) { Q_D(Cipher); return toQByteArray(d->core->addData(data, len)); }
+QByteArray Cipher::addData(const char *data, size_t len) { Q_D(Cipher); return toQByteArray(d->core->addData(data, len)); }
 QByteArray Cipher::finalData() { Q_D(Cipher); return toQByteArray(d->core->finalData()); }
 
 QPair<QByteArray, QByteArray> Cipher::parseSalt(const QByteArray &header)
 {
-    const std::pair<std::string, std::string> p = qtng_core::Cipher::parseSalt(toStdString(header));
+    const std::pair<std::string, std::string> p =
+            qtng_core::Cipher::parseSalt(header.constData(), static_cast<size_t>(header.size()));
     return qMakePair(toQByteArray(p.first), toQByteArray(p.second));
 }
 

@@ -1120,9 +1120,9 @@ bool WebSocketConnectionPrivate::sendBytes(const string &packet)
     return true;
 }
 
-WebSocketConnection::WebSocketConnection(shared_ptr<SocketLike> connection, const string &headBytes, Side side,
-                                         const WebSocketConfiguration &config)
-    : d_ptr(new WebSocketConnectionPrivate(connection, headBytes, side, config, this))
+WebSocketConnection::WebSocketConnection(shared_ptr<SocketLike> connection, const char *headBytes,
+                                         size_t headBytesSize, Side side, const WebSocketConfiguration &config)
+    : d_ptr(new WebSocketConnectionPrivate(connection, string(headBytes, headBytesSize), side, config, this))
 {
 }
 
@@ -1148,9 +1148,9 @@ void WebSocketConnection::setConfiguration(const WebSocketConfiguration &config)
     d->keepaliveInterval = config.keepaliveInterval() * 1000;
 }
 
-bool WebSocketConnection::send(const string &packet)
+bool WebSocketConnection::send(const char *packet, size_t size)
 {
-    return putPacket(packet, WebSocketConnection::Binary, true);
+    return putPacket(string(packet, size), WebSocketConnection::Binary, true);
 }
 
 bool WebSocketConnection::sendText(const string &text)
@@ -1158,9 +1158,9 @@ bool WebSocketConnection::sendText(const string &text)
     return putPacket(text, WebSocketConnection::Text, true);
 }
 
-bool WebSocketConnection::post(const string &packet)
+bool WebSocketConnection::post(const char *packet, size_t size)
 {
-    return putPacket(packet, WebSocketConnection::Binary, false);
+    return putPacket(string(packet, size), WebSocketConnection::Binary, false);
 }
 
 bool WebSocketConnection::postText(const string &text)

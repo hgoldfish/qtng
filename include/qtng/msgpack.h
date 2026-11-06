@@ -2,6 +2,7 @@
 #define QTNG_MSGPACK_H
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -27,13 +28,18 @@ class MsgPackExtData
 {
 public:
     MsgPackExtData();
-    MsgPackExtData(std::uint8_t type, std::string payload);
+    MsgPackExtData(std::uint8_t type, const char *payload, size_t size);
+    inline MsgPackExtData(std::uint8_t type, const std::string &payload)
+        : MsgPackExtData(type, payload.data(), payload.size())
+    {
+    }
 
     std::uint8_t type() const;
     void setType(std::uint8_t type);
 
     const std::string &payload() const;
-    void setPayload(const std::string &payload);
+    void setPayload(const char *payload, size_t size);
+    inline void setPayload(const std::string &payload) { setPayload(payload.data(), payload.size()); }
 
 private:
     std::uint8_t type_;
@@ -53,7 +59,11 @@ public:
     MsgPackStream();
     MsgPackStream(FileLike *d);
     MsgPackStream(std::string *a, bool writeMode = false);
-    MsgPackStream(const std::string &a);
+    MsgPackStream(const char *a, size_t size);
+    inline MsgPackStream(const std::string &a)
+        : MsgPackStream(a.data(), a.size())
+    {
+    }
     virtual ~MsgPackStream();
 
     void setDevice(FileLike *d);

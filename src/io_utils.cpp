@@ -908,11 +908,11 @@ public:
     bool ownbuf;
 };
 
-BytesIO::BytesIO(const string &buf, int32_t pos)
+BytesIO::BytesIO(const char *buf, size_t size, int32_t pos)
     : d_ptr(new BytesIOPrivate(pos))
 {
     NG_D(BytesIO);
-    d->owned = buf;
+    d->owned.assign(buf, size);
     d->buf = &d->owned;
 }
 
@@ -1009,9 +1009,9 @@ string BytesIO::data()
     return d->buf ? *d->buf : string();
 }
 
-shared_ptr<FileLike> FileLike::bytes(const string &data)
+shared_ptr<FileLike> FileLike::bytes(const char *data, size_t size)
 {
-    return make_shared<BytesIO>(data);
+    return make_shared<BytesIO>(data, size);
 }
 
 shared_ptr<FileLike> FileLike::bytes(string *data)

@@ -258,7 +258,7 @@ class MessageDigestPrivate
 {
 public:
     explicit MessageDigestPrivate(MessageDigest::Algorithm algo);
-    void addData(const char *buf, int len);
+    void addData(const char *buf, size_t len);
     string result();
 
     DigestKind kind;
@@ -322,15 +322,19 @@ MessageDigestPrivate::MessageDigestPrivate(MessageDigest::Algorithm algo)
     }
 }
 
-void MessageDigestPrivate::addData(const char *buf, int len)
+void MessageDigestPrivate::addData(const char *buf, size_t len)
 {
     // After result(), further updates are ignored; cached digest stays valid
     // (matches OpenSSL/LibreSSL MessageDigest in this tree).
-    if (hasError || finished || len <= 0) {
+    if (hasError || finished || len == 0) {
+        return;
+    }
+    if (!buf) {
+        hasError = true;
         return;
     }
     const unsigned char *p = reinterpret_cast<const unsigned char *>(buf);
-    size_t remaining = static_cast<size_t>(len);
+    size_t remaining = len;
     totalBytes += remaining;
 
     if (blockLen > 0) {
@@ -418,7 +422,7 @@ MessageDigest::~MessageDigest()
     delete d_ptr;
 }
 
-void MessageDigest::addData(const char *data, int len)
+void MessageDigest::addData(const char *data, size_t len)
 {
     NG_D(MessageDigest);
     d->addData(data, len);
@@ -430,7 +434,7 @@ string MessageDigest::result()
     return d->result();
 }
 
-string hmac(const MessageDigest::Algorithm, const string &, const string &)
+string hmac(const MessageDigest::Algorithm, const char *, size_t, const char *, size_t)
 {
     return string();
 }

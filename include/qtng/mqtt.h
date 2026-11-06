@@ -1,6 +1,7 @@
 #ifndef QTNG_MQTT_H
 #define QTNG_MQTT_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -26,13 +27,19 @@ class MqttMessage
 {
 public:
     MqttMessage();
-    MqttMessage(const std::string &topic, const std::string &payload, MqttQos qos = MqttQos::AtMostOnce,
-                bool retain = false);
+    MqttMessage(const std::string &topic, const char *payload, size_t payloadSize,
+                MqttQos qos = MqttQos::AtMostOnce, bool retain = false);
+    inline MqttMessage(const std::string &topic, const std::string &payload, MqttQos qos = MqttQos::AtMostOnce,
+                       bool retain = false)
+        : MqttMessage(topic, payload.data(), payload.size(), qos, retain)
+    {
+    }
 public:
     std::string topic() const;
     void setTopic(const std::string &topic);
     std::string payload() const;
-    void setPayload(const std::string &payload);
+    void setPayload(const char *payload, size_t size);
+    inline void setPayload(const std::string &payload) { setPayload(payload.data(), payload.size()); }
     MqttQos qos() const;
     void setQos(MqttQos qos);
     bool retain() const;

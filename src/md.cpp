@@ -1,6 +1,7 @@
 #include "qtng/md.h"
 #include "qtng/private/crypto_p.h"
 
+#include <climits>
 #include <openssl/hmac.h>
 
 using namespace std;
@@ -68,7 +69,7 @@ class MessageDigestPrivate
 public:
     MessageDigestPrivate(MessageDigest::Algorithm algo);
     ~MessageDigestPrivate();
-    void addData(const char *buf, int len);
+    void addData(const char *buf, size_t len);
     string result();
     EVP_MD_CTX *context;
     string finalData;
@@ -109,11 +110,15 @@ MessageDigestPrivate::~MessageDigestPrivate()
     }
 }
 
-void MessageDigestPrivate::addData(const char *buf, int len)
+void MessageDigestPrivate::addData(const char *buf, size_t len)
 {
     if (hasError)
         return;
-    int rvalue = EVP_DigestUpdate(context, buf, static_cast<size_t>(len));
+    if (len > 0 && !buf) {
+        hasError = true;
+        return;
+    }
+    int rvalue = EVP_DigestUpdate(context, buf, len);
     hasError = !rvalue;
 }
 
@@ -148,7 +153,7 @@ MessageDigest::~MessageDigest()
     delete d_ptr;
 }
 
-void MessageDigest::addData(const char *data, int len)
+void MessageDigest::addData(const char *data, size_t len)
 {
     NG_D(MessageDigest);
     d->addData(data, len);
@@ -160,16 +165,18 @@ string MessageDigest::result()
     return d->result();
 }
 
-string hmac(const MessageDigest::Algorithm hashAlgo, const string &key, const string &data)
+string hmac(const MessageDigest::Algorithm hashAlgo, const char *key, size_t keySize, const char *data,
+            size_t dataSize)
 {
     const EVP_MD *dgst = getOpenSSL_MD(hashAlgo);
-    if (!dgst || key.empty()) {
+    if (!dgst || keySize == 0 || !key || keySize > static_cast<size_t>(INT_MAX)
+        || (dataSize > 0 && !data)) {
         return string();
     }
     unsigned int len = 0;
     unsigned char out[EVP_MAX_MD_SIZE];
-    if (!HMAC(dgst, key.data(), static_cast<int>(key.size()),
-              reinterpret_cast<const unsigned char *>(data.data()), data.size(), out, &len)) {
+    if (!HMAC(dgst, key, static_cast<int>(keySize), reinterpret_cast<const unsigned char *>(data), dataSize, out,
+              &len)) {
         return string();
     }
     return string(reinterpret_cast<char *>(out), len);

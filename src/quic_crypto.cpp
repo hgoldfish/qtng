@@ -122,12 +122,15 @@ bool removeHeaderProtection(const QuicTrafficKeys &keys, const char *data, size_
 bool openPacketPayload(const QuicTrafficKeys &keys, const string &aad, const char *ct, size_t ctLen,
                        uint64_t packetNumber, string *payload)
 {
+    if (ctLen > 0 && !ct) {
+        return false;
+    }
     const string nonce = quicNonceFromIv(keys.iv, packetNumber);
     Aead aead(Aead::Aes128Gcm);
     if (!aead.setKey(keys.key)) {
         return false;
     }
-    return aead.open(nonce, aad, string(ct, ctLen), payload);
+    return aead.open(nonce.data(), nonce.size(), aad.data(), aad.size(), ct, ctLen, payload);
 }
 
 }  // namespace

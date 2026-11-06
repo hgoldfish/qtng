@@ -121,16 +121,28 @@ public:
     typedef std::int64_t size_type;
     ~Database();
 public:
-    inline std::string value(const std::string &key) const { return constFind(key).value(); }
-    iterator insert(const std::string &key, const std::string &value);
-    iterator reserve(const std::string &key, size_t size); // insert value using itor.data() and itor.size()
+    inline std::string value(const char *key, size_t keySize) const { return constFind(key, keySize).value(); }
+    inline std::string value(const std::string &key) const { return value(key.data(), key.size()); }
+    iterator insert(const char *key, size_t keySize, const char *value, size_t valueSize);
+    inline iterator insert(const std::string &key, const std::string &value)
+    {
+        return insert(key.data(), key.size(), value.data(), value.size());
+    }
+    iterator reserve(const char *key, size_t keySize, size_t size);
+    inline iterator reserve(const std::string &key, size_t size)
+    {
+        return reserve(key.data(), key.size(), size);
+    }
     std::int64_t insert(const Database &other);
     void clear();
     std::vector<std::string> keys() const;
     std::vector<std::string> strKeys() const;
-    int remove(const std::string &key);
-    std::string take(const std::string &key);
-    bool contains(const std::string &key) const;
+    int remove(const char *key, size_t keySize);
+    inline int remove(const std::string &key) { return remove(key.data(), key.size()); }
+    std::string take(const char *key, size_t keySize);
+    inline std::string take(const std::string &key) { return take(key.data(), key.size()); }
+    bool contains(const char *key, size_t keySize) const;
+    inline bool contains(const std::string &key) const { return contains(key.data(), key.size()); }
     bool isNull() const;
     bool isEmpty() const;
     std::int64_t size() const;
@@ -140,12 +152,18 @@ public:
     iterator end();
     const_iterator constEnd() const;
     iterator erase(iterator &itor);
-    iterator find(const std::string &key);
-    const_iterator constFind(const std::string &key) const;
-    const_iterator lowerBound(const std::string &key) const;
-    iterator lowerBound(const std::string &key);
-    const_iterator upperBound(const std::string &key) const;
-    iterator upperBound(const std::string &key);
+    iterator find(const char *key, size_t keySize);
+    inline iterator find(const std::string &key) { return find(key.data(), key.size()); }
+    const_iterator constFind(const char *key, size_t keySize) const;
+    inline const_iterator constFind(const std::string &key) const { return constFind(key.data(), key.size()); }
+    const_iterator lowerBound(const char *key, size_t keySize) const;
+    inline const_iterator lowerBound(const std::string &key) const { return lowerBound(key.data(), key.size()); }
+    iterator lowerBound(const char *key, size_t keySize);
+    inline iterator lowerBound(const std::string &key) { return lowerBound(key.data(), key.size()); }
+    const_iterator upperBound(const char *key, size_t keySize) const;
+    inline const_iterator upperBound(const std::string &key) const { return upperBound(key.data(), key.size()); }
+    iterator upperBound(const char *key, size_t keySize);
+    inline iterator upperBound(const std::string &key) { return upperBound(key.data(), key.size()); }
     inline std::string firstKey() const
     {
         assert(!isEmpty());
@@ -176,6 +194,7 @@ public:
     inline const_iterator cbegin() const { return constBegin(); }
     inline const_iterator end() const { return constEnd(); }
     inline const_iterator cend() const { return constEnd(); }
+    inline const_iterator find(const char *key, size_t keySize) const { return constFind(key, keySize); }
     inline const_iterator find(const std::string &key) const { return constFind(key); }
     inline std::string operator[](const std::string &key) const { return value(key); }
 private:

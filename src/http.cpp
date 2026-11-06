@@ -300,9 +300,9 @@ shared_ptr<FileLike> HttpRequest::body() const
     return d->body;
 }
 
-void HttpRequest::setBody(const string &body)
+void HttpRequest::setBody(const char *body, size_t size)
 {
-    d->body = FileLike::bytes(body);
+    d->body = FileLike::bytes(body, size);
 }
 
 void HttpRequest::setBody(shared_ptr<FileLike> body)
@@ -678,9 +678,9 @@ string HttpResponse::body()
     return data;
 }
 
-void HttpResponse::setBody(const string &body)
+void HttpResponse::setBody(const char *body, size_t size)
 {
-    d->body = body;
+    d->body.assign(body, size);
     d->consumed = true;
 }
 

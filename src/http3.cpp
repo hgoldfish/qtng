@@ -188,44 +188,43 @@ string qpackEncodeHeaders(const vector<pair<string, string>> &headers)
     return out;
 }
 
-bool qpackDecodeHeaders(const string &data, vector<pair<string, string>> *headers)
+bool qpackDecodeHeaders(const char *data, size_t size, vector<pair<string, string>> *headers)
 {
+    if (!data && size > 0) {
+        return false;
+    }
     size_t off = 0;
-    while (off < data.size()) {
+    while (off < size) {
         const uint8_t first = static_cast<uint8_t>(data[off]);
         if (first & 0x80) {
-            // Indexed field line (static table).
             uint64_t idx = 0;
-            if (!qpackDecodeInt(data.data(), data.size(), &off, 6, &idx) || idx >= kQpackStaticTable.size()) {
+            if (!qpackDecodeInt(data, size, &off, 6, &idx) || idx >= kQpackStaticTable.size()) {
                 return false;
             }
             headers->push_back(kQpackStaticTable[idx]);
         } else if (first & 0x40) {
-            // Literal field line with name reference.
             uint64_t idx = 0;
-            if (!qpackDecodeInt(data.data(), data.size(), &off, 6, &idx) || idx >= kQpackStaticTable.size()) {
+            if (!qpackDecodeInt(data, size, &off, 6, &idx) || idx >= kQpackStaticTable.size()) {
                 return false;
             }
             string value;
-            if (!qpackDecodeString(data.data(), data.size(), &off, &value)) {
+            if (!qpackDecodeString(data, size, &off, &value)) {
                 return false;
             }
             headers->push_back({kQpackStaticTable[idx].first, std::move(value)});
         } else if (first & 0x20) {
-            // Literal field line with literal name (5-bit length prefix).
             uint64_t nameLen = 0;
-            if (!qpackDecodeInt(data.data(), data.size(), &off, 5, &nameLen) || off + nameLen > data.size()) {
+            if (!qpackDecodeInt(data, size, &off, 5, &nameLen) || off + nameLen > size) {
                 return false;
             }
-            string name = data.substr(off, static_cast<size_t>(nameLen));
+            string name(data + off, static_cast<size_t>(nameLen));
             off += static_cast<size_t>(nameLen);
             string value;
-            if (!qpackDecodeString(data.data(), data.size(), &off, &value)) {
+            if (!qpackDecodeString(data, size, &off, &value)) {
                 return false;
             }
             headers->push_back({std::move(name), std::move(value)});
         } else {
-            // Unsupported instruction.
             return false;
         }
     }
@@ -463,10 +462,10 @@ std::string Http3Connection::encodeHeaders(
     return qpackEncodeHeaders(headers);
 }
 
-bool Http3Connection::decodeHeaders(const string &payload,
+bool Http3Connection::decodeHeaders(const char *payload, size_t size,
                                     vector<pair<string, string>> *headers) const
 {
-    return qpackDecodeHeaders(payload, headers);
+    return qpackDecodeHeaders(payload, size, headers);
 }
 
 void Http3Connection::close()

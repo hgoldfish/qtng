@@ -1,6 +1,7 @@
 #ifndef QTNG_WEBSOCKET_H
 #define QTNG_WEBSOCKET_H
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -68,16 +69,28 @@ public:
         TlsHandshake = 1015,
     };
 public:
-    WebSocketConnection(std::shared_ptr<SocketLike> connection, const std::string &headBytes, Side side = Client,
-                        const WebSocketConfiguration &config = WebSocketConfiguration());
+    WebSocketConnection(std::shared_ptr<SocketLike> connection, const char *headBytes, size_t headBytesSize,
+                        Side side, const WebSocketConfiguration &config);
+    inline WebSocketConnection(std::shared_ptr<SocketLike> connection, const char *headBytes, size_t headBytesSize,
+                               Side side)
+        : WebSocketConnection(connection, headBytes, headBytesSize, side, WebSocketConfiguration())
+    {
+    }
+    inline WebSocketConnection(std::shared_ptr<SocketLike> connection, const std::string &headBytes,
+                               Side side = Client, const WebSocketConfiguration &config = WebSocketConfiguration())
+        : WebSocketConnection(connection, headBytes.data(), headBytes.size(), side, config)
+    {
+    }
     ~WebSocketConnection();
 public:
     std::shared_ptr<Event> disconnected() const;
 public:
     void setConfiguration(const WebSocketConfiguration &config);
-    bool send(const std::string &packet);
+    bool send(const char *packet, size_t size);
+    inline bool send(const std::string &packet) { return send(packet.data(), packet.size()); }
     bool sendText(const std::string &text);
-    bool post(const std::string &packet);
+    bool post(const char *packet, size_t size);
+    inline bool post(const std::string &packet) { return post(packet.data(), packet.size()); }
     bool postText(const std::string &text);
     std::string recv(FrameType *type = nullptr);
     void close();

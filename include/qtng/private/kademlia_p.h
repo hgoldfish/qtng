@@ -75,7 +75,7 @@ public:
     bool bootstrap(const std::vector<DhtEndpoint> &seeds);
     std::vector<DhtNodeInfo> findNode(const NodeId &target);
     std::vector<DhtPeer> getPeers(const NodeId &infoHash);
-    bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const std::string &token);
+    bool announcePeer(const NodeId &infoHash, std::uint16_t peerPort, const char *token, size_t tokenSize);
 
     void recvLoop();
     void maintenanceLoop();

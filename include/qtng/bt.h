@@ -1,6 +1,7 @@
 #ifndef QTNG_BT_H
 #define QTNG_BT_H
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -94,10 +95,16 @@ public:
     ~TorrentMeta();
 
     static TorrentMeta fromFile(const std::string &path);
-    static TorrentMeta fromBytes(const std::string &data);
+    static TorrentMeta fromBytes(const char *data, size_t size);
+    inline static TorrentMeta fromBytes(const std::string &data) { return fromBytes(data.data(), data.size()); }
     // Parse a raw bencoded info dictionary (as transferred by BEP-9 ut_metadata).
-    static TorrentMeta fromInfoDict(const std::string &infoDict,
+    static TorrentMeta fromInfoDict(const char *infoDict, size_t size,
                                     const std::vector<std::string> &trackers = std::vector<std::string>());
+    inline static TorrentMeta fromInfoDict(const std::string &infoDict,
+                                           const std::vector<std::string> &trackers = std::vector<std::string>())
+    {
+        return fromInfoDict(infoDict.data(), infoDict.size(), trackers);
+    }
 
     bool isValid() const;
     InfoHash infoHash() const;
@@ -207,7 +214,8 @@ public:
     std::string downloadDir() const;
     void setListenPort(std::uint16_t port);
     std::uint16_t listenPort() const;
-    void setPeerId(const std::string &peerId20);
+    void setPeerId(const char *peerId20, size_t size);
+    inline void setPeerId(const std::string &peerId20) { setPeerId(peerId20.data(), peerId20.size()); }
     std::string peerId() const;
     void setMaxPeers(int n);
     int maxPeers() const;

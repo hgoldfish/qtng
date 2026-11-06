@@ -1235,10 +1235,10 @@ bool DataChannel::isBroken() const
     return d->isBroken();
 }
 
-bool DataChannel::sendPacket(const string &packet, bool waitSent/* = true*/)
+bool DataChannel::sendPacket(const char *packet, size_t size, bool waitSent/* = true*/)
 {
     NG_D(DataChannel);
-    return d->sendPacket(packet, waitSent);
+    return d->sendPacket(string(packet, size), waitSent);
 }
 
 bool DataChannel::sendPacket(string &&packet, bool waitSent/* = true*/)
@@ -1247,10 +1247,10 @@ bool DataChannel::sendPacket(string &&packet, bool waitSent/* = true*/)
     return d->sendPacket(std::move(packet), waitSent);
 }
 
-bool DataChannel::sendPacketAsync(const string &packet)
+bool DataChannel::sendPacketAsync(const char *packet, size_t size)
 {
     NG_D(DataChannel);
-    return d->sendPacketAsync(packet);
+    return d->sendPacketAsync(string(packet, size));
 }
 
 bool DataChannel::sendPacketAsync(string &&packet)
@@ -1746,7 +1746,7 @@ int32_t DataChannelSocketLikeImpl::recvall(char *data, int32_t size)
 int32_t DataChannelSocketLikeImpl::send(const char *data, int32_t size)
 {
     int32_t len = min<int32_t>(size, static_cast<int32_t>(channel->maxPayloadSize()));
-    bool ok = channel->sendPacket(string(data, len));
+    bool ok = channel->sendPacket(data, static_cast<size_t>(len));
     return ok ? len : -1;
 }
 
@@ -1756,7 +1756,7 @@ int32_t DataChannelSocketLikeImpl::sendall(const char *data, int32_t size)
     int32_t maxPayloadSize = static_cast<int32_t>(channel->maxPayloadSize());
     while (count < size) {
         int32_t len = min(size - count, maxPayloadSize);
-        bool ok = channel->sendPacket(string(data + count, len));
+        bool ok = channel->sendPacket(data + count, static_cast<size_t>(len));
         if (!ok) {
             break;
         }
