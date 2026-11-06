@@ -428,20 +428,6 @@ vector<string> Database::keys() const
     return ks;
 }
 
-vector<string> Database::strKeys() const
-{
-    if (isNull()) {
-        return vector<string>();
-    }
-    vector<string> ks = keys();
-    vector<string> sl;
-    sl.reserve(ks.size());
-    for (const string &key : ks) {
-        sl.push_back(key);
-    }
-    return sl;
-}
-
 int Database::remove(const char *key, size_t keySize)
 {
     if (isNull() || d_ptr->readOnly) {

@@ -43,8 +43,6 @@ public:
     const char *data() const;
     size_t size() const;
 public:
-    inline const std::string strKey() const { return std::string(key()); }
-public:
     bool operator==(const ConstLmdbIterator &other) const;
     inline bool operator!=(const ConstLmdbIterator &other) const { return !(*this == other); }
     bool operator!() const { return isEnd(); }
@@ -78,8 +76,6 @@ public:
 public:
     char *data() const;  // use this at your risk! you must known what you're doing.
     size_t size() const;
-public:
-    inline std::string strKey() const { return std::string(key()); }
 public:
     inline bool operator==(const ConstLmdbIterator &) const { return false; }
     inline bool operator!=(const ConstLmdbIterator &) const { return true; }
@@ -136,7 +132,6 @@ public:
     std::int64_t insert(const Database &other);
     void clear();
     std::vector<std::string> keys() const;
-    std::vector<std::string> strKeys() const;
     int remove(const char *key, size_t keySize);
     inline int remove(const std::string &key) { return remove(key.data(), key.size()); }
     std::string take(const char *key, size_t keySize);

@@ -401,7 +401,7 @@ QStringList Database::strKeys() const
 {
     Q_D(const Database);
     QStringList ks;
-    for (const string &k : d->core->strKeys()) {
+    for (const string &k : d->core->keys()) {
         ks.append(toQString(k));
     }
     return ks;
