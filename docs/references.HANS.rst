@@ -3838,11 +3838,20 @@ API 对齐 ``WebSocketConnection``：协程阻塞式 ``publish`` / ``subscribe``
 
 ``DataChannel`` / ``SocketChannel`` / ``VirtualChannel`` 在一条连接上多路复用逻辑通道。
 对端创建、尚未被 ``takeChannel()`` 取走的通道会进入 pending 队列。
+``CHANNEL_MADE`` 只在 pending 通道被取走时发送，而不是在收到 ``MAKE_CHANNEL`` 时立刻发送；
+``VirtualChannel::waitPeerReady()`` 会阻塞到该握手完成（或对端取走你用 ``makeChannel()``
+创建的通道）。
 
 ``VirtualChannel`` 只持有创建它的 ``DataChannel`` 的裸指针，因此父通道（以及持有它的连接
 处理协程）必须比从它取出的每一个通道活得更久，包括那些仍阻塞在 ``sendPacket()`` /
 ``recvPacket()`` 里的协程。若无法保证，请用「每条连接一个 ``CoroutineGroup``，``abort()``
 后 ``joinall()``」的写法。
+
+.. method:: bool VirtualChannel::waitPeerReady(std::uint32_t msecs = UINT_MAX)
+
+    等待对端确认通道就绪。对 ``makeChannel()`` 创建的通道，即对端调用 ``takeChannel()``
+    且 ``CHANNEL_MADE`` 到达之时；对 ``takeChannel()`` 取到的通道，事件已置位。超时、等待被
+    取消，或通道在对端确认前被中止时返回 ``false``。
 
 .. method:: bool DataChannel::sendPacket(const char *packet, size_t size, bool waitSent = true)
 .. method:: bool DataChannel::sendPacket(const std::string &packet, bool waitSent = true)

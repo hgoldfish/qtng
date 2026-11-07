@@ -4177,11 +4177,21 @@ This chapter covers advanced features that are only needed in specialized scenar
 
 ``DataChannel`` / ``SocketChannel`` / ``VirtualChannel`` multiplex logical channels over one
 connection. Untaken channels created by the peer sit in a pending queue until ``takeChannel()``.
+``CHANNEL_MADE`` is sent only when the pending channel is taken, not when ``MAKE_CHANNEL`` arrives;
+``VirtualChannel::waitPeerReady()`` blocks until that handshake completes (or the peer takes the
+channel you created with ``makeChannel()``).
 
 A ``VirtualChannel`` holds only a raw pointer to the ``DataChannel`` it came from: the parent (and
 any connection handler coroutine that owns it) must outlive every channel taken from it, including
 coroutines still parked in their ``sendPacket()`` / ``recvPacket()``. Use a per-connection
 ``CoroutineGroup`` and ``joinall()`` after ``abort()`` if the handlers cannot be sure of that.
+
+.. method:: bool VirtualChannel::waitPeerReady(std::uint32_t msecs = UINT_MAX)
+
+    Wait until the peer acknowledges the channel. For a channel from ``makeChannel()``, that is
+    when the peer calls ``takeChannel()`` and the ``CHANNEL_MADE`` command arrives. For a channel
+    from ``takeChannel()``, the event is already set. Returns ``false`` on timeout, cancellation,
+    or if the channel is aborted before the peer acknowledges it.
 
 .. method:: bool DataChannel::sendPacket(const char *packet, size_t size, bool waitSent = true)
 .. method:: bool DataChannel::sendPacket(const std::string &packet, bool waitSent = true)

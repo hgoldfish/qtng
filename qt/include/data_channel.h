@@ -113,6 +113,7 @@ class VirtualChannel : public DataChannel
     Q_DISABLE_COPY(VirtualChannel)
 public:
     quint32 channelNumber() const;
+    bool waitPeerReady(quint32 msecs = UINT_MAX);
 protected:
     VirtualChannel(DataChannel *parentChannel, DataChannelPole pole, quint32 channelNumber);
 private:

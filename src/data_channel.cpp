@@ -163,6 +163,7 @@ public:
     void notifyChannelClose(uint32_t channelNumber);
     DataChannel::ChannelError handleIncomingPacket(uint32_t channelNumber, string payload);
     void enqueuePendingChannel(const shared_ptr<VirtualChannel> &channel);
+    void notifyChannelMadeAfterTake(const shared_ptr<VirtualChannel> &channel);
     uint32_t sendingTimeoutMsecs() const;
 
     string name;
@@ -272,6 +273,10 @@ public:
 
     DataChannel *parentChannel;
     uint32_t channelNumber;
+    Event peerReadyEvent;
+
+    void markPeerReady();
+    bool waitPeerReady(uint32_t msecs);
 
     NG_DECLARE_PUBLIC(VirtualChannel)
 };
@@ -471,6 +476,9 @@ shared_ptr<VirtualChannel> DataChannelPrivate::takeChannel()
         if (!pendingChannels.empty()) {
             shared_ptr<VirtualChannel> channel = pendingChannels.front();
             pendingChannels.pop_front();
+            if (channel) {
+                notifyChannelMadeAfterTake(channel);
+            }
             return channel;
         }
         if (!pendingChannelsNotEmpty.wait()) {
@@ -488,10 +496,20 @@ shared_ptr<VirtualChannel> DataChannelPrivate::takeChannel(uint32_t channelNumbe
         shared_ptr<VirtualChannel> channel = pendingChannels[i];
         if (channel && channel->channelNumber() == channelNumber) {
             pendingChannels.erase(pendingChannels.begin() + i);
+            notifyChannelMadeAfterTake(channel);
             return channel;
         }
     }
     return shared_ptr<VirtualChannel>();
+}
+
+void DataChannelPrivate::notifyChannelMadeAfterTake(const shared_ptr<VirtualChannel> &channel)
+{
+#ifdef DEBUG_PROTOCOL
+    ngDebug() << "pending channel taken, notify peer channel made:" << channel->channelNumber();
+#endif
+    sendPacketRaw(CommandChannelNumber, packChannelMadeRequest(channel->channelNumber()), BlockFlag::NonBlock);
+    channel->d_func()->markPeerReady();
 }
 
 shared_ptr<VirtualChannel> DataChannelPrivate::peekChannel(uint32_t channelNumber)
@@ -592,20 +610,20 @@ bool DataChannelPrivate::handleCommand(const string &packet)
             return false;
         }
         shared_ptr<VirtualChannel> channel = makeChannelInternal(DataChannelPole::NegativePole, channelNumber);
-        sendPacketRaw(CommandChannelNumber, packChannelMadeRequest(channelNumber), BlockFlag::NonBlock);
         enqueuePendingChannel(channel);
         return true;
     } else if (command == CHANNEL_MADE_REQUEST) {
 #ifdef DEBUG_PROTOCOL
         ngDebug() << "channel made request:" << channelNumber;
 #endif
-        if (subChannels.find(channelNumber) != subChannels.end()) {
-            weak_ptr<VirtualChannel> channel = subChannels.at(channelNumber);
-            if (channel.expired()) {
-                subChannels.erase(channelNumber);
-            } else {
+        map<uint32_t, weak_ptr<VirtualChannel>>::iterator madeIt = subChannels.find(channelNumber);
+        if (madeIt != subChannels.end()) {
+            shared_ptr<VirtualChannel> strong = madeIt->second.lock();
+            if (strong) {
+                strong->d_func()->markPeerReady();
                 return true;
             }
+            subChannels.erase(madeIt);
         }
 #ifdef DEBUG_PROTOCOL
         ngDebug() << "channel is gone." << channelNumber;
@@ -659,6 +677,9 @@ void DataChannelPrivate::notifyChannelClose(uint32_t channelNumber)
     if (error != DataChannel::NoError) {
         return;
     }
+#ifdef DEBUG_PROTOCOL
+    ngDebug() << "notify channel close." << channelNumber;
+#endif
     sendPacketRaw(CommandChannelNumber, packDestoryChannelRequest(channelNumber), BlockFlag::NonBlock);
 }
 
@@ -999,6 +1020,24 @@ VirtualChannelPrivate::VirtualChannelPrivate(DataChannel *parentChannel, DataCha
 {
 }
 
+void VirtualChannelPrivate::markPeerReady()
+{
+    peerReadyEvent.set();
+}
+
+bool VirtualChannelPrivate::waitPeerReady(uint32_t msecs)
+{
+    if (!peerReadyEvent.isSet()) {
+        if (error != DataChannel::NoError) {
+            return false;
+        }
+        if (!peerReadyEvent.tryWait(msecs)) {
+            return false;
+        }
+    }
+    return error == DataChannel::NoError;
+}
+
 VirtualChannelPrivate::~VirtualChannelPrivate()
 {
     VirtualChannelPrivate::abort(DataChannel::UserShutdown);
@@ -1028,6 +1067,7 @@ void VirtualChannelPrivate::abort(DataChannel::ChannelError reason)
         return;
     }
     error = reason;
+    peerReadyEvent.set();
     if (parentChannel) {
         getPrivateHelper(parentChannel)->cleanChannel(channelNumber, true);
     }
@@ -1217,6 +1257,12 @@ uint32_t VirtualChannel::channelNumber() const
 {
     NG_D(const VirtualChannel);
     return d->channelNumber;
+}
+
+bool VirtualChannel::waitPeerReady(uint32_t msecs)
+{
+    NG_D(VirtualChannel);
+    return d->waitPeerReady(msecs);
 }
 
 DataChannel::DataChannel(DataChannelPrivate *d)

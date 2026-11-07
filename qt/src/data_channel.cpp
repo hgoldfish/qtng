@@ -250,6 +250,11 @@ quint32 VirtualChannel::channelNumber() const
     return static_pointer_cast<qtng_core::VirtualChannel>(coreOf(const_cast<VirtualChannel *>(this)))->channelNumber();
 }
 
+bool VirtualChannel::waitPeerReady(quint32 msecs)
+{
+    return static_pointer_cast<qtng_core::VirtualChannel>(coreOf(this))->waitPeerReady(msecs);
+}
+
 void exchange(QSharedPointer<DataChannel> incoming, QSharedPointer<DataChannel> outgoing)
 {
     qtng_core::exchange(coreOf(incoming.data()), coreOf(outgoing.data()));

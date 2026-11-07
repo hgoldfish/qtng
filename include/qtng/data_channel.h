@@ -1,6 +1,7 @@
 #ifndef QTNG_DATA_CHANNEL_H
 #define QTNG_DATA_CHANNEL_H
 
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -125,6 +126,7 @@ class VirtualChannel : public DataChannel
     NG_DISABLE_COPY(VirtualChannel)
 public:
     std::uint32_t channelNumber() const;
+    bool waitPeerReady(std::uint32_t msecs = UINT_MAX);
 protected:
     VirtualChannel(DataChannel *parentChannel, DataChannelPole pole, std::uint32_t channelNumber);
 private:
