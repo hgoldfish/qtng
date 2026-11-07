@@ -138,9 +138,9 @@ public:
     void setMaxAuthTries(int tries);
     // Timeout for the version exchange + KEX + authentication phase, in seconds.
     void setLoginTimeout(float seconds);
+    virtual void processRequest(std::shared_ptr<SocketLike> request) override;
 protected:
     virtual std::shared_ptr<SocketLike> serverCreate() override;
-    virtual void processRequest(std::shared_ptr<SocketLike> request) override;
 private:
     SshServerPrivate * const d_ptr;
     NG_DECLARE_PRIVATE(SshServer)
@@ -154,6 +154,7 @@ public:
     SshClient();
     virtual ~SshClient();
 public:
+    bool connect(std::shared_ptr<SocketLike> socket);
     bool connect(const std::string &host, std::uint16_t port,
                  std::shared_ptr<SocketDnsCache> dnsCache = std::shared_ptr<SocketDnsCache>());
     bool connect(const HostAddress &addr, std::uint16_t port);

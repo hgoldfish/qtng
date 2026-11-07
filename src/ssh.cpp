@@ -2039,6 +2039,22 @@ void SshServer::processRequest(shared_ptr<SocketLike> request)
 
 // ---- SshClient ----
 
+namespace {
+
+bool failSshClientConnect(SshClientPrivate *d, const string &message, Socket::SocketError err)
+{
+    if (d->conn) {
+        d->conn->stopClient();
+        d->conn.reset();
+    }
+    shared_ptr<SshConnectionPrivate> tmp(new SshConnectionPrivate);
+    tmp->setError(message, err);
+    d->conn = tmp;
+    return false;
+}
+
+}  // namespace
+
 SshClient::SshClient()
     : d_ptr(new SshClientPrivate)
 {
@@ -2050,26 +2066,21 @@ SshClient::~SshClient()
     delete d_ptr;
 }
 
-bool SshClient::connect(const string &host, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
+bool SshClient::connect(shared_ptr<SocketLike> socket)
 {
     NG_D(SshClient);
+    if (!socket) {
+        return failSshClientConnect(d, "invalid socket", Socket::OperationError);
+    }
     if (d->conn) {
         d->conn->stopClient();
         d->conn.reset();
-    }
-    Socket::SocketError err = Socket::NoError;
-    Socket *s = Socket::createConnection(host, port, &err, dnsCache);
-    if (!s) {
-        shared_ptr<SshConnectionPrivate> tmp(new SshConnectionPrivate);
-        tmp->setError("connect failed", err);
-        d->conn = tmp;
-        return false;
     }
     shared_ptr<SshConnectionPrivate> conn(new SshConnectionPrivate);
     if (d->hostKeyVerifier) {
         conn->hostKeyVerifier = d->hostKeyVerifier;
     }
-    if (!conn->startClient(asSocketLike(shared_ptr<Socket>(s)), d->loginTimeout)) {
+    if (!conn->startClient(socket, d->loginTimeout)) {
         d->conn = conn;
         return false;
     }
@@ -2077,31 +2088,26 @@ bool SshClient::connect(const string &host, uint16_t port, shared_ptr<SocketDnsC
     return true;
 }
 
+bool SshClient::connect(const string &host, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
+{
+    Socket::SocketError err = Socket::NoError;
+    Socket *s = Socket::createConnection(host, port, &err, dnsCache);
+    if (!s) {
+        NG_D(SshClient);
+        return failSshClientConnect(d, "connect failed", err);
+    }
+    return connect(asSocketLike(shared_ptr<Socket>(s)));
+}
+
 bool SshClient::connect(const HostAddress &addr, uint16_t port)
 {
-    NG_D(SshClient);
-    if (d->conn) {
-        d->conn->stopClient();
-        d->conn.reset();
-    }
     Socket::SocketError err = Socket::NoError;
     Socket *s = Socket::createConnection(addr, port, &err);
     if (!s) {
-        shared_ptr<SshConnectionPrivate> tmp(new SshConnectionPrivate);
-        tmp->setError("connect failed", err);
-        d->conn = tmp;
-        return false;
+        NG_D(SshClient);
+        return failSshClientConnect(d, "connect failed", err);
     }
-    shared_ptr<SshConnectionPrivate> conn(new SshConnectionPrivate);
-    if (d->hostKeyVerifier) {
-        conn->hostKeyVerifier = d->hostKeyVerifier;
-    }
-    if (!conn->startClient(asSocketLike(shared_ptr<Socket>(s)), d->loginTimeout)) {
-        d->conn = conn;
-        return false;
-    }
-    d->conn = conn;
-    return true;
+    return connect(asSocketLike(shared_ptr<Socket>(s)));
 }
 
 void SshClient::setHostKeyVerifier(const shared_ptr<SshHostKeyVerifier> &verifier)

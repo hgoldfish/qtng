@@ -4995,6 +4995,10 @@ terminal byte stream plus resize/signal notifications, so a TUI runs in-process.
   public key), the interactive application with ``setApplication()``, an optional
   ``SSH_MSG_USERAUTH_BANNER`` with ``setBanner()``, and the auth-phase limits with
   ``setMaxAuthTries()`` / ``setLoginTimeout()``.
+  ``processRequest(shared_ptr<SocketLike>)`` is public: the accept loop from
+  ``serveForever()`` / ``start()`` calls it, and callers may also feed an
+  already-connected ``SocketLike`` (KCP, Noise, DataChannel, TLS, ...) to host
+  SSH over an arbitrary transport.
 * ``SshChannel`` — one session channel. ``send()``/``recv()`` carry the terminal
   byte stream; ``requestPty()`` / ``requestShell()`` / ``requestWindowChange()`` /
   ``sendSignal()`` are the client-side channel requests, and ``sendExitStatus()``
@@ -5005,10 +5009,13 @@ terminal byte stream plus resize/signal notifications, so a TUI runs in-process.
 * ``SshAuthenticator`` — ``checkPassword()`` and/or ``checkPublicKey()`` (the raw
   SSH key blob, e.g. ``"ssh-rsa" || e || n``).
 
-The **client** side is a protocol client (not a TUI): ``SshClient::connect()``
-connects to a host, ``SshHostKeyVerifier`` performs known_hosts-style host-key
-verification, ``authenticate()`` / ``authenticateWithPublicKey()`` log in, and
-``openSessionChannel()`` returns a session channel.
+The **client** side is a protocol client (not a TUI): ``SshClient::connect(host,
+port)`` / ``connect(HostAddress, port)`` open a TCP connection; alternatively
+``connect(shared_ptr<SocketLike>)`` takes over an already-connected
+``SocketLike`` (KCP, Noise, DataChannel, TLS, ...). ``SshHostKeyVerifier``
+performs known_hosts-style host-key verification, ``authenticate()`` /
+``authenticateWithPublicKey()`` log in, and ``openSessionChannel()`` returns a
+session channel.
 
 A runnable example lives under ``examples/ssh-bbs/`` — a BBS-style server-side
 terminal application over SSH that exercises PTY allocation, window-change

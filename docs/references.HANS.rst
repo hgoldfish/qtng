@@ -4546,6 +4546,9 @@ shell：``SshApplication`` 回调收到终端字节流以及 resize/信号通知
   用 ``setAuthenticator()`` 配置认证（密码和/或公钥），用 ``setApplication()`` 设置
   交互式应用，用 ``setBanner()`` 设置认证阶段的 ``SSH_MSG_USERAUTH_BANNER``，
   用 ``setMaxAuthTries()`` / ``setLoginTimeout()`` 限制认证阶段。
+  ``processRequest(shared_ptr<SocketLike>)`` 是公开的：既可由 ``serveForever()`` /
+  ``start()`` 的 accept 循环调用，也可手动传入已连接的 ``SocketLike``（KCP、Noise、
+  DataChannel、TLS 等），以便在任意底层传输上托管 SSH。
 * ``SshChannel`` — 单个 session 通道。``send()``/``recv()`` 传输终端字节流；
   ``requestPty()`` / ``requestShell()`` / ``requestWindowChange()`` / ``sendSignal()``
   是客户端通道请求；``sendExitStatus()`` 向对端上报会话退出状态（服务器在
@@ -4555,7 +4558,9 @@ shell：``SshApplication`` 回调收到终端字节流以及 resize/信号通知
 * ``SshAuthenticator`` — ``checkPassword()`` 和/或 ``checkPublicKey()``
   （后者接收原始 SSH 公钥 blob，如 ``"ssh-rsa" || e || n``）。
 
-**客户端**是协议客户端（非 TUI）：``SshClient::connect()`` 连接主机，
+**客户端**是协议客户端（非 TUI）：``SshClient::connect(host, port)`` /
+``connect(HostAddress, port)`` 建立 TCP 连接；也可 ``connect(shared_ptr<SocketLike>)``
+接管已连接的任意 ``SocketLike``（KCP、Noise、DataChannel、TLS 等）。
 ``SshHostKeyVerifier`` 进行 known_hosts 式主机密钥校验，``authenticate()`` /
 ``authenticateWithPublicKey()`` 完成登录，``openSessionChannel()`` 返回 session 通道。
 
