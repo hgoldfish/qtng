@@ -5277,6 +5277,16 @@ String API highlights (all non-mutating, each returns a new String):
 * Bytes: ``String::fromUtf8(ba)`` and ``toUtf8()`` -- explicit, zero-copy
   reinterpretation of the UTF-8 bytes as a ``ByteArray`` and back (no
   transcoding, no validation; long content shares one block).
+* Charset conversion: ``fromEncoded`` / ``toEncoded`` (and thin wrappers
+  ``fromGbk`` / ``toGbk``, ``fromLatin1`` / ``toLatin1``,
+  ``fromLocal8Bit`` / ``toLocal8Bit``) convert through the OS -- ``iconv``
+  resolved at runtime on Linux/BSD, the system ``libiconv`` on macOS, and
+  Win32 code pages on Windows. There are no built-in mapping tables. These
+  APIs write into an out-parameter and return a ``CodecStatus``
+  (``Ok``, ``Unavailable``, ``UnknownEncoding``, ``InvalidInput``); they never
+  throw. ``CodecError`` selects Python-style handling of illegal sequences
+  (``Strict``, ``Ignore``, ``Replace``, ``BackslashReplace``,
+  ``XmlCharRefReplace``). Declared in ``qtng/types/text_codec.h``.
 * Ordering: ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=``.
 * Case sensitivity: ``compare()``, ``contains(needle, cs)`` and
   ``replaced(before, after, cs)`` take a ``CaseSensitivity``

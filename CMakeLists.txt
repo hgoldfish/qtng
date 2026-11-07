@@ -341,6 +341,7 @@ set(QTNG_UTILS_INCLUDE
 # qtng/msgpack.h (which brings in io_utils.h).
 set(QTNG_TYPES_SRC
     src/types/string_builder.cpp
+    src/types/text_codec.cpp
 )
 
 set(QTNG_TYPES_INCLUDE
@@ -348,6 +349,7 @@ set(QTNG_TYPES_INCLUDE
     include/qtng/types/string.h
     include/qtng/types/bytes.h
     include/qtng/types/string_builder.h
+    include/qtng/types/text_codec.h
     include/qtng/types/containers.h
     include/qtng/types/private/string_data.h
 )
@@ -622,6 +624,19 @@ if(UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     list(APPEND OS_EXTRA_LINK ws2_32)
+endif()
+# text_codec: macOS links the SDK libiconv; Linux/BSD resolve iconv at runtime (no link).
+if(APPLE)
+    list(APPEND OS_EXTRA_LINK iconv)
+endif()
+# dlopen for dynamic iconv on Linux/BSD when symbols are not in the main executable.
+if(UNIX AND NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    include(CheckFunctionExists)
+    set(CMAKE_REQUIRED_LIBRARIES "")
+    check_function_exists(dlopen QTNG_DLOPEN_IN_LIBC)
+    if(NOT QTNG_DLOPEN_IN_LIBC)
+        list(APPEND OS_EXTRA_LINK dl)
+    endif()
 endif()
 
 if(QTNG_HAVE_CRYPTO)

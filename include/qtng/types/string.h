@@ -62,6 +62,7 @@
 #include "qtng/types/bytes.h"
 #include "qtng/types/containers.h"
 #include "qtng/types/private/string_data.h"
+#include "qtng/types/text_codec.h"
 
 namespace qtng {
 
@@ -498,6 +499,25 @@ public:
     // immutable.
     static String fromUtf8(const ByteArray &utf8);
     ByteArray toUtf8() const;
+
+    // Platform charset conversion (iconv on POSIX, Win32 code pages on Windows).
+    // No built-in mapping tables. On failure *out is cleared and a CodecStatus other
+    // than Ok is returned; nothing is thrown. fromUtf8/toUtf8 above stay zero-copy
+    // reinterprets and are unrelated to these entry points.
+    static CodecStatus fromEncoded(String *out, const ByteArray &data, const char *encoding,
+                                   CodecError errors = CodecError::Strict);
+    CodecStatus toEncoded(ByteArray *out, const char *encoding,
+                          CodecError errors = CodecError::Strict) const;
+
+    static CodecStatus fromGbk(String *out, const ByteArray &data,
+                               CodecError errors = CodecError::Strict);
+    CodecStatus toGbk(ByteArray *out, CodecError errors = CodecError::Strict) const;
+    static CodecStatus fromLatin1(String *out, const ByteArray &data,
+                                  CodecError errors = CodecError::Strict);
+    CodecStatus toLatin1(ByteArray *out, CodecError errors = CodecError::Strict) const;
+    static CodecStatus fromLocal8Bit(String *out, const ByteArray &data,
+                                     CodecError errors = CodecError::Strict);
+    CodecStatus toLocal8Bit(ByteArray *out, CodecError errors = CodecError::Strict) const;
 
     // The UTF-8 bytes as std::string. String's storage is already UTF-8, so this is a
     // byte-for-byte copy -- never a transcode, and never through size() (which counts

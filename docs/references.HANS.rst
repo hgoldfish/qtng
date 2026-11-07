@@ -4797,6 +4797,13 @@ String 接口要点(全部非变异,均返回新的 String):
   ``toULongLong()``/``toDouble()``/``toFloat()``,可选 ``bool *ok``。
 * 字节:``String::fromUtf8(ba)`` 与 ``toUtf8()``——把 UTF-8 字节显式、零拷贝地重解释为
   ``ByteArray`` 并转回(不做转码、不做校验;长内容共享同一块存储)。
+* 字符集转码:``fromEncoded`` / ``toEncoded``(以及薄包装 ``fromGbk`` / ``toGbk``、
+  ``fromLatin1`` / ``toLatin1``、``fromLocal8Bit`` / ``toLocal8Bit``)走操作系统——
+  Linux/BSD 运行时解析 ``iconv``,macOS 使用系统 ``libiconv``,Windows 使用 code page。
+  库内不带码表。结果写入 out 参数,返回 ``CodecStatus``(``Ok``、``Unavailable``、
+  ``UnknownEncoding``、``InvalidInput``),不抛异常。``CodecError`` 选择非法序列的处理
+  方式(``Strict``、``Ignore``、``Replace``、``BackslashReplace``、
+  ``XmlCharRefReplace``),语义对齐 Python。声明见 ``qtng/types/text_codec.h``。
 * 比较:``==``、``!=``、``<``、``<=``、``>``、``>=``。
 * 大小写:``compare()``、``contains(needle, cs)``、``replaced(before, after, cs)``
   接受 ``CaseSensitivity``(``CaseSensitive`` / ``CaseInsensitive``)。折叠是
