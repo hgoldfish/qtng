@@ -12,9 +12,11 @@ CMakeLists.txt.user*
 include/pool.h
 website/
 
-# Tests are Mercurial-only (never commit to git)
-/tests/
-/qt/tests/
+# Tests are Mercurial-only (never commit to git).
+# No trailing slash: a symlink named "tests" must also be ignored
+# (gitignore "tests/" only matches directories).
+/tests
+/qt/tests
 
 # Build trees (CMake out-of-source, Qt Creator, local variants)
 /build/
