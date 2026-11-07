@@ -271,7 +271,7 @@ void JokerServerPrivate::handleChannel(shared_ptr<VirtualChannel> channel)
 bool JokerServerPrivate::sendReply(shared_ptr<VirtualChannel> channel, const HostAddress &addr)
 {
     string reply;
-    MsgPackStream mps(&reply, true);
+    MsgPackStream mps(&reply, BufferOwnership::Borrow, true);
     mps.writeString(addr.toString());
     return channel->sendPacket(reply);
 }

@@ -24,12 +24,9 @@ class BencodeStream
 public:
     BencodeStream();
     BencodeStream(FileLike *d);
-    BencodeStream(std::string *a, bool writeMode = false);
-    BencodeStream(const char *a, size_t size);
-    inline BencodeStream(const std::string &a)
-        : BencodeStream(a.data(), a.size())
-    {
-    }
+    BencodeStream(std::string *a, BufferOwnership ownership = BufferOwnership::Borrow, bool writeMode = false);
+    BencodeStream(const char *a, size_t size, BufferOwnership ownership = BufferOwnership::Copy);
+    BencodeStream(const std::string &a, BufferOwnership ownership = BufferOwnership::Copy);
     virtual ~BencodeStream();
 
     void setDevice(FileLike *d);

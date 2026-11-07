@@ -54,12 +54,9 @@ class BytesIOPrivate;
 class BytesIO : public FileLike
 {
 public:
-    BytesIO(const char *buf, size_t size, std::int32_t pos = 0);
-    inline BytesIO(const std::string &buf, std::int32_t pos = 0)
-        : BytesIO(buf.data(), buf.size(), pos)
-    {
-    }
-    BytesIO(std::string *buf, std::int32_t pos = 0);
+    BytesIO(const char *buf, size_t size, BufferOwnership ownership = BufferOwnership::Copy, std::int32_t pos = 0);
+    BytesIO(const std::string &buf, BufferOwnership ownership = BufferOwnership::Copy, std::int32_t pos = 0);
+    BytesIO(std::string *buf, BufferOwnership ownership = BufferOwnership::Borrow, std::int32_t pos = 0);
     BytesIO();
     virtual ~BytesIO() override;
     virtual std::int32_t read(char *data, std::int32_t size) override;

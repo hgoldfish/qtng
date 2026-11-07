@@ -1,5 +1,6 @@
 #include "qtng/bencode.h"
 
+#include <cassert>
 #include <cctype>
 #include <limits>
 #include <utility>
@@ -34,8 +35,9 @@ class BencodeStreamPrivate
 public:
     BencodeStreamPrivate();
     BencodeStreamPrivate(FileLike *d);
-    BencodeStreamPrivate(string *a, bool writeMode);
-    BencodeStreamPrivate(const char *a, size_t size);
+    BencodeStreamPrivate(string *a, BufferOwnership ownership, bool writeMode);
+    BencodeStreamPrivate(const char *a, size_t size, BufferOwnership ownership);
+    BencodeStreamPrivate(const string &a, BufferOwnership ownership);
     ~BencodeStreamPrivate();
 
     bool readBytes(char *data, int64_t len);
@@ -89,7 +91,7 @@ BencodeStreamPrivate::BencodeStreamPrivate(FileLike *d)
 {
 }
 
-BencodeStreamPrivate::BencodeStreamPrivate(string *a, bool writeMode)
+BencodeStreamPrivate::BencodeStreamPrivate(string *a, BufferOwnership ownership, bool writeMode)
     : status(BencodeStream::Ok)
     , limit(numeric_limits<uint32_t>::max())
     , allocLimit(16 * 1024 * 1024)
@@ -99,13 +101,13 @@ BencodeStreamPrivate::BencodeStreamPrivate(string *a, bool writeMode)
     , hasPeekByte(false)
     , peekByteCache(0)
 {
-    dev = new BytesIO(a);
-    if (!writeMode) {
+    dev = new BytesIO(a, ownership);
+    if (!writeMode && a) {
         limit = static_cast<uint32_t>(a->size());
     }
 }
 
-BencodeStreamPrivate::BencodeStreamPrivate(const char *a, size_t size)
+BencodeStreamPrivate::BencodeStreamPrivate(const char *a, size_t size, BufferOwnership ownership)
     : status(BencodeStream::Ok)
     , limit(static_cast<uint32_t>(size))
     , allocLimit(16 * 1024 * 1024)
@@ -115,7 +117,21 @@ BencodeStreamPrivate::BencodeStreamPrivate(const char *a, size_t size)
     , hasPeekByte(false)
     , peekByteCache(0)
 {
-    dev = new BytesIO(a, size);
+    dev = new BytesIO(a, size, ownership);
+}
+
+BencodeStreamPrivate::BencodeStreamPrivate(const string &a, BufferOwnership ownership)
+    : status(BencodeStream::Ok)
+    , limit(static_cast<uint32_t>(a.size()))
+    , allocLimit(16 * 1024 * 1024)
+    , pos(0)
+    , owndev(true)
+    , bytesAllocated(0)
+    , hasPeekByte(false)
+    , peekByteCache(0)
+{
+    assert(ownership == BufferOwnership::Copy);
+    dev = new BytesIO(a, ownership);
 }
 
 BencodeStreamPrivate::~BencodeStreamPrivate()
@@ -508,13 +524,18 @@ BencodeStream::BencodeStream(FileLike *d)
 {
 }
 
-BencodeStream::BencodeStream(string *a, bool writeMode)
-    : d_ptr(new BencodeStreamPrivate(a, writeMode))
+BencodeStream::BencodeStream(string *a, BufferOwnership ownership, bool writeMode)
+    : d_ptr(new BencodeStreamPrivate(a, ownership, writeMode))
 {
 }
 
-BencodeStream::BencodeStream(const char *a, size_t size)
-    : d_ptr(new BencodeStreamPrivate(a, size))
+BencodeStream::BencodeStream(const char *a, size_t size, BufferOwnership ownership)
+    : d_ptr(new BencodeStreamPrivate(a, size, ownership))
+{
+}
+
+BencodeStream::BencodeStream(const string &a, BufferOwnership ownership)
+    : d_ptr(new BencodeStreamPrivate(a, ownership))
 {
 }
 

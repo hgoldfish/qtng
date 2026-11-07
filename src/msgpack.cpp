@@ -149,8 +149,9 @@ class MsgPackStreamPrivate
 public:
     MsgPackStreamPrivate();
     MsgPackStreamPrivate(FileLike *d);
-    MsgPackStreamPrivate(string *a, bool writeMode);
-    MsgPackStreamPrivate(const char *a, size_t size);
+    MsgPackStreamPrivate(string *a, BufferOwnership ownership, bool writeMode);
+    MsgPackStreamPrivate(const char *a, size_t size, BufferOwnership ownership);
+    MsgPackStreamPrivate(const string &a, BufferOwnership ownership);
     ~MsgPackStreamPrivate();
 public:
     bool readRawBytes(char *data, int64_t len);
@@ -209,7 +210,7 @@ MsgPackStreamPrivate::MsgPackStreamPrivate(FileLike *d)
 {
 }
 
-MsgPackStreamPrivate::MsgPackStreamPrivate(string *a, bool writeMode)
+MsgPackStreamPrivate::MsgPackStreamPrivate(string *a, BufferOwnership ownership, bool writeMode)
     : status(MsgPackStream::Ok)
     , limit(numeric_limits<uint32_t>::max())
     , pos(0)
@@ -219,13 +220,13 @@ MsgPackStreamPrivate::MsgPackStreamPrivate(string *a, bool writeMode)
     , hasPeekByte(false)
     , peekByteCache(0)
 {
-    dev = new BytesIO(a);
-    if (!writeMode) {
+    dev = new BytesIO(a, ownership);
+    if (!writeMode && a) {
         limit = static_cast<uint32_t>(a->size());
     }
 }
 
-MsgPackStreamPrivate::MsgPackStreamPrivate(const char *a, size_t size)
+MsgPackStreamPrivate::MsgPackStreamPrivate(const char *a, size_t size, BufferOwnership ownership)
     : status(MsgPackStream::Ok)
     , limit(static_cast<uint32_t>(size))
     , pos(0)
@@ -235,7 +236,21 @@ MsgPackStreamPrivate::MsgPackStreamPrivate(const char *a, size_t size)
     , hasPeekByte(false)
     , peekByteCache(0)
 {
-    dev = new BytesIO(a, size);
+    dev = new BytesIO(a, size, ownership);
+}
+
+MsgPackStreamPrivate::MsgPackStreamPrivate(const string &a, BufferOwnership ownership)
+    : status(MsgPackStream::Ok)
+    , limit(static_cast<uint32_t>(a.size()))
+    , pos(0)
+    , version(0)
+    , owndev(true)
+    , flushWrites(false)
+    , hasPeekByte(false)
+    , peekByteCache(0)
+{
+    assert(ownership == BufferOwnership::Copy);
+    dev = new BytesIO(a, ownership);
 }
 
 MsgPackStreamPrivate::~MsgPackStreamPrivate()
@@ -827,13 +842,18 @@ MsgPackStream::MsgPackStream(FileLike *d)
 {
 }
 
-MsgPackStream::MsgPackStream(string *a, bool writeMode)
-    : d_ptr(new MsgPackStreamPrivate(a, writeMode))
+MsgPackStream::MsgPackStream(string *a, BufferOwnership ownership, bool writeMode)
+    : d_ptr(new MsgPackStreamPrivate(a, ownership, writeMode))
 {
 }
 
-MsgPackStream::MsgPackStream(const char *a, size_t size)
-    : d_ptr(new MsgPackStreamPrivate(a, size))
+MsgPackStream::MsgPackStream(const char *a, size_t size, BufferOwnership ownership)
+    : d_ptr(new MsgPackStreamPrivate(a, size, ownership))
+{
+}
+
+MsgPackStream::MsgPackStream(const string &a, BufferOwnership ownership)
+    : d_ptr(new MsgPackStreamPrivate(a, ownership))
 {
 }
 

@@ -473,7 +473,7 @@ Value Value::unpack(qtng::MsgPackStream &s)
 std::string Value::pack(const Value &v)
 {
     std::string buf;
-    qtng::MsgPackStream s(&buf, true);
+    qtng::MsgPackStream s(&buf, qtng::BufferOwnership::Borrow, true);
     writeValue(s, saveState(v));
     if (!s.isOk()) {
         throw RpcSerializationException("can not pack value.");

@@ -113,7 +113,7 @@ public:
     {
         if (writeMode) {
             stringBuffer.reset(new string(toStdString(*a)));
-            stream.reset(new qtng_core::BencodeStream(stringBuffer.get(), true));
+            stream.reset(new qtng_core::BencodeStream(stringBuffer.get(), qtng_core::BufferOwnership::Borrow, true));
         } else {
             stream.reset(new qtng_core::BencodeStream(toStdString(*a)));
         }

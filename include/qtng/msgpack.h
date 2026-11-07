@@ -58,12 +58,9 @@ class MsgPackStream
 public:
     MsgPackStream();
     MsgPackStream(FileLike *d);
-    MsgPackStream(std::string *a, bool writeMode = false);
-    MsgPackStream(const char *a, size_t size);
-    inline MsgPackStream(const std::string &a)
-        : MsgPackStream(a.data(), a.size())
-    {
-    }
+    MsgPackStream(std::string *a, BufferOwnership ownership = BufferOwnership::Borrow, bool writeMode = false);
+    MsgPackStream(const char *a, size_t size, BufferOwnership ownership = BufferOwnership::Copy);
+    MsgPackStream(const std::string &a, BufferOwnership ownership = BufferOwnership::Copy);
     virtual ~MsgPackStream();
 
     void setDevice(FileLike *d);

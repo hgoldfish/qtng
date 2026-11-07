@@ -265,4 +265,10 @@ inline bool ngFromBigEndian24(const char *data, std::size_t size, std::size_t *o
         return instance; \
     }
 
+namespace qtng {
+
+enum class BufferOwnership { Copy, Borrow };
+
+}  // namespace qtng
+
 #endif  // QTNG_UTILS_PLATFORM_H

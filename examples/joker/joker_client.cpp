@@ -82,7 +82,7 @@ bool JokerServerConnection::connect(shared_ptr<Cipher> templateCipher)
     channel->setKeepaliveTimeout(30);
 
     string profile;
-    MsgPackStream mps(&profile, true);
+    MsgPackStream mps(&profile, BufferOwnership::Borrow, true);
     const uint16_t version = 1;
     mps << version << mtu;
     if (!channel->sendPacket(profile)) {
@@ -298,7 +298,7 @@ shared_ptr<SocketLike> JokerClient::connectToRemoteHost(const string &hostName, 
                                                         HostAddress *forwardAddress)
 {
     string command;
-    MsgPackStream mps(&command, true);
+    MsgPackStream mps(&command, BufferOwnership::Borrow, true);
 
     if (!hostName.empty()) {
         mps << static_cast<uint8_t>(0x01);

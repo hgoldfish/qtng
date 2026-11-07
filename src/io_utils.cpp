@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -898,36 +899,79 @@ class BytesIOPrivate
 public:
     explicit BytesIOPrivate(int32_t pos)
         : buf(nullptr)
+        , ext(nullptr)
+        , extSize(0)
         , pos(pos)
-        , ownbuf(false)
     {
     }
+
+    const char *readPtr() const
+    {
+        if (buf) {
+            return buf->data();
+        }
+        return ext;
+    }
+
+    size_t length() const
+    {
+        if (buf) {
+            return buf->size();
+        }
+        return extSize;
+    }
+
+    bool writable() const { return buf != nullptr; }
+
     string *buf;
     string owned;
+    const char *ext;
+    size_t extSize;
     int32_t pos;
-    bool ownbuf;
 };
 
-BytesIO::BytesIO(const char *buf, size_t size, int32_t pos)
+BytesIO::BytesIO(const char *buf, size_t size, BufferOwnership ownership, int32_t pos)
     : d_ptr(new BytesIOPrivate(pos))
 {
     NG_D(BytesIO);
-    d->owned.assign(buf, size);
+    if (ownership == BufferOwnership::Borrow) {
+        d->ext = buf;
+        d->extSize = size;
+    } else {
+        if (buf && size > 0) {
+            d->owned.assign(buf, size);
+        }
+        d->buf = &d->owned;
+    }
+}
+
+BytesIO::BytesIO(const string &buf, BufferOwnership ownership, int32_t pos)
+    : d_ptr(new BytesIOPrivate(pos))
+{
+    NG_D(BytesIO);
+    assert(ownership == BufferOwnership::Copy);
+    d->owned = buf;
     d->buf = &d->owned;
 }
 
-BytesIO::BytesIO(string *buf, int32_t pos)
+BytesIO::BytesIO(string *buf, BufferOwnership ownership, int32_t pos)
     : d_ptr(new BytesIOPrivate(pos))
 {
     NG_D(BytesIO);
-    d->buf = buf;
+    if (ownership == BufferOwnership::Borrow) {
+        d->buf = buf;
+    } else {
+        if (buf) {
+            d->owned = *buf;
+        }
+        d->buf = &d->owned;
+    }
 }
 
 BytesIO::BytesIO()
     : d_ptr(new BytesIOPrivate(0))
 {
     NG_D(BytesIO);
-    d->ownbuf = true;
     d->owned.clear();
     d->buf = &d->owned;
 }
@@ -940,15 +984,15 @@ BytesIO::~BytesIO()
 int32_t BytesIO::read(char *data, int32_t size)
 {
     NG_D(BytesIO);
-    if (!d->buf) {
+    if (!d->buf && !d->ext) {
         return -1;
     }
-    int32_t available = static_cast<int32_t>(d->buf->size()) - d->pos;
+    int32_t available = static_cast<int32_t>(d->length()) - d->pos;
     if (available <= 0) {
         return 0;
     }
     int32_t toRead = min(size, available);
-    memcpy(data, d->buf->data() + d->pos, static_cast<size_t>(toRead));
+    memcpy(data, d->readPtr() + d->pos, static_cast<size_t>(toRead));
     d->pos += toRead;
     return toRead;
 }
@@ -956,7 +1000,7 @@ int32_t BytesIO::read(char *data, int32_t size)
 int32_t BytesIO::write(const char *data, int32_t size)
 {
     NG_D(BytesIO);
-    if (!d->buf) {
+    if (!d->writable()) {
         return -1;
     }
     if (d->pos > static_cast<int32_t>(d->buf->size())) {
@@ -979,16 +1023,16 @@ void BytesIO::close()
 int64_t BytesIO::size()
 {
     NG_D(BytesIO);
-    if (!d->buf) {
+    if (!d->buf && !d->ext) {
         return -1;
     }
-    return static_cast<int64_t>(d->buf->size());
+    return static_cast<int64_t>(d->length());
 }
 
 string BytesIO::readall(bool *ok)
 {
     NG_D(BytesIO);
-    if (!d->buf) {
+    if (!d->buf && !d->ext) {
         if (ok) {
             *ok = false;
         }
@@ -997,16 +1041,25 @@ string BytesIO::readall(bool *ok)
     if (ok) {
         *ok = true;
     }
-    if (d->pos >= static_cast<int32_t>(d->buf->size())) {
+    if (d->pos >= static_cast<int32_t>(d->length())) {
         return string();
     }
-    return d->buf->substr(static_cast<size_t>(d->pos));
+    if (d->buf) {
+        return d->buf->substr(static_cast<size_t>(d->pos));
+    }
+    return string(d->ext + d->pos, d->extSize - static_cast<size_t>(d->pos));
 }
 
 string BytesIO::data()
 {
     NG_D(BytesIO);
-    return d->buf ? *d->buf : string();
+    if (d->buf) {
+        return *d->buf;
+    }
+    if (d->ext) {
+        return string(d->ext, d->extSize);
+    }
+    return string();
 }
 
 shared_ptr<FileLike> FileLike::bytes(const char *data, size_t size)

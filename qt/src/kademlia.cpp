@@ -101,9 +101,9 @@ public:
         return true;
     }
 
-    bool saveMeta(const qtng_core::NodeId &id, const string &tokenSecret) override
+    bool saveMeta(const qtng_core::NodeId &id, const char *tokenSecret, size_t size) override
     {
-        return qtStore->saveMeta(fromCoreNodeId(id), toQByteArray(tokenSecret));
+        return qtStore->saveMeta(fromCoreNodeId(id), QByteArray(tokenSecret, static_cast<int>(size)));
     }
 
     vector<qtng_core::DhtNodeInfo> loadNodes() override

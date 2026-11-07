@@ -2245,7 +2245,7 @@ bool HttpCacheManager::addResponse(HttpResponse &response)
     const vector<HttpHeader> headers = response.allHeaders();
     const string &body = response.body();
     string bs;
-    MsgPackStream ds(&bs, true);
+    MsgPackStream ds(&bs, BufferOwnership::Borrow, true);
     ds << statusCode;
     ds.writeString(statusText);
     ds << headers;
