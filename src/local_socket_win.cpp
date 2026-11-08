@@ -814,11 +814,13 @@ int32_t LocalSocketPrivate::send(const char *data, int32_t size, bool all)
     }
     HANDLE h = reinterpret_cast<HANDLE>(fd);
     int32_t sent = 0;
+    // SocketPrivate::send() contract: sendall (all=true) never returns a partial
+    // count; single-send may report how far it got before the error. Zero progress
+    // is always -1 — never a successful 0-byte write.
+    const auto failProgress = [&]() -> int32_t { return all ? -1 : (sent == 0 ? -1 : sent); };
     while (sent < size) {
         if (!checkState()) {
-            // SocketPrivate::send() contract: a single send() reports the bytes
-            // that went out, while a partial sendall() is an error.
-            return all ? -1 : sent;
+            return failProgress();
         }
         DWORD chunk = static_cast<DWORD>(std::min<int32_t>(size - sent, 64 * 1024));
         shared_ptr<PipeOverlappedOp> op = make_shared<PipeOverlappedOp>();
@@ -827,11 +829,11 @@ int32_t LocalSocketPrivate::send(const char *data, int32_t size, bool all)
             DWORD err = GetLastError();
             if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA) {
                 setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
-                return -1;
+                return failProgress();
             }
             setError(Socket::UnknownSocketError, WriteErrorString);
             abort();
-            return -1;
+            return failProgress();
         }
 
         DWORD transferred = 0;
@@ -841,30 +843,33 @@ int32_t LocalSocketPrivate::send(const char *data, int32_t size, bool all)
                 // is gone (see cancelAndDrain()); call it failed rather than
                 // report bytes nobody counted.
                 setError(Socket::UnfinishedSocketOperationError, "The socket operation was canceled");
-                return -1;
+                return failProgress();
+            }
+            // waitOverlapped() only returns true for SUCCESS/MORE_DATA, so ABORTED
+            // lands here after cancelAndDrain() (same shape as recv()).
+            if (op->errorCode == ERROR_OPERATION_ABORTED) {
+                return failProgress();
             }
             if (op->errorCode == ERROR_BROKEN_PIPE || op->errorCode == ERROR_NO_DATA) {
                 setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
-                return -1;
+                return failProgress();
             }
             setError(Socket::UnknownSocketError, WriteErrorString);
             abort();
-            return -1;
+            return failProgress();
         }
+        // waitOverlapped() only returns true for SUCCESS or MORE_DATA. MORE_DATA
+        // is not a meaningful write result — treat it as a hard failure.
         if (op->errorCode != ERROR_SUCCESS) {
-            if (op->errorCode == ERROR_BROKEN_PIPE || op->errorCode == ERROR_NO_DATA) {
-                setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
-                return -1;
-            }
             setError(Socket::UnknownSocketError, WriteErrorString);
             abort();
-            return -1;
+            return failProgress();
         }
         // A write that reports success but moved nothing means the peer is
         // gone. Without this, sendall() would retry the same offset forever.
         if (transferred == 0) {
             setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
-            return -1;
+            return failProgress();
         }
         sent += static_cast<int32_t>(transferred);
         if (!all) {

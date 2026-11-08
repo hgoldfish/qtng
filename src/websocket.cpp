@@ -1054,9 +1054,7 @@ void WebSocketConnectionPrivate::abort(int errorCode)
     if (operations->get("keepalive").get() != current) {
         operations->kill("keepalive");
     }
-    for (uint32_t i = 0; i < receivingQueue.getting(); ++i) {
-        receivingQueue.put(PacketToRead(WebSocketConnection::Unknown, string()));
-    }
+    receivingQueue.close();
     q_func()->disconnected()->set();
     if (disconnectedNotifier) {
         disconnectedNotifier();

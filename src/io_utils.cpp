@@ -1157,9 +1157,9 @@ bool PipePrivate::readMore(string &localBuffer, size_t &offset)
     do {
         string packet = queue.get();
         if (packet.empty()) {
-            // got empty packet means the pipe is closed in the other peer (EOF).
-            // note: closed may not be set yet (close() enqueues before flipping
-            // the flag), so the reader must track EOF itself, not rely on closed.
+            // empty result after Queue::close() (or a drained closed queue) is EOF.
+            // note: PipePrivate::closed may not be set yet (writer closes the queue
+            // before flipping the flag), so the reader must track EOF itself.
             reachedEof = true;
             break;
         }
@@ -1239,7 +1239,7 @@ public:
         }
 
         // buffer is empty: pull more data. readMore() blocks while the writer is
-        // still open (every putForcedly wakes it) and stops at the EOF sentinel.
+        // still open (every putForcedly wakes it) and stops once the queue is closed.
         // once eof is set we never touch the queue again, so this cannot deadlock
         // regardless of the order in which the writer flips its closed flag.
         if (!eof && localBuffer.size() - offset <= 0) {
@@ -1327,14 +1327,14 @@ public:
         if (!pp || pp->closed.load()) {
             return;
         }
-        // enqueue the remaining bytes and the EOF sentinel BEFORE setting closed.
+        // enqueue the remaining bytes and close the queue BEFORE setting closed.
         // otherwise a reader that checks the condition between closed=true and the
         // enqueue would skip readMore and lose this tail chunk.
         if (!localBuffer.empty()) {
             pp->queue.putForcedly(std::move(localBuffer));
             localBuffer.clear();
         }
-        pp->queue.putForcedly(string());  // signal EOF to the reader
+        pp->queue.close();
         pp->closed.store(true);
         if (pp->readyReadCallback) {
             pp->readyReadCallback();

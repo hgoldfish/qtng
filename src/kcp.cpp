@@ -1514,10 +1514,10 @@ bool MasterKcpStreamPrivate::close(bool force)
         return true;
     }
 
+    pendingSlaves.close();
     while (!pendingSlaves.isEmpty()) {
         delete pendingSlaves.get();
     }
-    pendingSlaves.put(nullptr);
 
     // connected and listen state would do more cleaning work.
     operations->killall();

@@ -926,10 +926,10 @@ bool MasterUtpStreamPrivate::close(bool force)
         state = Socket::UnconnectedState;
     }
 
+    pendingSlaves.close();
     while (!pendingSlaves.isEmpty()) {
         delete pendingSlaves.get();
     }
-    pendingSlaves.put(nullptr);
     operations->killall();
     link->abort();
     receivingQueueNotEmpty.set();

@@ -91,11 +91,18 @@ LmdbBuilder &LmdbBuilder::writeMap(bool writable)
     return *this;
 }
 
+LmdbBuilder &LmdbBuilder::readOnly(bool readOnly)
+{
+    m_readOnly = readOnly;
+    return *this;
+}
+
 QSharedPointer<Lmdb> LmdbBuilder::create()
 {
     qtng_core::Lmdb::Builder builder(toStdString(m_dirPath));
     builder.maxMapSize(m_maxMapSize).maxReaders(m_maxReaders).maxDbs(m_maxDbs).noSync(m_noSync).noSubDir(m_noSubDir)
-            .writeMap(m_writeMap);
+            .writeMap(m_writeMap)
+            .readOnly(m_readOnly);
     shared_ptr<qtng_core::Lmdb> core = builder.create();
     if (!core) {
         return QSharedPointer<Lmdb>();

@@ -350,10 +350,9 @@ bool PipePrivate::readMore(QByteArray &localBuffer, int &offset)
     do {
         const QByteArray packet = queue.get();
         if (packet.isEmpty()) {
-            // an empty packet is the EOF sentinel pushed by the writer's close();
-            // it is the last element, so the queue is empty once we have it. note
-            // that closed may not be set yet: close() enqueues before it flips the
-            // flag, so do not assert on it here.
+            // empty result after Queue::close() (or a drained closed queue) is EOF.
+            // note that PipePrivate::closed may not be set yet: the writer closes
+            // the queue before flipping the flag, so do not assert on it here.
             Q_ASSERT(queue.isEmpty());
             reachedEof = true;
             if (debugLevel >= 2) {
@@ -555,14 +554,14 @@ public:
         if (pp->debugLevel >= 2) {
             qWarning() << "close writing file of pipe.";
         }
-        // enqueue the remaining bytes and the EOF sentinel BEFORE setting closed.
+        // enqueue the remaining bytes and close the queue BEFORE setting closed.
         // otherwise a reader that checks the condition between closed=true and the
         // enqueue would skip readMore and lose this tail chunk.
         if (!localBuffer.isEmpty()) {
             pp->queue.putForcedly(std::move(localBuffer));
             localBuffer = QByteArray();
         }
-        pp->queue.putForcedly(QByteArray());
+        pp->queue.close();
         pp->closed = true;
         if (pp->shouldEmitReadyRead) {
             QMetaObject::invokeMethod(pp->q_ptr, "readyRead", Qt::AutoConnection);
@@ -765,14 +764,14 @@ public:
             return;
         }
 
-        // enqueue the remaining bytes and the EOF sentinel BEFORE setting closed.
+        // enqueue the remaining bytes and close the queue BEFORE setting closed.
         // otherwise a reader that checks the condition between closed=true and the
         // enqueue would skip readMore and lose this tail chunk.
         if (!localBuffer.isEmpty()) {
             pp->queue.putForcedly(std::move(localBuffer));
             localBuffer = QByteArray();
         }
-        pp->queue.putForcedly(QByteArray());
+        pp->queue.close();
         pp->closed = true;
         if (pp->shouldEmitReadyRead) {
             QMetaObject::invokeMethod(pp->q_ptr, "readyRead", Qt::AutoConnection);
