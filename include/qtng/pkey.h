@@ -22,6 +22,7 @@ public:
         Rsa = 1,
         Dsa = 2,
         Ec = 3,
+        Ed25519 = 4,
     };
 
     enum RsaPadding {  // copy from openssl header

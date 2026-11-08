@@ -42,6 +42,9 @@ public:
     virtual void onResize(const SshTerminalSize &size) = 0;
     virtual void onSignal(const std::string &name) = 0;
     virtual void onClose() = 0;
+    virtual void onStderr(const std::string &data) { (void) data; }
+    virtual void onExitStatus(std::uint32_t status) { (void) status; }
+    virtual void onExitSignal(const std::string &signalName) { (void) signalName; }
 };
 
 // A single SSH "session" channel. On the server side the application receives
@@ -59,6 +62,11 @@ public:
     // Receive data from the peer (blocking). Returns an empty string on EOF or
     // when the channel/connection is closed. At most maxSize bytes are returned.
     std::string recv(std::int32_t maxSize);
+    // Server/tests: send CHANNEL_EXTENDED_DATA stderr (data type 1).
+    std::int32_t sendStderr(const char *data, size_t size);
+    inline std::int32_t sendStderr(const std::string &data) { return sendStderr(data.data(), data.size()); }
+    // Client: receive stderr bytes (CHANNEL_EXTENDED_DATA type 1).
+    std::string recvStderr(std::int32_t maxSize);
     // Send EOF then close the channel.
     void close();
     bool isClosed() const;
@@ -69,10 +77,15 @@ public:
     // Client-side channel requests.
     bool requestPty(const std::string &term, std::uint32_t cols, std::uint32_t rows);
     bool requestShell();
+    bool requestExec(const std::string &command);
+    bool requestSubsystem(const std::string &name);
+    bool setEnv(const std::string &name, const std::string &value);
     bool requestWindowChange(std::uint32_t cols, std::uint32_t rows);
     bool sendSignal(const std::string &signalName);
     // Server-side: report the session exit status to the peer (RFC 4254 §6.10).
     bool sendExitStatus(std::uint32_t status);
+    bool hasExitStatus() const;
+    std::uint32_t exitStatus() const;
 private:
     friend class SshConnectionPrivate;
     friend class SshClientPrivate;
@@ -160,6 +173,10 @@ public:
     bool connect(const HostAddress &addr, std::uint16_t port);
     void setHostKeyVerifier(const std::shared_ptr<SshHostKeyVerifier> &verifier);
     void setLoginTimeout(float seconds);
+    void setServerAliveInterval(float seconds);
+    void setServerAliveCountMax(int count);
+    void setRekeyLimit(std::uint64_t bytes, float intervalSeconds);
+    void setCompression(bool enable);
     bool authenticate(const std::string &user, const std::string &password);
     bool authenticateWithPublicKey(const std::string &user, const PrivateKey &key);
     // Open a "session" channel; returns null on failure. The returned channel

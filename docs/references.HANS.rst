@@ -4550,19 +4550,37 @@ shell：``SshApplication`` 回调收到终端字节流以及 resize/信号通知
   ``start()`` 的 accept 循环调用，也可手动传入已连接的 ``SocketLike``（KCP、Noise、
   DataChannel、TLS 等），以便在任意底层传输上托管 SSH。
 * ``SshChannel`` — 单个 session 通道。``send()``/``recv()`` 传输终端字节流；
-  ``requestPty()`` / ``requestShell()`` / ``requestWindowChange()`` / ``sendSignal()``
-  是客户端通道请求；``sendExitStatus()`` 向对端上报会话退出状态（服务器在
-  ``SshApplication::run()`` 返回后会自动发送 ``exit-status`` 0）。
-* ``SshChannelCallback`` — 连接读循环投递的 resize / 信号 / 关闭通知
-  （服务器端；通过 ``SshChannel::setCallback()`` 安装）。
+  ``sendStderr()`` / ``recvStderr()`` 传输 ``SSH_MSG_CHANNEL_EXTENDED_DATA``
+  type 1。客户端通道请求：``requestPty()`` / ``requestShell()`` /
+  ``requestExec()`` / ``requestSubsystem()`` / ``setEnv()`` /
+  ``requestWindowChange()`` / ``sendSignal()``。``sendExitStatus()`` 上报退出状态；
+  ``hasExitStatus()`` / ``exitStatus()`` 读取对端 ``exit-status``。服务器在
+  ``SshApplication::run()`` 返回后会自动发送 ``exit-status`` 0。
+* ``SshChannelCallback`` — 连接读循环投递的 resize / 信号 / 关闭 / stderr /
+  exit-status / exit-signal 通知（通过 ``SshChannel::setCallback()`` 安装）。
 * ``SshAuthenticator`` — ``checkPassword()`` 和/或 ``checkPublicKey()``
-  （后者接收原始 SSH 公钥 blob，如 ``"ssh-rsa" || e || n``）。
+  （后者接收原始 SSH 公钥 blob，如 ``"ssh-rsa" || e || n`` 或
+  ``"ssh-ed25519" || key``）。
 
 **客户端**是协议客户端（非 TUI）：``SshClient::connect(host, port)`` /
 ``connect(HostAddress, port)`` 建立 TCP 连接；也可 ``connect(shared_ptr<SocketLike>)``
 接管已连接的任意 ``SocketLike``（KCP、Noise、DataChannel、TLS 等）。
-``SshHostKeyVerifier`` 进行 known_hosts 式主机密钥校验，``authenticate()`` /
-``authenticateWithPublicKey()`` 完成登录，``openSessionChannel()`` 返回 session 通道。
+版本交换遵循 RFC 4253 §5.1：对端标识 ``SSH-2.0-...`` 以及兼容形式 ``SSH-1.99-...``
+都按 SSH 协议 2 协商（单独的 ``SSH-1.x`` 会被拒绝）。
+``SshHostKeyVerifier`` 进行 known_hosts 式主机密钥校验；``authenticate()`` 先尝试
+``password``，若失败且服务器提供 ``keyboard-interactive`` 则按 RFC 4256 回退；
+``authenticateWithPublicKey()`` 用 RSA 或 Ed25519 公钥登录；``openSessionChannel()``
+返回 session 通道（成功 userauth 之后不再发第二次 ``SERVICE_REQUEST``）。
+传输选项：``setServerAliveInterval()`` / ``setServerAliveCountMax()``（OpenSSH 风格
+``keepalive@openssh.com``）、``setRekeyLimit(bytes, intervalSeconds)``（``0`` 关闭对应
+触发条件）、``setCompression(true)`` 以提供 ``zlib@openssh.com``（认证成功后延迟启用）。
+
+协商算法优先现代默认值并保留旧对端兼容：``curve25519-sha256`` KEX（含
+``ext-info-c`` / ``kex-strict-*`` 信号）、主机密钥 ``ssh-ed25519`` 再 RSA SHA-2、
+密码套件 ``chacha20-poly1305@openssh.com`` 再 AES-GCM 再 AES-CTR、MAC
+``hmac-sha2-256-etm@openssh.com`` / ``hmac-sha2-256`` / ``hmac-sha1``
+（AEAD 密码套件下不使用 MAC）。非目标：mux / ControlPersist、主机名 canonicalize、
+端口转发。
 
 可运行示例见 ``examples/ssh-bbs/``——一个基于 SSH 的 BBS 式服务器端终端应用，
 演示了 PTY 分配、窗口尺寸变更与信号投递::

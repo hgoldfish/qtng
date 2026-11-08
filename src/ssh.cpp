@@ -1,12 +1,17 @@
 #include "qtng/private/ssh_p.h"
+#include "qtng/private/crypto_p.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include <openssl/bn.h>
 #include <openssl/evp.h>
+#include <openssl/poly1305.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <zlib.h>
 
+#include "qtng/utils/datetime.h"
 #include "qtng/utils/logging.h"
 #include "qtng/utils/string_utils.h"
 
@@ -20,11 +25,83 @@ const uint32_t kLocalWindowSize = 2 * 1024 * 1024;
 const uint32_t kMaxPacketSize = 32 * 1024;
 const uint32_t kMaxPacketLength = 1024 * 1024;
 
-const vector<string> kKexAlgorithms = {"curve25519-sha256", "curve25519-sha256@libssh.org"};
-const vector<string> kHostKeyAlgorithms = {"rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"};
-const vector<string> kEncryptionAlgorithms = {"aes128-ctr", "aes256-ctr"};
-const vector<string> kMacAlgorithms = {"hmac-sha2-256", "hmac-sha1"};
-const vector<string> kCompressionAlgorithms = {"none"};
+const vector<string> kKexAlgorithmsBase = {"curve25519-sha256", "curve25519-sha256@libssh.org"};
+const vector<string> kHostKeyAlgorithms = {"ssh-ed25519", "rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"};
+const vector<string> kEncryptionAlgorithms = {"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com",
+                                              "aes256-gcm@openssh.com", "aes128-ctr", "aes256-ctr"};
+const vector<string> kMacAlgorithms = {"hmac-sha2-256-etm@openssh.com", "hmac-sha2-256", "hmac-sha1"};
+const char kExtInfoC[] = "ext-info-c";
+const char kStrictKexC[] = "kex-strict-c-v00@openssh.com";
+const char kStrictKexS[] = "kex-strict-s-v00@openssh.com";
+
+void poly1305Auth(unsigned char out[16], const unsigned char *m, size_t len, const unsigned char key[32])
+{
+    poly1305_state state;
+    CRYPTO_poly1305_init(&state, key);
+    CRYPTO_poly1305_update(&state, m, len);
+    CRYPTO_poly1305_finish(&state, out);
+}
+
+bool isAeadCipherName(const string &name)
+{
+    return name == "chacha20-poly1305@openssh.com" || name == "aes128-gcm@openssh.com"
+            || name == "aes256-gcm@openssh.com";
+}
+
+bool isChaChaCipherName(const string &name)
+{
+    return name == "chacha20-poly1305@openssh.com";
+}
+
+bool isEtmMacName(const string &name)
+{
+    return name.size() > 4 && name.compare(name.size() - 4, 4, "@openssh.com") == 0
+            && name.find("-etm@") != string::npos;
+}
+
+MessageDigest::Algorithm macHashForAlgo(const string &algo)
+{
+    if (algo == "hmac-sha1") {
+        return MessageDigest::Sha1;
+    }
+    if (algo.find("hmac-sha2-512") == 0) {
+        return MessageDigest::Sha512;
+    }
+    return MessageDigest::Sha256;
+}
+
+int macLengthForAlgo(const string &algo)
+{
+    if (algo == "hmac-sha1") {
+        return 20;
+    }
+    if (algo.find("hmac-sha2-512") == 0) {
+        return 64;
+    }
+    if (algo.find("hmac-sha2-256") == 0) {
+        return 32;
+    }
+    return 0;
+}
+
+bool chacha20Xor(const string &key32, const unsigned char iv[16], const unsigned char *in, unsigned char *out,
+                 size_t len)
+{
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        return false;
+    }
+    bool ok = EVP_EncryptInit_ex(ctx, EVP_chacha20(), nullptr,
+                                 reinterpret_cast<const unsigned char *>(key32.data()), iv)
+            == 1;
+    int outl = 0;
+    if (ok) {
+        ok = EVP_EncryptUpdate(ctx, out, &outl, in, static_cast<int>(len)) == 1
+                && static_cast<size_t>(outl) == len;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
+}
 
 string sshString(const string &s)
 {
@@ -286,6 +363,62 @@ bool sshParseRsaKeyBlob(const string &blob, PublicKey *key)
     return !key->isNull();
 }
 
+string sshEd25519KeyBlob(const PublicKey &key)
+{
+    EVP_PKEY *pkey = reinterpret_cast<EVP_PKEY *>(key.handle());
+    if (!pkey || EVP_PKEY_base_id(pkey) != EVP_PKEY_ED25519) {
+        return string();
+    }
+    size_t len = 32;
+    string raw(32, '\0');
+    if (EVP_PKEY_get_raw_public_key(pkey, reinterpret_cast<unsigned char *>(&raw[0]), &len) != 1 || len != 32) {
+        return string();
+    }
+    SshBuffer blob;
+    blob.putString("ssh-ed25519");
+    blob.putString(raw);
+    return blob.raw();
+}
+
+string sshPublicKeyBlob(const PublicKey &key)
+{
+    if (key.algorithm() == PublicKey::Ed25519) {
+        return sshEd25519KeyBlob(key);
+    }
+    return sshRsaKeyBlob(key);
+}
+
+bool sshParseEd25519KeyBlob(const string &blob, PublicKey *key)
+{
+    SshBuffer buf(blob);
+    string algo, raw;
+    if (!buf.getString(&algo) || algo != "ssh-ed25519" || !buf.getString(&raw) || raw.size() != 32) {
+        return false;
+    }
+    EVP_PKEY *pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr,
+                                                 reinterpret_cast<const unsigned char *>(raw.data()), raw.size());
+    if (!pkey) {
+        return false;
+    }
+    if (!openssl_setPkey(key, pkey, false)) {
+        EVP_PKEY_free(pkey);
+        return false;
+    }
+    return key->isValid();
+}
+
+bool sshParsePublicKeyBlob(const string &blob, PublicKey *key)
+{
+    const string algo = sshKeyAlgorithmName(blob);
+    if (algo == "ssh-ed25519") {
+        return sshParseEd25519KeyBlob(blob, key);
+    }
+    if (algo == "ssh-rsa") {
+        return sshParseRsaKeyBlob(blob, key);
+    }
+    return false;
+}
+
 SshChannelPrivate::SshChannelPrivate(SshConnectionPrivate *conn, uint32_t localId, uint32_t peerId,
                                      uint32_t remoteWindow, uint32_t localWindow, uint32_t maxPacketSize)
     : conn(conn)
@@ -300,6 +433,8 @@ SshChannelPrivate::SshChannelPrivate(SshConnectionPrivate *conn, uint32_t localI
     , closed(false)
     , remoteClosed(false)
     , exitStatusSent(false)
+    , hasExitStatus(false)
+    , exitStatus(0)
 {
 }
 
@@ -358,6 +493,56 @@ bool SshChannelPrivate::send(const string &data)
     return conn->sendChannelData(this, data);
 }
 
+string SshChannelPrivate::recvStderr(int32_t maxSize)
+{
+    string result;
+    while (static_cast<int32_t>(result.size()) < maxSize) {
+        if (stderrIncoming.isEmpty()) {
+            if (!result.empty() || eofReceived || closed || remoteClosed) {
+                break;
+            }
+            if (!stderrIncoming.waitNotEmpty()) {
+                break;
+            }
+            continue;
+        }
+        string chunk = stderrIncoming.get();
+        if (chunk.empty()) {
+            continue;
+        }
+        const size_t need = static_cast<size_t>(maxSize) - result.size();
+        if (chunk.size() <= need) {
+            result.append(chunk);
+        } else {
+            result.append(chunk, 0, need);
+            stderrIncoming.returns(chunk.substr(need));
+            break;
+        }
+    }
+    return result;
+}
+
+bool SshChannelPrivate::sendStderr(const string &data)
+{
+    if (closed || remoteClosed || eofSent) {
+        return false;
+    }
+    if (data.empty()) {
+        return true;
+    }
+    while (remoteWindow < data.size()) {
+        windowAdjust.clear();
+        if (!windowAdjust.tryWait(30000)) {
+            return false;
+        }
+        if (closed || remoteClosed) {
+            return false;
+        }
+    }
+    remoteWindow -= static_cast<uint32_t>(data.size());
+    return conn->sendChannelExtendedData(this, 1, data);
+}
+
 void SshChannelPrivate::closeChannel()
 {
     if (closed) {
@@ -370,12 +555,14 @@ void SshChannelPrivate::closeChannel()
     conn->sendChannelClose(this);
     closed = true;
     incoming.notifyNotEmpty();
+    stderrIncoming.notifyNotEmpty();
 }
 
 void SshChannelPrivate::notifyEof()
 {
     eofReceived = true;
     incoming.notifyNotEmpty();
+    stderrIncoming.notifyNotEmpty();
 }
 
 void SshChannelPrivate::notifyRemoteClose()
@@ -383,6 +570,7 @@ void SshChannelPrivate::notifyRemoteClose()
     eofReceived = true;
     remoteClosed = true;
     incoming.notifyNotEmpty();
+    stderrIncoming.notifyNotEmpty();
     if (callback) {
         callback->onClose();
     }
@@ -395,13 +583,35 @@ SshConnectionPrivate::SshConnectionPrivate()
     , error(Socket::NoError)
     , kexStarted(false)
     , kexDone(false)
+    , initialKexDone(false)
+    , rekeyInProgress(false)
     , peerExtInfoC(false)
+    , peerExtInfoS(false)
+    , peerStrictKex(false)
+    , localStrictKex(false)
+    , strictKexActive(false)
     , sendSeq(0)
     , recvSeq(0)
     , blockSize(8)
     , macLength(0)
     , sendEncrypted(false)
     , recvEncrypted(false)
+    , macEtm(false)
+    , isAeadCipher(false)
+    , isChaChaCipher(false)
+    , delayedCompressionActive(false)
+    , sendZ(nullptr)
+    , recvZ(nullptr)
+    , bytesSent(0)
+    , bytesReceived(0)
+    , rekeyLimitBytes(0)
+    , rekeyIntervalSeconds(0.0f)
+    , lastRekeyTimeMs(0)
+    , serverAliveInterval(0.0f)
+    , serverAliveCountMax(3)
+    , serverAliveOutstanding(0)
+    , compressionEnabled(false)
+    , connectionServiceAccepted(false)
     , maxAuthTries(6)
     , authTries(0)
     , authenticated(false)
@@ -420,6 +630,16 @@ SshConnectionPrivate::SshConnectionPrivate()
 
 SshConnectionPrivate::~SshConnectionPrivate()
 {
+    if (sendZ) {
+        deflateEnd(sendZ);
+        delete sendZ;
+        sendZ = nullptr;
+    }
+    if (recvZ) {
+        inflateEnd(recvZ);
+        delete recvZ;
+        recvZ = nullptr;
+    }
 }
 
 void SshConnectionPrivate::setError(const string &message, Socket::SocketError err)
@@ -512,8 +732,13 @@ bool SshConnectionPrivate::startClient(const shared_ptr<SocketLike> &sock, float
 void SshConnectionPrivate::stopClient()
 {
     running = false;
+    connectionClosed.set();
     if (socket) {
         socket->abort();
+    }
+    if (keepaliveCoroutine) {
+        keepaliveCoroutine->join();
+        keepaliveCoroutine.reset();
     }
     if (readLoopCoroutine) {
         readLoopCoroutine->join();
@@ -543,6 +768,19 @@ string SshConnectionPrivate::readLine()
     return line;
 }
 
+bool sshIsProtocol2Identification(const string &line)
+{
+    // RFC 4253 §5.1: servers that still advertise SSH-1 compatibility send
+    // "SSH-1.99-..."; clients must treat that as protocol 2.
+    if (line.size() >= 8 && line.compare(0, 8, "SSH-1.99") == 0) {
+        return true;
+    }
+    if (line.size() >= 7 && line.compare(0, 7, "SSH-2.0") == 0) {
+        return true;
+    }
+    return false;
+}
+
 bool SshConnectionPrivate::readVersion()
 {
     if (serverSide) {
@@ -570,7 +808,7 @@ bool SshConnectionPrivate::readVersion()
             return false;
         }
     }
-    if (peerVersion.size() < 7 || peerVersion.substr(0, 7) != "SSH-2.0") {
+    if (!sshIsProtocol2Identification(peerVersion)) {
         setError("unsupported protocol version: " + peerVersion);
         return false;
     }
@@ -587,15 +825,16 @@ bool SshConnectionPrivate::sendKexInit()
 {
     SshBuffer buf;
     buf.putByte(SSH_MSG_KEXINIT);
-    buf.putBytes(randomBytes(16));  // cookie
-    buf.putNameList(kKexAlgorithms);
-    buf.putNameList(kHostKeyAlgorithms);
+    buf.putBytes(randomBytes(16));
+    buf.putNameList(kexAlgorithmsForRole());
+    buf.putNameList(hostKeyAlgorithmsForKey());
     buf.putNameList(kEncryptionAlgorithms);
     buf.putNameList(kEncryptionAlgorithms);
     buf.putNameList(kMacAlgorithms);
     buf.putNameList(kMacAlgorithms);
-    buf.putNameList(kCompressionAlgorithms);
-    buf.putNameList(kCompressionAlgorithms);
+    const vector<string> comps = compressionAlgorithms();
+    buf.putNameList(comps);
+    buf.putNameList(comps);
     buf.putNameList(vector<string>());
     buf.putNameList(vector<string>());
     buf.putBoolean(false);
@@ -604,8 +843,44 @@ bool SshConnectionPrivate::sendKexInit()
     return sendPacket(myKexInitPayload);
 }
 
+vector<string> SshConnectionPrivate::kexAlgorithmsForRole() const
+{
+    vector<string> names = kKexAlgorithmsBase;
+    if (serverSide) {
+        names.push_back(kStrictKexS);
+    } else {
+        names.push_back(kExtInfoC);
+        names.push_back(kStrictKexC);
+    }
+    return names;
+}
+
+vector<string> SshConnectionPrivate::hostKeyAlgorithmsForKey() const
+{
+    if (!serverSide) {
+        return kHostKeyAlgorithms;
+    }
+    if (hostKey.algorithm() == PublicKey::Ed25519) {
+        return vector<string>({"ssh-ed25519"});
+    }
+    return vector<string>({"rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"});
+}
+
+vector<string> SshConnectionPrivate::compressionAlgorithms() const
+{
+    if (compressionEnabled || serverSide) {
+        return vector<string>({"zlib@openssh.com", "none"});
+    }
+    return vector<string>({"none"});
+}
+
 bool SshConnectionPrivate::handleKexInitMessage(const string &payload)
 {
+    if (kexDone && !rekeyInProgress) {
+        if (!beginRekey(true)) {
+            return false;
+        }
+    }
     peerKexInitPayload = payload;
     maybeStartKex();
     return true;
@@ -613,7 +888,7 @@ bool SshConnectionPrivate::handleKexInitMessage(const string &payload)
 
 void SshConnectionPrivate::maybeStartKex()
 {
-    if (kexStarted || kexDone || error != Socket::NoError) {
+    if (kexStarted || error != Socket::NoError) {
         return;
     }
     if (myKexInitPayload.empty() || peerKexInitPayload.empty()) {
@@ -641,8 +916,8 @@ bool SshConnectionPrivate::sendKexEcdhInit()
 
 bool SshConnectionPrivate::negotiateAlgorithms()
 {
-    vector<string> myKex, myHk, myEnc, myMac;
-    vector<string> peerKex, peerHk, peerEnc, peerMac;
+    vector<string> myKex, myHk, myEnc, myMac, myComp;
+    vector<string> peerKex, peerHk, peerEnc, peerMac, peerComp;
     SshBuffer my(myKexInitPayload);
     SshBuffer peer(peerKexInitPayload);
     uint8_t type;
@@ -661,53 +936,82 @@ bool SshConnectionPrivate::negotiateAlgorithms()
     my.getNameList(&myEnc);
     my.getNameList(&myMac);
     my.getNameList(&myMac);
+    my.getNameList(&myComp);
+    my.getNameList(&myComp);
     peer.getNameList(&peerKex);
     peer.getNameList(&peerHk);
     peer.getNameList(&peerEnc);
     peer.getNameList(&peerEnc);
     peer.getNameList(&peerMac);
     peer.getNameList(&peerMac);
-    peerExtInfoC = std::find(peerKex.begin(), peerKex.end(), "ext-info-c") != peerKex.end();
+    peer.getNameList(&peerComp);
+    peer.getNameList(&peerComp);
+    peerExtInfoC = find(peerKex.begin(), peerKex.end(), kExtInfoC) != peerKex.end();
+    peerExtInfoS = find(peerKex.begin(), peerKex.end(), "ext-info-s") != peerKex.end();
+    peerStrictKex = find(peerKex.begin(), peerKex.end(), serverSide ? kStrictKexC : kStrictKexS) != peerKex.end();
+    localStrictKex = find(myKex.begin(), myKex.end(), serverSide ? kStrictKexS : kStrictKexC) != myKex.end();
+    strictKexActive = peerStrictKex && localStrictKex;
 
-    // RFC 4253 §7.1: the first algorithm on the *client's* list that also
-    // appears on the server's list is chosen, so each side must search the
-    // peer's (client's) proposal when it is the server.
     if (serverSide) {
         kexAlgo = pickAlgorithm(peerKex, myKex);
         hostKeyAlgo = pickAlgorithm(peerHk, myHk);
         cipherAlgo = pickAlgorithm(peerEnc, myEnc);
         macAlgo = pickAlgorithm(peerMac, myMac);
+        compressionAlgo = pickAlgorithm(peerComp, myComp);
     } else {
         kexAlgo = pickAlgorithm(myKex, peerKex);
         hostKeyAlgo = pickAlgorithm(myHk, peerHk);
         cipherAlgo = pickAlgorithm(myEnc, peerEnc);
         macAlgo = pickAlgorithm(myMac, peerMac);
+        compressionAlgo = pickAlgorithm(myComp, peerComp);
     }
-    if (kexAlgo.empty() || hostKeyAlgo.empty() || cipherAlgo.empty() || macAlgo.empty()) {
+    if (kexAlgo == kExtInfoC || kexAlgo == kStrictKexC || kexAlgo == kStrictKexS || kexAlgo == "ext-info-s") {
+        setError("no common kex algorithms");
+        return false;
+    }
+    if (kexAlgo.empty() || hostKeyAlgo.empty() || cipherAlgo.empty()) {
         setError("no common algorithms");
         return false;
+    }
+    if (compressionAlgo.empty()) {
+        compressionAlgo = "none";
     }
     if (kexAlgo != "curve25519-sha256" && kexAlgo != "curve25519-sha256@libssh.org") {
         setError("unsupported kex algorithm: " + kexAlgo);
         return false;
     }
-    if (hostKeyAlgo != "rsa-sha2-256" && hostKeyAlgo != "rsa-sha2-512" && hostKeyAlgo != "ssh-rsa") {
+    if (hostKeyAlgo != "rsa-sha2-256" && hostKeyAlgo != "rsa-sha2-512" && hostKeyAlgo != "ssh-rsa"
+        && hostKeyAlgo != "ssh-ed25519") {
         setError("unsupported host key algorithm: " + hostKeyAlgo);
         return false;
     }
-    if (cipherAlgo != "aes128-ctr" && cipherAlgo != "aes256-ctr") {
-        setError("unsupported cipher: " + cipherAlgo);
-        return false;
-    }
-    blockSize = 16;
-    if (macAlgo == "hmac-sha2-256") {
-        macLength = 32;
-    } else if (macAlgo == "hmac-sha1") {
-        macLength = 20;
-    } else if (macAlgo == "hmac-sha2-512") {
-        macLength = 64;
+    isChaChaCipher = isChaChaCipherName(cipherAlgo);
+    isAeadCipher = isAeadCipherName(cipherAlgo);
+    macEtm = false;
+    if (isChaChaCipher) {
+        blockSize = 8;
+        macLength = 16;
+        macAlgo = "none";
+    } else if (cipherAlgo == "aes128-gcm@openssh.com" || cipherAlgo == "aes256-gcm@openssh.com") {
+        blockSize = 16;
+        macLength = 16;
+        if (macAlgo.empty()) {
+            macAlgo = "hmac-sha2-256";
+        }
+    } else if (cipherAlgo == "aes128-ctr" || cipherAlgo == "aes256-ctr") {
+        blockSize = 16;
+        if (macAlgo.empty()) {
+            setError("no common MAC");
+            return false;
+        }
+        macEtm = isEtmMacName(macAlgo);
+        macLength = macLengthForAlgo(macAlgo);
+        if (macLength <= 0) {
+            setError("unsupported MAC: " + macAlgo);
+            return false;
+        }
     } else {
-        setError("unsupported MAC: " + macAlgo);
+        setError("unsupported cipher: " + cipherAlgo);
         return false;
     }
     return true;
@@ -715,36 +1019,29 @@ bool SshConnectionPrivate::negotiateAlgorithms()
 
 void SshConnectionPrivate::computeExchangeHash(const string &serverHostKeyBlob)
 {
-    // RFC 4253 §8: V_C, V_S, I_C, I_S, K_S, Q_C, Q_S are all SSH "string"
-    // values (4-byte length prefix) and K is an mpint.
-    // OpenSSH stores the identification strings WITHOUT the trailing CRLF
-    // (it trims it after sending, and strips it while reading), so V_C/V_S
-    // must not include the CRLF to interoperate.
-    const string peerVersionStr = sshString(peerVersion);       // the peer's identification string
-    const string localVersionStr = sshString(localVersion);     // our identification string
-    const string peerKexStr = sshString(peerKexInitPayload);    // the peer's KEXINIT payload
-    const string localKexStr = sshString(myKexInitPayload);     // our KEXINIT payload
-    const string ksStr = sshString(serverHostKeyBlob);      // K_S
-    const string qcStr = sshString(clientEphPub);           // Q_C
-    const string qsStr = sshString(serverEphPub);           // Q_S
-    const string kMpint = sshMpintString(sharedSecret);  // K
+    const string peerVersionStr = sshString(peerVersion);
+    const string localVersionStr = sshString(localVersion);
+    const string peerKexStr = sshString(peerKexInitPayload);
+    const string localKexStr = sshString(myKexInitPayload);
+    const string ksStr = sshString(serverHostKeyBlob);
+    const string qcStr = sshString(clientEphPub);
+    const string qsStr = sshString(serverEphPub);
+    const string kMpint = sshMpintString(sharedSecret);
 
-    // RFC 4253 §8 hashes V_C, V_S, I_C, I_S in that order: the client's
-    // identification/KEXINIT first, then the server's.
-    const string vc = serverSide ? peerVersionStr : localVersionStr;  // V_C
-    const string vs = serverSide ? localVersionStr : peerVersionStr;  // V_S
-    const string ic = serverSide ? peerKexStr : localKexStr;          // I_C
-    const string is = serverSide ? localKexStr : peerKexStr;          // I_S
+    const string vc = serverSide ? peerVersionStr : localVersionStr;
+    const string vs = serverSide ? localVersionStr : peerVersionStr;
+    const string ic = serverSide ? peerKexStr : localKexStr;
+    const string is = serverSide ? localKexStr : peerKexStr;
 
     MessageDigest md(MessageDigest::Sha256);
     md.addData(vc.data(), static_cast<int>(vc.size()));
     md.addData(vs.data(), static_cast<int>(vs.size()));
     md.addData(ic.data(), static_cast<int>(ic.size()));
     md.addData(is.data(), static_cast<int>(is.size()));
-    md.addData(ksStr.data(), static_cast<int>(ksStr.size()));  // K_S
-    md.addData(qcStr.data(), static_cast<int>(qcStr.size()));  // Q_C
-    md.addData(qsStr.data(), static_cast<int>(qsStr.size()));  // Q_S
-    md.addData(kMpint.data(), static_cast<int>(kMpint.size()));  // K
+    md.addData(ksStr.data(), static_cast<int>(ksStr.size()));
+    md.addData(qcStr.data(), static_cast<int>(qcStr.size()));
+    md.addData(qsStr.data(), static_cast<int>(qsStr.size()));
+    md.addData(kMpint.data(), static_cast<int>(kMpint.size()));
     exchangeHash = md.result();
     if (sessionId.empty()) {
         sessionId = exchangeHash;
@@ -774,20 +1071,40 @@ string SshConnectionPrivate::deriveKey(char label, size_t len)
 
 bool SshConnectionPrivate::deriveKeys()
 {
-    const size_t keyLen = (cipherAlgo == "aes256-ctr") ? 32 : 16;
-    const size_t ivLen = 16;
+    size_t keyLen = 16;
+    size_t ivLen = 16;
+    size_t macLen = static_cast<size_t>(macLength);
+    if (isChaChaCipher) {
+        keyLen = 64;
+        ivLen = 0;
+        macLen = 0;
+    } else if (cipherAlgo == "aes256-gcm@openssh.com") {
+        keyLen = 32;
+        ivLen = 12;
+        macLen = 0;
+    } else if (cipherAlgo == "aes128-gcm@openssh.com") {
+        keyLen = 16;
+        ivLen = 12;
+        macLen = 0;
+    } else if (cipherAlgo == "aes256-ctr") {
+        keyLen = 32;
+        ivLen = 16;
+    } else {
+        keyLen = 16;
+        ivLen = 16;
+    }
     keyC2S = deriveKey('C', keyLen);
     keyS2C = deriveKey('D', keyLen);
-    ivC2S = deriveKey('A', ivLen);
-    ivS2C = deriveKey('B', ivLen);
-    macC2S = deriveKey('E', static_cast<size_t>(macLength));
-    macS2C = deriveKey('F', static_cast<size_t>(macLength));
+    ivC2S = ivLen ? deriveKey('A', ivLen) : string();
+    ivS2C = ivLen ? deriveKey('B', ivLen) : string();
+    macC2S = macLen ? deriveKey('E', macLen) : string();
+    macS2C = macLen ? deriveKey('F', macLen) : string();
     return true;
 }
 
 bool SshConnectionPrivate::handleKexEcdhInit(const string &payload)
 {
-    if (!serverSide || kexDone) {
+    if (!serverSide) {
         return true;
     }
     SshBuffer buf(payload);
@@ -806,13 +1123,18 @@ bool SshConnectionPrivate::handleKexEcdhInit(const string &payload)
         setError("x25519 key agreement failed");
         return false;
     }
-    const string ks = sshRsaKeyBlob(hostKey.publicKey());
+    const string ks = sshPublicKeyBlob(hostKey.publicKey());
     if (ks.empty()) {
-        setError("host key is not an RSA key");
+        setError("unsupported host key type");
         return false;
     }
     computeExchangeHash(ks);
-    const string signature = hostKey.sign(exchangeHash, rsaHashForAlgo(hostKeyAlgo));
+    string signature;
+    if (hostKeyAlgo == "ssh-ed25519") {
+        signature = hostKey.sign(exchangeHash, MessageDigest::Sha256);
+    } else {
+        signature = hostKey.sign(exchangeHash, rsaHashForAlgo(hostKeyAlgo));
+    }
     if (signature.empty()) {
         setError("host key signing failed");
         return false;
@@ -835,12 +1157,14 @@ bool SshConnectionPrivate::handleKexEcdhInit(const string &payload)
         return false;
     }
     kexDone = true;
+    rekeyInProgress = false;
+    kexDoneEvent.set();
     return true;
 }
 
 bool SshConnectionPrivate::handleKexEcdhReply(const string &payload)
 {
-    if (serverSide || kexDone) {
+    if (serverSide) {
         return true;
     }
     SshBuffer buf(payload);
@@ -858,13 +1182,19 @@ bool SshConnectionPrivate::handleKexEcdhReply(const string &payload)
         return false;
     }
     PublicKey serverKey;
-    if (!sshParseRsaKeyBlob(ks, &serverKey)) {
+    if (!sshParsePublicKeyBlob(ks, &serverKey)) {
         setError("bad host key");
         return false;
     }
-    if (hostKeyVerifier && !hostKeyVerifier->verify(socket ? socket->peerName() : string(), ks)) {
-        setError("host key rejected by verifier", Socket::OperationError);
-        return false;
+    if (hostKeyVerifier) {
+        string host = peerHostName;
+        if (host.empty() && socket) {
+            host = socket->peerName();
+        }
+        if (!hostKeyVerifier->verify(host, ks)) {
+            setError("host key rejected by verifier", Socket::OperationError);
+            return false;
+        }
     }
     computeExchangeHash(ks);
     SshBuffer sigBuf(sigMsg);
@@ -873,7 +1203,13 @@ bool SshConnectionPrivate::handleKexEcdhReply(const string &payload)
         setError("bad signature message");
         return false;
     }
-    if (!serverKey.verify(exchangeHash, sig, rsaHashForAlgo(sigAlgo))) {
+    bool ok = false;
+    if (sigAlgo == "ssh-ed25519") {
+        ok = serverKey.verify(exchangeHash, sig, MessageDigest::Sha256);
+    } else {
+        ok = serverKey.verify(exchangeHash, sig, rsaHashForAlgo(sigAlgo));
+    }
+    if (!ok) {
         setError("host key signature verification failed");
         return false;
     }
@@ -884,27 +1220,96 @@ bool SshConnectionPrivate::handleKexEcdhReply(const string &payload)
         return false;
     }
     kexDone = true;
+    rekeyInProgress = false;
     kexDoneEvent.set();
+    return true;
+}
+
+bool SshConnectionPrivate::setupTransportKeys(bool sendSide)
+{
+    const string &k = sendSide ? (serverSide ? keyS2C : keyC2S) : (serverSide ? keyC2S : keyS2C);
+    const string &iv = sendSide ? (serverSide ? ivS2C : ivC2S) : (serverSide ? ivC2S : ivS2C);
+    const string &macKey = sendSide ? (serverSide ? macS2C : macC2S) : (serverSide ? macC2S : macS2C);
+    if (isChaChaCipher) {
+        if (sendSide) {
+            sendChaChaKey = k;
+            sendCipher.reset();
+            sendAead.reset();
+            sendMacKey.clear();
+            sendEncrypted = true;
+        } else {
+            recvChaChaKey = k;
+            recvCipher.reset();
+            recvAead.reset();
+            recvMacKey.clear();
+            recvEncrypted = true;
+        }
+        return true;
+    }
+    if (cipherAlgo == "aes128-gcm@openssh.com" || cipherAlgo == "aes256-gcm@openssh.com") {
+        Aead::Algorithm algo = (cipherAlgo == "aes256-gcm@openssh.com") ? Aead::Aes256Gcm : Aead::Aes128Gcm;
+        unique_ptr<Aead> aead(new Aead(algo));
+        if (!aead->setKey(k)) {
+            setError("aead key init failed");
+            return false;
+        }
+        string gcmIv = iv;
+        if (gcmIv.size() < 12) {
+            gcmIv.resize(12, '\0');
+        } else {
+            gcmIv.resize(12);
+        }
+        if (sendSide) {
+            sendAead = std::move(aead);
+            sendCipher.reset();
+            sendMacKey.clear();
+            sendGcmIv = gcmIv;
+            sendEncrypted = true;
+        } else {
+            recvAead = std::move(aead);
+            recvCipher.reset();
+            recvMacKey.clear();
+            recvGcmIv = gcmIv;
+            recvEncrypted = true;
+        }
+        return true;
+    }
+    Cipher::Algorithm algo = (cipherAlgo == "aes256-ctr") ? Cipher::AES256 : Cipher::AES128;
+    unique_ptr<Cipher> cipher(new Cipher(algo, Cipher::CTR, sendSide ? Cipher::Encrypt : Cipher::Decrypt));
+    cipher->setKey(k);
+    if (!cipher->setInitialVector(iv)) {
+        setError(sendSide ? "send cipher init failed" : "receive cipher init failed");
+        return false;
+    }
+    if (sendSide) {
+        sendCipher = std::move(cipher);
+        sendAead.reset();
+        sendMacKey = macKey;
+        sendEncrypted = true;
+    } else {
+        recvCipher = std::move(cipher);
+        recvAead.reset();
+        recvMacKey = macKey;
+        recvEncrypted = true;
+    }
     return true;
 }
 
 bool SshConnectionPrivate::handleNewKeysMessage()
 {
-    if (recvEncrypted) {
-        return true;
-    }
-    Cipher::Algorithm algo = (cipherAlgo == "aes256-ctr") ? Cipher::AES256 : Cipher::AES128;
-    recvCipher.reset(new Cipher(algo, Cipher::CTR, Cipher::Decrypt));
-    const string &k = serverSide ? keyC2S : keyS2C;
-    const string &iv = serverSide ? ivC2S : ivS2C;
-    // setKey() cannot succeed until the IV is set; check the final call only.
-    recvCipher->setKey(k);
-    if (!recvCipher->setInitialVector(iv)) {
-        setError("receive cipher init failed");
+    if (!setupTransportKeys(false)) {
         return false;
     }
-    recvMacKey = serverSide ? macC2S : macS2C;
-    recvEncrypted = true;
+    if (strictKexActive && !initialKexDone) {
+        recvSeq = 0;
+    }
+    if (!initialKexDone) {
+        initialKexDone = true;
+    }
+    lastRekeyTimeMs = utils::DateTime::currentMSecsSinceEpoch();
+    bytesSent = 0;
+    bytesReceived = 0;
+    rekeyInProgress = false;
     return true;
 }
 
@@ -915,29 +1320,18 @@ bool SshConnectionPrivate::sendNewKeys()
     if (!sendPacket(buf.raw())) {
         return false;
     }
-    if (!sendEncrypted) {
-        Cipher::Algorithm algo = (cipherAlgo == "aes256-ctr") ? Cipher::AES256 : Cipher::AES128;
-        sendCipher.reset(new Cipher(algo, Cipher::CTR, Cipher::Encrypt));
-        const string &k = serverSide ? keyS2C : keyC2S;
-        const string &iv = serverSide ? ivS2C : ivC2S;
-        sendCipher->setKey(k);
-        if (!sendCipher->setInitialVector(iv)) {
-            setError("send cipher init failed");
-            return false;
-        }
-        sendMacKey = serverSide ? macS2C : macC2S;
-        sendEncrypted = true;
+    if (!setupTransportKeys(true)) {
+        return false;
     }
-    // RFC 8308: a server that advertises support for ext-info-c in its peer's
-    // KEXINIT must send SSH_MSG_EXT_INFO as the first packet after NEWKEYS.
-    // Advertise the RSA signature algorithms so OpenSSH clients can pick a
-    // SHA-2 based signature instead of ssh-rsa (often disabled by policy).
-    if (serverSide && peerExtInfoC) {
+    if (strictKexActive && !initialKexDone) {
+        sendSeq = 0;
+    }
+    if (serverSide && peerExtInfoC && !initialKexDone) {
         SshBuffer ext;
         ext.putByte(SSH_MSG_EXT_INFO);
         ext.putUint32(1);
         ext.putString("server-sig-algs");
-        ext.putString("rsa-sha2-512,rsa-sha2-256");
+        ext.putString("ssh-ed25519,rsa-sha2-512,rsa-sha2-256");
         if (!sendPacket(ext.raw())) {
             return false;
         }
@@ -945,7 +1339,80 @@ bool SshConnectionPrivate::sendNewKeys()
     return true;
 }
 
-bool SshConnectionPrivate::sendPacket(const string &payload)
+bool SshConnectionPrivate::chachaDecryptLength(uint32_t seq, const string &key, const string &encLen4,
+                                               uint32_t *packetLen)
+{
+    if (key.size() < 64 || encLen4.size() != 4) {
+        return false;
+    }
+    unsigned char seqbuf[16];
+    memset(seqbuf, 0, sizeof(seqbuf));
+    ngToBigEndian(static_cast<uint64_t>(seq), seqbuf + 8);
+    string plain(4, '\0');
+    if (!chacha20Xor(key.substr(32, 32), seqbuf, reinterpret_cast<const unsigned char *>(encLen4.data()),
+                     reinterpret_cast<unsigned char *>(&plain[0]), 4)) {
+        return false;
+    }
+    *packetLen = readBe32(plain);
+    return true;
+}
+
+bool SshConnectionPrivate::chachaCrypt(bool encrypt, uint32_t seq, const string &key, string *packetWithTag)
+{
+    if (key.size() < 64 || !packetWithTag || packetWithTag->size() < 4) {
+        return false;
+    }
+    const size_t aadlen = 4;
+    const size_t taglen = 16;
+    unsigned char seqbuf[16];
+    memset(seqbuf, 0, sizeof(seqbuf));
+    ngToBigEndian(static_cast<uint64_t>(seq), seqbuf + 8);
+
+    unsigned char polyKey[32];
+    memset(polyKey, 0, sizeof(polyKey));
+    if (!chacha20Xor(key.substr(0, 32), seqbuf, polyKey, polyKey, sizeof(polyKey))) {
+        return false;
+    }
+
+    if (!encrypt) {
+        if (packetWithTag->size() < aadlen + taglen) {
+            return false;
+        }
+        const size_t ctLen = packetWithTag->size() - taglen;
+        unsigned char expected[16];
+        poly1305Auth(expected, reinterpret_cast<const unsigned char *>(packetWithTag->data()), ctLen, polyKey);
+        if (memcmp(expected, packetWithTag->data() + ctLen, 16) != 0) {
+            return false;
+        }
+    }
+
+    string out = *packetWithTag;
+    if (!encrypt) {
+        out.resize(packetWithTag->size() - taglen);
+    }
+    if (!chacha20Xor(key.substr(32, 32), seqbuf, reinterpret_cast<const unsigned char *>(out.data()),
+                     reinterpret_cast<unsigned char *>(&out[0]), aadlen)) {
+        return false;
+    }
+    seqbuf[0] = 1;
+    const size_t payloadLen = out.size() - aadlen;
+    if (payloadLen > 0) {
+        if (!chacha20Xor(key.substr(0, 32), seqbuf,
+                         reinterpret_cast<const unsigned char *>(out.data() + aadlen),
+                         reinterpret_cast<unsigned char *>(&out[0] + aadlen), payloadLen)) {
+            return false;
+        }
+    }
+    if (encrypt) {
+        unsigned char tag[16];
+        poly1305Auth(tag, reinterpret_cast<const unsigned char *>(out.data()), out.size(), polyKey);
+        out.append(reinterpret_cast<const char *>(tag), 16);
+    }
+    *packetWithTag = out;
+    return true;
+}
+
+bool SshConnectionPrivate::sendPacket(const string &payloadIn)
 {
     ScopedLock<Lock> lock(sendLock);
     if (!lock.isSuccess()) {
@@ -954,13 +1421,25 @@ bool SshConnectionPrivate::sendPacket(const string &payload)
     if (!socket || !socket->isValid()) {
         return false;
     }
-    // RFC 4253 §6: packet_length must be a multiple of the cipher block size
-    // or 8, whichever is larger. blockSize is 8 before key exchange and 16
-    // for aes128-ctr/aes256-ctr after negotiation.
-    const uint32_t align = blockSize;
+    string payload = payloadIn;
+    if (delayedCompressionActive) {
+        string compressed;
+        if (!compressPayload(payload, &compressed)) {
+            setError("compression failed");
+            return false;
+        }
+        payload = compressed;
+    }
+    const uint32_t align = static_cast<uint32_t>(blockSize);
     uint32_t pad = 4;
-    while ((4 + 1 + static_cast<uint32_t>(payload.size()) + pad) % align != 0) {
-        ++pad;
+    if (sendEncrypted && (isAeadCipher || isChaChaCipher)) {
+        while ((1 + static_cast<uint32_t>(payload.size()) + pad) % align != 0) {
+            ++pad;
+        }
+    } else {
+        while ((4 + 1 + static_cast<uint32_t>(payload.size()) + pad) % align != 0) {
+            ++pad;
+        }
     }
     string plaintext;
     const size_t plainLenPos = plaintext.size();
@@ -969,27 +1448,60 @@ bool SshConnectionPrivate::sendPacket(const string &payload)
     plaintext.push_back(static_cast<char>(pad));
     plaintext.append(payload);
     plaintext += randomBytes(pad);
-    string mac;
-    if (sendEncrypted) {
-        string seqStr;
-        const size_t seqPos = seqStr.size();
-        seqStr.append(4, '\0');
-        ngToBigEndian(sendSeq, &seqStr[seqPos]);
-        const string data = seqStr + plaintext;
-        if (macAlgo == "hmac-sha2-256") {
-            mac = qtng::hmac(MessageDigest::Sha256, sendMacKey, data);
-        } else if (macAlgo == "hmac-sha1") {
-            mac = qtng::hmac(MessageDigest::Sha1, sendMacKey, data);
-        } else {
-            mac = qtng::hmac(MessageDigest::Sha512, sendMacKey, data);
+
+    string out;
+    if (!sendEncrypted) {
+        out = plaintext;
+        ++sendSeq;
+    } else if (isChaChaCipher) {
+        out = plaintext;
+        if (!chachaCrypt(true, sendSeq, sendChaChaKey, &out)) {
+            setError("chacha encrypt failed");
+            return false;
         }
+        ++sendSeq;
+    } else if (sendAead) {
+        string lenField = plaintext.substr(0, 4);
+        string body = plaintext.substr(4);
+        string nonce = sendGcmIv;
+        if (nonce.size() != 12) {
+            setError("gcm iv missing");
+            return false;
+        }
+        string ctAndTag;
+        if (!sendAead->seal(nonce, lenField, body, &ctAndTag)) {
+            setError("gcm encrypt failed");
+            return false;
+        }
+        uint64_t ctr = ngFromBigEndian<uint64_t>(sendGcmIv.data() + 4);
+        ++ctr;
+        ngToBigEndian(ctr, &sendGcmIv[4]);
+        out = lenField + ctAndTag;
+        ++sendSeq;
+    } else if (macEtm) {
+        string encrypted = sendCipher->addData(plaintext);
+        if (encrypted.size() != plaintext.size()) {
+            return false;
+        }
+        string seqStr;
+        seqStr.append(4, '\0');
+        ngToBigEndian(sendSeq, &seqStr[0]);
+        string mac = qtng::hmac(macHashForAlgo(macAlgo), sendMacKey, seqStr + encrypted);
+        out = encrypted + mac;
+        ++sendSeq;
+    } else {
+        string seqStr;
+        seqStr.append(4, '\0');
+        ngToBigEndian(sendSeq, &seqStr[0]);
+        string mac = qtng::hmac(macHashForAlgo(macAlgo), sendMacKey, seqStr + plaintext);
+        string encrypted = sendCipher->addData(plaintext);
+        if (encrypted.size() != plaintext.size()) {
+            return false;
+        }
+        out = encrypted + mac;
+        ++sendSeq;
     }
-    string encrypted = sendEncrypted ? sendCipher->addData(plaintext) : plaintext;
-    if (encrypted.size() != plaintext.size()) {
-        return false;
-    }
-    ++sendSeq;
-    const string out = encrypted + mac;
+    bytesSent += out.size();
     return socket->sendall(out) == static_cast<int32_t>(out.size());
 }
 
@@ -998,6 +1510,7 @@ bool SshConnectionPrivate::recvPacket(string *payload)
     if (!socket || !socket->isValid()) {
         return false;
     }
+    string plainPayload;
     if (!recvEncrypted) {
         const string header = socket->recvall(4);
         if (header.size() < 4) {
@@ -1017,64 +1530,170 @@ bool SshConnectionPrivate::recvPacket(string *payload)
             setError("invalid padding length");
             return false;
         }
-        payload->assign(body.data() + 1, packetLen - padLen - 1);
+        plainPayload.assign(body.data() + 1, packetLen - padLen - 1);
         ++recvSeq;
-        return true;
-    }
-    const uint32_t block = blockSize;  // RFC 4253 §6: packet_length multiple of max(block size, 8)
-    const string encBlock = socket->recvall(static_cast<int32_t>(block));
-    if (encBlock.size() < static_cast<size_t>(block)) {
-        return false;
-    }
-    const string decBlock = recvCipher->addData(encBlock);
-    const uint32_t packetLen = readBe32(decBlock);
-    if (packetLen < 1 || packetLen > kMaxPacketLength) {
-        setError("invalid packet length");
-        return false;
-    }
-    const uint32_t total = 4 + packetLen;
-    if (total < block) {
-        setError("packet too small");
-        return false;
-    }
-    const uint32_t remaining = total - block;
-    const string encRest = socket->recvall(static_cast<int32_t>(remaining));
-    if (encRest.size() < remaining) {
-        return false;
-    }
-    const string decRest = recvCipher->addData(encRest);
-    const string plaintext = decBlock + decRest;
-    if (macLength > 0) {
-        string seqStr;
-        const size_t seqPos = seqStr.size();
-        seqStr.append(4, '\0');
-        ngToBigEndian(recvSeq, &seqStr[seqPos]);
-        const string data = seqStr + plaintext;
-        string expected;
-        if (macAlgo == "hmac-sha2-256") {
-            expected = qtng::hmac(MessageDigest::Sha256, recvMacKey, data);
-        } else if (macAlgo == "hmac-sha1") {
-            expected = qtng::hmac(MessageDigest::Sha1, recvMacKey, data);
-        } else {
-            expected = qtng::hmac(MessageDigest::Sha512, recvMacKey, data);
-        }
-        // The MAC is appended to the ciphertext unencrypted; read it as-is.
-        const string actual = socket->recvall(static_cast<int32_t>(macLength));
-        if (actual.size() < static_cast<size_t>(macLength)) {
+        bytesReceived += 4 + packetLen;
+    } else if (isChaChaCipher) {
+        const string encLen = socket->recvall(4);
+        if (encLen.size() < 4) {
             return false;
         }
-        if (expected != actual) {
+        uint32_t packetLen = 0;
+        if (!chachaDecryptLength(recvSeq, recvChaChaKey, encLen, &packetLen) || packetLen < 1
+            || packetLen > kMaxPacketLength) {
+            setError("invalid packet length");
+            return false;
+        }
+        const string rest = socket->recvall(static_cast<int32_t>(packetLen + 16));
+        if (rest.size() < packetLen + 16) {
+            return false;
+        }
+        string packet = encLen + rest;
+        if (!chachaCrypt(false, recvSeq, recvChaChaKey, &packet)) {
+            setError("chacha decrypt/MAC failed");
+            return false;
+        }
+        const uint8_t padLen = static_cast<uint8_t>(packet[4]);
+        if (padLen + 1 > packetLen) {
+            setError("invalid padding length");
+            return false;
+        }
+        plainPayload.assign(packet.data() + 5, packetLen - padLen - 1);
+        ++recvSeq;
+        bytesReceived += 4 + packetLen + 16;
+    } else if (recvAead) {
+        const string lenField = socket->recvall(4);
+        if (lenField.size() < 4) {
+            return false;
+        }
+        const uint32_t packetLen = readBe32(lenField);
+        if (packetLen < 1 || packetLen > kMaxPacketLength) {
+            setError("invalid packet length");
+            return false;
+        }
+        const string ctAndTag = socket->recvall(static_cast<int32_t>(packetLen + 16));
+        if (ctAndTag.size() < packetLen + 16) {
+            return false;
+        }
+        if (recvGcmIv.size() != 12) {
+            setError("gcm iv missing");
+            return false;
+        }
+        string nonce = recvGcmIv;
+        string body;
+        if (!recvAead->open(nonce, lenField, ctAndTag, &body)) {
+            setError("gcm decrypt failed");
+            return false;
+        }
+        uint64_t ctr = ngFromBigEndian<uint64_t>(recvGcmIv.data() + 4);
+        ++ctr;
+        ngToBigEndian(ctr, &recvGcmIv[4]);
+        if (body.size() != packetLen) {
+            setError("gcm length mismatch");
+            return false;
+        }
+        const uint8_t padLen = static_cast<uint8_t>(body[0]);
+        if (padLen + 1 > packetLen) {
+            setError("invalid padding length");
+            return false;
+        }
+        plainPayload.assign(body.data() + 1, packetLen - padLen - 1);
+        ++recvSeq;
+        bytesReceived += 4 + packetLen + 16;
+    } else if (macEtm) {
+        const string encHeader = socket->recvall(4);
+        if (encHeader.size() < 4) {
+            return false;
+        }
+        const string encLenPlain = recvCipher->addData(encHeader);
+        const uint32_t packetLen = readBe32(encLenPlain);
+        if (packetLen < 1 || packetLen > kMaxPacketLength) {
+            setError("invalid packet length");
+            return false;
+        }
+        const string encRest = socket->recvall(static_cast<int32_t>(packetLen));
+        if (encRest.size() < packetLen) {
+            return false;
+        }
+        string ciphertext = encHeader + encRest;
+        const string mac = socket->recvall(static_cast<int32_t>(macLength));
+        if (mac.size() < static_cast<size_t>(macLength)) {
+            return false;
+        }
+        string seqStr;
+        seqStr.append(4, '\0');
+        ngToBigEndian(recvSeq, &seqStr[0]);
+        string expected = qtng::hmac(macHashForAlgo(macAlgo), recvMacKey, seqStr + ciphertext);
+        if (expected != mac) {
             setError("MAC mismatch");
             return false;
         }
+        const string decRest = recvCipher->addData(encRest);
+        const string plaintext = encLenPlain + decRest;
+        const uint8_t padLen = static_cast<uint8_t>(plaintext[4]);
+        if (padLen + 1 > packetLen) {
+            setError("invalid padding length");
+            return false;
+        }
+        plainPayload.assign(plaintext.data() + 5, packetLen - padLen - 1);
+        ++recvSeq;
+        bytesReceived += 4 + packetLen + static_cast<uint64_t>(macLength);
+    } else {
+        const uint32_t block = static_cast<uint32_t>(blockSize);
+        const string encBlock = socket->recvall(static_cast<int32_t>(block));
+        if (encBlock.size() < block) {
+            return false;
+        }
+        const string decBlock = recvCipher->addData(encBlock);
+        const uint32_t packetLen = readBe32(decBlock);
+        if (packetLen < 1 || packetLen > kMaxPacketLength) {
+            setError("invalid packet length");
+            return false;
+        }
+        const uint32_t total = 4 + packetLen;
+        if (total < block) {
+            setError("packet too small");
+            return false;
+        }
+        const uint32_t remaining = total - block;
+        const string encRest = socket->recvall(static_cast<int32_t>(remaining));
+        if (encRest.size() < remaining) {
+            return false;
+        }
+        const string decRest = recvCipher->addData(encRest);
+        const string plaintext = decBlock + decRest;
+        if (macLength > 0) {
+            string seqStr;
+            seqStr.append(4, '\0');
+            ngToBigEndian(recvSeq, &seqStr[0]);
+            string expected = qtng::hmac(macHashForAlgo(macAlgo), recvMacKey, seqStr + plaintext);
+            const string actual = socket->recvall(static_cast<int32_t>(macLength));
+            if (actual.size() < static_cast<size_t>(macLength) || expected != actual) {
+                setError("MAC mismatch");
+                return false;
+            }
+        }
+        ++recvSeq;
+        const uint8_t padLen = static_cast<uint8_t>(plaintext[4]);
+        if (padLen + 1 > packetLen) {
+            setError("invalid padding length");
+            return false;
+        }
+        plainPayload.assign(plaintext.data() + 5, packetLen - padLen - 1);
+        bytesReceived += total + static_cast<uint64_t>(macLength);
     }
-    ++recvSeq;
-    const uint8_t padLen = static_cast<uint8_t>(plaintext[4]);
-    if (padLen + 1 > packetLen) {
-        setError("invalid padding length");
-        return false;
+
+    if (delayedCompressionActive) {
+        string decompressed;
+        if (!decompressPayload(plainPayload, &decompressed)) {
+            setError("decompression failed");
+            return false;
+        }
+        *payload = decompressed;
+    } else {
+        *payload = plainPayload;
     }
-    payload->assign(plaintext.data() + 5, packetLen - padLen - 1);
+    maybeRekey();
     return true;
 }
 
@@ -1124,6 +1743,10 @@ void SshConnectionPrivate::readLoop(bool untilAuthenticated)
             return;
         case SSH_MSG_IGNORE:
         case SSH_MSG_DEBUG:
+            if (strictKexActive && !initialKexDone) {
+                setError("unexpected message during strict kex");
+                return;
+            }
             break;
         case SSH_MSG_UNIMPLEMENTED:
             break;
@@ -1165,30 +1788,80 @@ void SshConnectionPrivate::readLoop(bool untilAuthenticated)
             break;
         case SSH_MSG_USERAUTH_SUCCESS:
             if (!serverSide) {
-                authOk = true;
-                authFinished = true;
-                authEvent.set();
+                authenticated = true;
+                connectionServiceAccepted = true;
+                activateDelayedCompression();
+                finishClientAuthReply(true);
+                if (serverAliveInterval > 0.0f && !keepaliveCoroutine) {
+                    shared_ptr<SshConnectionPrivate> self = shared_from_this();
+                    keepaliveCoroutine = shared_ptr<Coroutine>(Coroutine::spawn([self] { self->keepaliveLoop(); }));
+                }
             }
             break;
         case SSH_MSG_USERAUTH_FAILURE:
             if (!serverSide) {
-                authOk = false;
-                authFinished = true;
-                authEvent.set();
+                SshBuffer failBuf(payload);
+                uint8_t failType = 0;
+                bool partial = false;
+                peerAuthMethods.clear();
+                if (failBuf.getByte(&failType) && failBuf.getNameList(&peerAuthMethods)
+                    && failBuf.getBoolean(&partial)) {
+                    string methods;
+                    for (size_t i = 0; i < peerAuthMethods.size(); ++i) {
+                        if (i) {
+                            methods.push_back(',');
+                        }
+                        methods += peerAuthMethods[i];
+                    }
+                    if (partial && !methods.empty()) {
+                        clientAuthError = "authentication failed (partial; available: " + methods + ")";
+                    } else if (!methods.empty()) {
+                        clientAuthError = "authentication failed (available: " + methods + ")";
+                    } else {
+                        clientAuthError = "authentication failed";
+                    }
+                } else {
+                    clientAuthError = "authentication failed";
+                }
+                finishClientAuthReply(false);
             }
             break;
         case SSH_MSG_USERAUTH_BANNER:
             break;
         case SSH_MSG_EXT_INFO:
+            handleExtInfo(payload);
             break;
         case SSH_MSG_USERAUTH_PK_OK:
+            // Type 60: PK_OK / PASSWD_CHANGEREQ / INFO_REQUEST depending on method.
             if (!serverSide) {
-                authOk = true;
-                authFinished = true;
-                authEvent.set();
+                switch (clientAuthMethod) {
+                case SshClientAuthMethod::PublicKey:
+                    finishClientAuthReply(true);
+                    break;
+                case SshClientAuthMethod::KeyboardInteractive:
+                    if (!handleUserauthInfoRequest(payload)) {
+                        finishClientAuthReply(false);
+                    }
+                    break;
+                case SshClientAuthMethod::Password:
+                    // PASSWD_CHANGEREQ — not a transport failure; keep SocketError clean.
+                    clientAuthError = "password change required by server";
+                    finishClientAuthReply(false);
+                    break;
+                default:
+                    sendUnimplemented(recvSeq - 1);
+                    break;
+                }
             }
             break;
         case SSH_MSG_GLOBAL_REQUEST:
+            handleGlobalRequest(payload);
+            break;
+        case SSH_MSG_REQUEST_SUCCESS:
+            handleRequestReply(true);
+            break;
+        case SSH_MSG_REQUEST_FAILURE:
+            handleRequestReply(false);
             break;
         case SSH_MSG_CHANNEL_OPEN:
             if (serverSide) {
@@ -1214,6 +1887,7 @@ void SshConnectionPrivate::readLoop(bool untilAuthenticated)
             handleChannelData(payload);
             break;
         case SSH_MSG_CHANNEL_EXTENDED_DATA:
+            handleExtendedData(payload);
             break;
         case SSH_MSG_CHANNEL_EOF:
             handleChannelEof(payload);
@@ -1471,8 +2145,42 @@ void SshConnectionPrivate::handleChannelRequest(const string &payload)
         } else if (ch->callback) {
             ch->callback->onSignal(name);
         }
-    } else if (requestType == "shell" || requestType == "env" || requestType == "exec") {
-        // accepted; no extra action
+    } else if (requestType == "shell" || requestType == "env" || requestType == "exec"
+               || requestType == "subsystem") {
+        if (requestType == "env") {
+            string name, value;
+            if (!buf.getString(&name) || !buf.getString(&value)) {
+                success = false;
+            }
+        } else if (requestType == "exec" || requestType == "subsystem") {
+            string cmd;
+            if (!buf.getString(&cmd)) {
+                success = false;
+            }
+        }
+    } else if (requestType == "exit-status") {
+        uint32_t status = 0;
+        if (!buf.getUint32(&status)) {
+            success = false;
+        } else {
+            ch->hasExitStatus = true;
+            ch->exitStatus = status;
+            if (ch->callback) {
+                ch->callback->onExitStatus(status);
+            }
+        }
+    } else if (requestType == "exit-signal") {
+        string sigName, errMsg, lang;
+        bool coreDumped = false;
+        if (!buf.getString(&sigName) || !buf.getBoolean(&coreDumped) || !buf.getString(&errMsg)
+            || !buf.getString(&lang)) {
+            success = false;
+        } else {
+            ch->exitSignal = sigName;
+            if (ch->callback) {
+                ch->callback->onExitSignal(sigName);
+            }
+        }
     } else {
         success = false;
     }
@@ -1500,6 +2208,19 @@ bool SshConnectionPrivate::sendChannelData(SshChannelPrivate *ch, const string &
     SshBuffer buf;
     buf.putByte(SSH_MSG_CHANNEL_DATA);
     buf.putUint32(ch->peerId);
+    buf.putString(data);
+    return sendPacket(buf.raw());
+}
+
+bool SshConnectionPrivate::sendChannelExtendedData(SshChannelPrivate *ch, uint32_t dataType, const string &data)
+{
+    if (ch->eofSent) {
+        return false;
+    }
+    SshBuffer buf;
+    buf.putByte(SSH_MSG_CHANNEL_EXTENDED_DATA);
+    buf.putUint32(ch->peerId);
+    buf.putUint32(dataType);
     buf.putString(data);
     return sendPacket(buf.raw());
 }
@@ -1674,7 +2395,12 @@ bool SshConnectionPrivate::sendAuthSuccess()
 {
     SshBuffer buf;
     buf.putByte(SSH_MSG_USERAUTH_SUCCESS);
-    return sendPacket(buf.raw());
+    if (!sendPacket(buf.raw())) {
+        return false;
+    }
+    connectionServiceAccepted = true;
+    activateDelayedCompression();
+    return true;
 }
 
 bool SshConnectionPrivate::sendPkOk(const string &algo, const string &blob)
@@ -1690,7 +2416,7 @@ bool SshConnectionPrivate::verifyPublicKeySignature(const string &user, const st
                                                     const string &signature)
 {
     PublicKey key;
-    if (!sshParseRsaKeyBlob(blob, &key)) {
+    if (!sshParsePublicKeyBlob(blob, &key)) {
         return false;
     }
     SshBuffer sigBuf(signature);
@@ -1707,6 +2433,9 @@ bool SshConnectionPrivate::verifyPublicKeySignature(const string &user, const st
     dataBuf.putBoolean(true);
     dataBuf.putString(algo);
     dataBuf.putString(blob);
+    if (sigAlgo == "ssh-ed25519") {
+        return key.verify(dataBuf.raw(), sig, MessageDigest::Sha256);
+    }
     return key.verify(dataBuf.raw(), sig, rsaHashForAlgo(sigAlgo));
 }
 
@@ -1730,12 +2459,103 @@ void SshConnectionPrivate::handleServiceRequest(const string &payload)
 
 // ---- Client helpers ----
 
+bool SshConnectionPrivate::authMethodAvailable(const string &method) const
+{
+    return find(peerAuthMethods.begin(), peerAuthMethods.end(), method) != peerAuthMethods.end();
+}
+
+void SshConnectionPrivate::finishClientAuthReply(bool ok)
+{
+    authOk = ok;
+    authFinished = true;
+    authEvent.set();
+}
+
+void SshConnectionPrivate::setAuthErrorIfEmpty(const string &fallback)
+{
+    if (!errorString.empty()) {
+        return;
+    }
+    errorString = clientAuthError.empty() ? fallback : clientAuthError;
+}
+
+bool SshConnectionPrivate::handleUserauthInfoRequest(const string &payload)
+{
+    SshBuffer buf(payload);
+    uint8_t type = 0;
+    string name, instruction, language;
+    uint32_t numPrompts = 0;
+    if (!buf.getByte(&type) || !buf.getString(&name) || !buf.getString(&instruction)
+        || !buf.getString(&language) || !buf.getUint32(&numPrompts)) {
+        clientAuthError = "bad USERAUTH_INFO_REQUEST";
+        return false;
+    }
+    if (numPrompts > 64) {
+        clientAuthError = "USERAUTH_INFO_REQUEST has too many prompts";
+        return false;
+    }
+    vector<string> responses;
+    responses.reserve(numPrompts);
+    for (uint32_t i = 0; i < numPrompts; ++i) {
+        string prompt;
+        bool echo = true;
+        if (!buf.getString(&prompt) || !buf.getBoolean(&echo)) {
+            clientAuthError = "bad USERAUTH_INFO_REQUEST prompt";
+            return false;
+        }
+        // Secret prompts get the password; visible ones stay empty.
+        responses.push_back(echo ? string() : clientPassword);
+    }
+    SshBuffer resp;
+    resp.putByte(SSH_MSG_USERAUTH_INFO_RESPONSE);
+    resp.putUint32(static_cast<uint32_t>(responses.size()));
+    for (const string &r : responses) {
+        resp.putString(r);
+    }
+    return sendPacket(resp.raw());
+}
+
+bool SshConnectionPrivate::startClientKeyboardInteractiveAuth()
+{
+    clientAuthMethod = SshClientAuthMethod::KeyboardInteractive;
+    clientAuthError.clear();
+    authFinished = false;
+    authEvent.clear();
+    SshBuffer buf;
+    buf.putByte(SSH_MSG_USERAUTH_REQUEST);
+    buf.putString(clientUser);
+    buf.putString("ssh-connection");
+    buf.putString("keyboard-interactive");
+    buf.putString("");  // language tag
+    buf.putString("");  // submethods
+    if (!sendPacket(buf.raw())) {
+        setAuthErrorIfEmpty("failed to send keyboard-interactive request");
+        return false;
+    }
+    if (!waitAuthReply()) {
+        setAuthErrorIfEmpty("keyboard-interactive authentication failed");
+        return false;
+    }
+    if (!authOk) {
+        setAuthErrorIfEmpty("keyboard-interactive authentication failed");
+    }
+    return authOk;
+}
+
 bool SshConnectionPrivate::startClientAuth(const string &user, const string &password)
 {
     clientUser = user;
+    clientPassword = password;
+    clientAuthMethod = SshClientAuthMethod::Password;
+    clientAuthError.clear();
+    peerAuthMethods.clear();
     if (!sendUserauthService()) {
+        setAuthErrorIfEmpty("ssh-userauth service not accepted");
         return false;
     }
+
+    // Try "password" first. Even when the server rejects the method, the
+    // USERAUTH_FAILURE namelist tells us whether keyboard-interactive is next.
     authFinished = false;
     authEvent.clear();
     SshBuffer buf;
@@ -1745,24 +2565,53 @@ bool SshConnectionPrivate::startClientAuth(const string &user, const string &pas
     buf.putString("password");
     buf.putBoolean(false);
     buf.putString(password);
-    if (!sendPacket(buf.raw())) {
+    if (!sendPacket(buf.raw()) || !waitAuthReply()) {
+        setAuthErrorIfEmpty("password authentication failed");
         return false;
     }
-    return waitAuthReply();
+    if (authOk) {
+        return true;
+    }
+
+    // Many OpenSSH BBS deployments disable "password" and only offer
+    // keyboard-interactive (often backed by the same account password).
+    if (authMethodAvailable("keyboard-interactive") && startClientKeyboardInteractiveAuth()) {
+        return true;
+    }
+    setAuthErrorIfEmpty("authentication failed");
+    return false;
+}
+
+string SshConnectionPrivate::pickPublicKeyAlgo(const PrivateKey &key) const
+{
+    if (key.algorithm() == PublicKey::Ed25519) {
+        return "ssh-ed25519";
+    }
+    const vector<string> preferred = {"rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"};
+    if (!serverSigAlgs.empty()) {
+        for (const string &a : preferred) {
+            if (find(serverSigAlgs.begin(), serverSigAlgs.end(), a) != serverSigAlgs.end()) {
+                return a;
+            }
+        }
+    }
+    return "rsa-sha2-256";
 }
 
 bool SshConnectionPrivate::startClientPublicKeyAuth(const string &user, const PrivateKey &key)
 {
     clientUser = user;
+    clientAuthMethod = SshClientAuthMethod::PublicKey;
+    clientAuthError.clear();
     if (!sendUserauthService()) {
+        setAuthErrorIfEmpty("ssh-userauth service not accepted");
         return false;
     }
-    clientKeyBlob = sshRsaKeyBlob(key.publicKey());
-    clientKeyAlgo = "rsa-sha2-256";
-    if (clientKeyBlob.empty()) {
+    clientKeyBlob = sshPublicKeyBlob(key.publicKey());
+    clientKeyAlgo = pickPublicKeyAlgo(key);
+    if (clientKeyBlob.empty() || clientKeyAlgo.empty()) {
         return false;
     }
-    // probe
     authFinished = false;
     authEvent.clear();
     SshBuffer probe;
@@ -1776,13 +2625,10 @@ bool SshConnectionPrivate::startClientPublicKeyAuth(const string &user, const Pr
     if (!sendPacket(probe.raw())) {
         return false;
     }
-    if (!waitAuthReply()) {
+    if (!waitAuthReply() || !authOk) {
+        setAuthErrorIfEmpty("publickey rejected");
         return false;
     }
-    if (!authOk) {
-        return false;  // server did not send PK_OK
-    }
-    // signed request
     authFinished = false;
     authEvent.clear();
     SshBuffer dataBuf;
@@ -1795,7 +2641,9 @@ bool SshConnectionPrivate::startClientPublicKeyAuth(const string &user, const Pr
     dataBuf.putString(clientKeyAlgo);
     dataBuf.putString(clientKeyBlob);
     PrivateKey signingKey = key;
-    const string signature = signingKey.sign(dataBuf.raw(), rsaHashForAlgo(clientKeyAlgo));
+    MessageDigest::Algorithm hashAlgo =
+            (clientKeyAlgo == "ssh-ed25519") ? MessageDigest::Sha256 : rsaHashForAlgo(clientKeyAlgo);
+    const string signature = signingKey.sign(dataBuf.raw(), hashAlgo);
     if (signature.empty()) {
         return false;
     }
@@ -1814,20 +2662,14 @@ bool SshConnectionPrivate::startClientPublicKeyAuth(const string &user, const Pr
     if (!sendPacket(req.raw())) {
         return false;
     }
-    return waitAuthReply();
-}
-
-bool SshConnectionPrivate::sendServiceAcceptRequest()
-{
-    serviceAcceptOk = false;
-    serviceAcceptEvent.clear();
-    SshBuffer buf;
-    buf.putByte(SSH_MSG_SERVICE_REQUEST);
-    buf.putString("ssh-connection");
-    if (!sendPacket(buf.raw())) {
+    if (!waitAuthReply()) {
+        setAuthErrorIfEmpty("publickey authentication failed");
         return false;
     }
-    return serviceAcceptEvent.tryWait() && serviceAcceptOk;
+    if (!authOk) {
+        setAuthErrorIfEmpty("publickey authentication failed");
+    }
+    return authOk;
 }
 
 bool SshConnectionPrivate::sendUserauthService()
@@ -1845,12 +2687,18 @@ bool SshConnectionPrivate::sendUserauthService()
 
 bool SshConnectionPrivate::waitAuthReply()
 {
+    // Returns whether a USERAUTH reply arrived. Callers must check authOk for
+    // success vs rejection; a transport failure leaves authFinished false.
+    const uint32_t msecs = loginTimeout > 0.0f ? static_cast<uint32_t>(loginTimeout * 1000.0f) : UINT_MAX;
     while (!authFinished) {
-        if (!authEvent.tryWait()) {
+        if (!authEvent.tryWait(msecs)) {
+            if (errorString.empty()) {
+                errorString = "authentication timeout";
+            }
             return false;
         }
     }
-    return authOk;
+    return true;
 }
 
 bool SshConnectionPrivate::waitChannelOpen()
@@ -1871,6 +2719,269 @@ bool SshConnectionPrivate::waitRequestReply()
         }
     }
     return requestReplyOk;
+}
+
+
+bool SshConnectionPrivate::sendConnectionService()
+{
+    if (connectionServiceAccepted) {
+        return true;
+    }
+    serviceAcceptOk = false;
+    serviceAcceptEvent.clear();
+    SshBuffer buf;
+    buf.putByte(SSH_MSG_SERVICE_REQUEST);
+    buf.putString("ssh-connection");
+    if (!sendPacket(buf.raw())) {
+        return false;
+    }
+    if (!(serviceAcceptEvent.tryWait() && serviceAcceptOk)) {
+        return false;
+    }
+    connectionServiceAccepted = true;
+    return true;
+}
+
+bool SshConnectionPrivate::beginRekey(bool sendInit)
+{
+    if (rekeyInProgress) {
+        return true;
+    }
+    rekeyInProgress = true;
+    kexDone = false;
+    kexStarted = false;
+    myKexInitPayload.clear();
+    peerKexInitPayload.clear();
+    clientEphPriv.clear();
+    clientEphPub.clear();
+    serverEphPriv.clear();
+    serverEphPub.clear();
+    sharedSecret.clear();
+    exchangeHash.clear();
+    if (sendInit) {
+        return sendKexInit();
+    }
+    return true;
+}
+
+bool SshConnectionPrivate::maybeRekey()
+{
+    if (!initialKexDone || rekeyInProgress || !kexDone || error != Socket::NoError) {
+        return true;
+    }
+    bool need = false;
+    if (rekeyLimitBytes > 0 && (bytesSent >= rekeyLimitBytes || bytesReceived >= rekeyLimitBytes)) {
+        need = true;
+    }
+    if (rekeyIntervalSeconds > 0.0f) {
+        const int64_t now = utils::DateTime::currentMSecsSinceEpoch();
+        if (lastRekeyTimeMs > 0
+            && (now - lastRekeyTimeMs) >= static_cast<int64_t>(rekeyIntervalSeconds * 1000.0f)) {
+            need = true;
+        }
+    }
+    if (!need) {
+        return true;
+    }
+    return beginRekey(true);
+}
+
+void SshConnectionPrivate::handleGlobalRequest(const string &payload)
+{
+    SshBuffer buf(payload);
+    uint8_t type = 0;
+    string name;
+    bool wantReply = false;
+    if (!buf.getByte(&type) || !buf.getString(&name) || !buf.getBoolean(&wantReply)) {
+        return;
+    }
+    if (!wantReply) {
+        return;
+    }
+    SshBuffer reply;
+    if (name == "keepalive@openssh.com") {
+        reply.putByte(SSH_MSG_REQUEST_SUCCESS);
+    } else {
+        reply.putByte(SSH_MSG_REQUEST_FAILURE);
+    }
+    sendPacket(reply.raw());
+}
+
+void SshConnectionPrivate::handleRequestReply(bool success)
+{
+    (void) success;
+    if (serverAliveOutstanding > 0) {
+        --serverAliveOutstanding;
+    }
+}
+
+void SshConnectionPrivate::handleExtInfo(const string &payload)
+{
+    SshBuffer buf(payload);
+    uint8_t type = 0;
+    uint32_t n = 0;
+    if (!buf.getByte(&type) || !buf.getUint32(&n)) {
+        return;
+    }
+    for (uint32_t i = 0; i < n; ++i) {
+        string name, value;
+        if (!buf.getString(&name) || !buf.getString(&value)) {
+            return;
+        }
+        if (name == "server-sig-algs") {
+            serverSigAlgs.clear();
+            size_t start = 0;
+            for (size_t j = 0; j <= value.size(); ++j) {
+                if (j == value.size() || value[j] == ',') {
+                    if (j > start) {
+                        serverSigAlgs.push_back(value.substr(start, j - start));
+                    }
+                    start = j + 1;
+                }
+            }
+        }
+    }
+}
+
+void SshConnectionPrivate::handleExtendedData(const string &payload)
+{
+    SshBuffer buf(payload);
+    uint8_t type = 0;
+    uint32_t id = 0;
+    uint32_t dataType = 0;
+    string data;
+    if (!buf.getByte(&type) || !buf.getUint32(&id) || !buf.getUint32(&dataType) || !buf.getString(&data)) {
+        return;
+    }
+    if (dataType != 1) {
+        return;
+    }
+    map<uint32_t, shared_ptr<SshChannelPrivate>>::iterator it = channels.find(id);
+    if (it == channels.end()) {
+        return;
+    }
+    shared_ptr<SshChannelPrivate> &ch = it->second;
+    if (ch->localWindow >= data.size()) {
+        ch->localWindow -= static_cast<uint32_t>(data.size());
+    } else {
+        ch->localWindow = 0;
+    }
+    if (ch->localWindow < ch->initialWindow / 2) {
+        const uint32_t adjust = ch->initialWindow - ch->localWindow;
+        ch->localWindow = ch->initialWindow;
+        sendWindowAdjust(ch.get(), adjust);
+    }
+    ch->stderrIncoming.putForcedly(data);
+    if (ch->callback) {
+        ch->callback->onStderr(data);
+    }
+}
+
+bool SshConnectionPrivate::sendKeepalive()
+{
+    SshBuffer buf;
+    buf.putByte(SSH_MSG_GLOBAL_REQUEST);
+    buf.putString("keepalive@openssh.com");
+    buf.putBoolean(true);
+    if (!sendPacket(buf.raw())) {
+        return false;
+    }
+    ++serverAliveOutstanding;
+    if (serverAliveCountMax > 0 && serverAliveOutstanding >= serverAliveCountMax) {
+        setError("server alive count exceeded");
+        running = false;
+        if (socket) {
+            socket->abort();
+        }
+        return false;
+    }
+    return true;
+}
+
+void SshConnectionPrivate::keepaliveLoop()
+{
+    while (running && serverAliveInterval > 0.0f) {
+        const uint32_t msecs = static_cast<uint32_t>(serverAliveInterval * 1000.0f);
+        if (connectionClosed.tryWait(msecs)) {
+            break;
+        }
+        if (!running || !authenticated) {
+            continue;
+        }
+        sendKeepalive();
+    }
+}
+
+void SshConnectionPrivate::activateDelayedCompression()
+{
+    if (delayedCompressionActive || compressionAlgo != "zlib@openssh.com") {
+        return;
+    }
+    sendZ = new z_stream();
+    memset(sendZ, 0, sizeof(z_stream));
+    recvZ = new z_stream();
+    memset(recvZ, 0, sizeof(z_stream));
+    if (deflateInit(sendZ, Z_DEFAULT_COMPRESSION) != Z_OK || inflateInit(recvZ) != Z_OK) {
+        if (sendZ) {
+            deflateEnd(sendZ);
+            delete sendZ;
+            sendZ = nullptr;
+        }
+        if (recvZ) {
+            inflateEnd(recvZ);
+            delete recvZ;
+            recvZ = nullptr;
+        }
+        setError("zlib init failed");
+        return;
+    }
+    delayedCompressionActive = true;
+}
+
+bool SshConnectionPrivate::compressPayload(const string &in, string *out)
+{
+    if (!sendZ) {
+        *out = in;
+        return true;
+    }
+    out->clear();
+    sendZ->next_in = reinterpret_cast<Bytef *>(const_cast<char *>(in.data()));
+    sendZ->avail_in = static_cast<uInt>(in.size());
+    unsigned char buf[4096];
+    int ret = Z_OK;
+    do {
+        sendZ->next_out = buf;
+        sendZ->avail_out = sizeof(buf);
+        ret = deflate(sendZ, Z_SYNC_FLUSH);
+        if (ret != Z_OK && ret != Z_BUF_ERROR) {
+            return false;
+        }
+        out->append(reinterpret_cast<char *>(buf), sizeof(buf) - sendZ->avail_out);
+    } while (sendZ->avail_out == 0);
+    return true;
+}
+
+bool SshConnectionPrivate::decompressPayload(const string &in, string *out)
+{
+    if (!recvZ) {
+        *out = in;
+        return true;
+    }
+    out->clear();
+    recvZ->next_in = reinterpret_cast<Bytef *>(const_cast<char *>(in.data()));
+    recvZ->avail_in = static_cast<uInt>(in.size());
+    unsigned char buf[4096];
+    int ret = Z_OK;
+    do {
+        recvZ->next_out = buf;
+        recvZ->avail_out = sizeof(buf);
+        ret = inflate(recvZ, Z_SYNC_FLUSH);
+        if (ret != Z_OK && ret != Z_BUF_ERROR && ret != Z_STREAM_END) {
+            return false;
+        }
+        out->append(reinterpret_cast<char *>(buf), sizeof(buf) - recvZ->avail_out);
+    } while (recvZ->avail_out == 0);
+    return true;
 }
 
 // ---- SshChannel ----
@@ -1895,6 +3006,19 @@ int32_t SshChannel::send(const char *data, size_t size)
 string SshChannel::recv(int32_t maxSize)
 {
     return d->recv(maxSize);
+}
+
+int32_t SshChannel::sendStderr(const char *data, size_t size)
+{
+    if (!d->sendStderr(string(data, size))) {
+        return -1;
+    }
+    return static_cast<int32_t>(size);
+}
+
+string SshChannel::recvStderr(int32_t maxSize)
+{
+    return d->recvStderr(maxSize);
 }
 
 void SshChannel::close()
@@ -1935,6 +3059,28 @@ bool SshChannel::requestShell()
     return d->conn->sendChannelRequest(d.get(), "shell", extra, true) && d->conn->waitRequestReply();
 }
 
+bool SshChannel::requestExec(const string &command)
+{
+    SshBuffer extra;
+    extra.putString(command);
+    return d->conn->sendChannelRequest(d.get(), "exec", extra, true) && d->conn->waitRequestReply();
+}
+
+bool SshChannel::requestSubsystem(const string &name)
+{
+    SshBuffer extra;
+    extra.putString(name);
+    return d->conn->sendChannelRequest(d.get(), "subsystem", extra, true) && d->conn->waitRequestReply();
+}
+
+bool SshChannel::setEnv(const string &name, const string &value)
+{
+    SshBuffer extra;
+    extra.putString(name);
+    extra.putString(value);
+    return d->conn->sendChannelRequest(d.get(), "env", extra, true) && d->conn->waitRequestReply();
+}
+
 bool SshChannel::requestWindowChange(uint32_t cols, uint32_t rows)
 {
     SshBuffer extra;
@@ -1964,6 +3110,16 @@ bool SshChannel::sendExitStatus(uint32_t status)
         d->exitStatusSent = true;
     }
     return ok;
+}
+
+bool SshChannel::hasExitStatus() const
+{
+    return d && d->hasExitStatus;
+}
+
+uint32_t SshChannel::exitStatus() const
+{
+    return d ? d->exitStatus : 0;
 }
 
 // ---- SshServer ----
@@ -2053,6 +3209,30 @@ bool failSshClientConnect(SshClientPrivate *d, const string &message, Socket::So
     return false;
 }
 
+bool startSshClientOnSocket(SshClientPrivate *d, shared_ptr<SocketLike> socket, const string &peerHostName)
+{
+    if (d->conn) {
+        d->conn->stopClient();
+        d->conn.reset();
+    }
+    shared_ptr<SshConnectionPrivate> conn(new SshConnectionPrivate);
+    conn->peerHostName = peerHostName;
+    conn->serverAliveInterval = d->serverAliveInterval;
+    conn->serverAliveCountMax = d->serverAliveCountMax;
+    conn->rekeyLimitBytes = d->rekeyLimitBytes;
+    conn->rekeyIntervalSeconds = d->rekeyIntervalSeconds;
+    conn->compressionEnabled = d->compressionEnabled;
+    if (d->hostKeyVerifier) {
+        conn->hostKeyVerifier = d->hostKeyVerifier;
+    }
+    if (!conn->startClient(socket, d->loginTimeout)) {
+        d->conn = conn;
+        return false;
+    }
+    d->conn = conn;
+    return true;
+}
+
 }  // namespace
 
 SshClient::SshClient()
@@ -2072,42 +3252,29 @@ bool SshClient::connect(shared_ptr<SocketLike> socket)
     if (!socket) {
         return failSshClientConnect(d, "invalid socket", Socket::OperationError);
     }
-    if (d->conn) {
-        d->conn->stopClient();
-        d->conn.reset();
-    }
-    shared_ptr<SshConnectionPrivate> conn(new SshConnectionPrivate);
-    if (d->hostKeyVerifier) {
-        conn->hostKeyVerifier = d->hostKeyVerifier;
-    }
-    if (!conn->startClient(socket, d->loginTimeout)) {
-        d->conn = conn;
-        return false;
-    }
-    d->conn = conn;
-    return true;
+    return startSshClientOnSocket(d, socket, string());
 }
 
 bool SshClient::connect(const string &host, uint16_t port, shared_ptr<SocketDnsCache> dnsCache)
 {
+    NG_D(SshClient);
     Socket::SocketError err = Socket::NoError;
     Socket *s = Socket::createConnection(host, port, &err, dnsCache);
     if (!s) {
-        NG_D(SshClient);
         return failSshClientConnect(d, "connect failed", err);
     }
-    return connect(asSocketLike(shared_ptr<Socket>(s)));
+    return startSshClientOnSocket(d, asSocketLike(shared_ptr<Socket>(s)), host);
 }
 
 bool SshClient::connect(const HostAddress &addr, uint16_t port)
 {
+    NG_D(SshClient);
     Socket::SocketError err = Socket::NoError;
     Socket *s = Socket::createConnection(addr, port, &err);
     if (!s) {
-        NG_D(SshClient);
         return failSshClientConnect(d, "connect failed", err);
     }
-    return connect(asSocketLike(shared_ptr<Socket>(s)));
+    return startSshClientOnSocket(d, asSocketLike(shared_ptr<Socket>(s)), addr.toString());
 }
 
 void SshClient::setHostKeyVerifier(const shared_ptr<SshHostKeyVerifier> &verifier)
@@ -2120,6 +3287,44 @@ void SshClient::setLoginTimeout(float seconds)
 {
     NG_D(SshClient);
     d->loginTimeout = seconds;
+}
+
+void SshClient::setServerAliveInterval(float seconds)
+{
+    NG_D(SshClient);
+    d->serverAliveInterval = seconds;
+    if (d->conn) {
+        d->conn->serverAliveInterval = seconds;
+    }
+}
+
+void SshClient::setServerAliveCountMax(int count)
+{
+    NG_D(SshClient);
+    d->serverAliveCountMax = count;
+    if (d->conn) {
+        d->conn->serverAliveCountMax = count;
+    }
+}
+
+void SshClient::setRekeyLimit(uint64_t bytes, float intervalSeconds)
+{
+    NG_D(SshClient);
+    d->rekeyLimitBytes = bytes;
+    d->rekeyIntervalSeconds = intervalSeconds;
+    if (d->conn) {
+        d->conn->rekeyLimitBytes = bytes;
+        d->conn->rekeyIntervalSeconds = intervalSeconds;
+    }
+}
+
+void SshClient::setCompression(bool enable)
+{
+    NG_D(SshClient);
+    d->compressionEnabled = enable;
+    if (d->conn) {
+        d->conn->compressionEnabled = enable;
+    }
 }
 
 bool SshClient::authenticate(const string &user, const string &password)
@@ -2146,7 +3351,7 @@ shared_ptr<SshChannel> SshClient::openSessionChannel()
     if (!d->conn) {
         return nullptr;
     }
-    if (!d->conn->sendServiceAcceptRequest()) {
+    if (!d->conn->sendConnectionService()) {
         return nullptr;
     }
     if (!d->conn->sendOpenChannel()) {

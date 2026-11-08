@@ -5000,22 +5000,44 @@ terminal byte stream plus resize/signal notifications, so a TUI runs in-process.
   already-connected ``SocketLike`` (KCP, Noise, DataChannel, TLS, ...) to host
   SSH over an arbitrary transport.
 * ``SshChannel`` — one session channel. ``send()``/``recv()`` carry the terminal
-  byte stream; ``requestPty()`` / ``requestShell()`` / ``requestWindowChange()`` /
-  ``sendSignal()`` are the client-side channel requests, and ``sendExitStatus()``
-  reports the session exit status back to the peer (the server sends an
-  ``exit-status`` of 0 automatically when ``SshApplication::run()`` returns).
-* ``SshChannelCallback`` — resize / signal / close notifications delivered from
-  the connection read loop (server side; install via ``SshChannel::setCallback()``).
+  byte stream; ``sendStderr()`` / ``recvStderr()`` carry
+  ``SSH_MSG_CHANNEL_EXTENDED_DATA`` type 1. Client channel requests:
+  ``requestPty()`` / ``requestShell()`` / ``requestExec()`` /
+  ``requestSubsystem()`` / ``setEnv()`` / ``requestWindowChange()`` /
+  ``sendSignal()``. ``sendExitStatus()`` reports the session exit status;
+  ``hasExitStatus()`` / ``exitStatus()`` observe a peer ``exit-status``.
+  The server sends ``exit-status`` 0 automatically when
+  ``SshApplication::run()`` returns.
+* ``SshChannelCallback`` — resize / signal / close / stderr / exit-status /
+  exit-signal notifications from the connection read loop (install via
+  ``SshChannel::setCallback()``).
 * ``SshAuthenticator`` — ``checkPassword()`` and/or ``checkPublicKey()`` (the raw
-  SSH key blob, e.g. ``"ssh-rsa" || e || n``).
+  SSH key blob, e.g. ``"ssh-rsa" || e || n`` or ``"ssh-ed25519" || key``).
 
 The **client** side is a protocol client (not a TUI): ``SshClient::connect(host,
 port)`` / ``connect(HostAddress, port)`` open a TCP connection; alternatively
 ``connect(shared_ptr<SocketLike>)`` takes over an already-connected
-``SocketLike`` (KCP, Noise, DataChannel, TLS, ...). ``SshHostKeyVerifier``
-performs known_hosts-style host-key verification, ``authenticate()`` /
-``authenticateWithPublicKey()`` log in, and ``openSessionChannel()`` returns a
-session channel.
+``SocketLike`` (KCP, Noise, DataChannel, TLS, ...). Version exchange follows
+RFC 4253 §5.1: peer identification ``SSH-2.0-...`` and the compatibility form
+``SSH-1.99-...`` both negotiate SSH protocol 2 (``SSH-1.x`` alone is rejected).
+``SshHostKeyVerifier`` performs known_hosts-style host-key verification,
+``authenticate()`` tries the ``password`` method and, on failure, falls back to
+``keyboard-interactive`` when the server offers it (RFC 4256),
+``authenticateWithPublicKey()`` logs in with an RSA or Ed25519 key, and
+``openSessionChannel()`` returns a session channel (no second
+``SERVICE_REQUEST`` after a successful userauth). Transport options:
+``setServerAliveInterval()`` / ``setServerAliveCountMax()`` (OpenSSH-style
+``keepalive@openssh.com``), ``setRekeyLimit(bytes, intervalSeconds)`` (``0``
+disables that trigger), and ``setCompression(true)`` to offer
+``zlib@openssh.com`` (delayed until after userauth).
+
+Negotiated algorithms prefer modern defaults while keeping older peers working:
+``curve25519-sha256`` KEX (with ``ext-info-c`` / ``kex-strict-*`` signals),
+host keys ``ssh-ed25519`` then RSA SHA-2, ciphers
+``chacha20-poly1305@openssh.com`` then AES-GCM then AES-CTR, and
+``hmac-sha2-256-etm@openssh.com`` / ``hmac-sha2-256`` / ``hmac-sha1`` MACs
+(ignored for AEAD ciphers). Non-goals of this implementation: mux /
+ControlPersist, hostname canonicalize, and port forwarding.
 
 A runnable example lives under ``examples/ssh-bbs/`` — a BBS-style server-side
 terminal application over SSH that exercises PTY allocation, window-change

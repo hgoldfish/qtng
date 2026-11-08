@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "qtng/aead.h"
 #include "qtng/cipher.h"
 #include "qtng/eventloop.h"
 #include "qtng/locks.h"
@@ -18,6 +19,9 @@
 #include "qtng/socket_utils.h"
 #include "qtng/ssh.h"
 #include "qtng/utils/platform.h"
+
+struct z_stream_s;
+typedef struct z_stream_s z_stream;
 
 namespace qtng {
 
@@ -88,8 +92,13 @@ enum SshMessageType {
     SSH_MSG_USERAUTH_FAILURE = 51,
     SSH_MSG_USERAUTH_SUCCESS = 52,
     SSH_MSG_USERAUTH_BANNER = 53,
+    // Type 60 is method-specific (RFC 4252 / 4256): PK_OK, PASSWD_CHANGEREQ,
+    // or INFO_REQUEST. Dispatch by clientAuthMethod on the client side.
     SSH_MSG_USERAUTH_PK_OK = 60,
+    SSH_MSG_USERAUTH_INFO_RESPONSE = 61,
     SSH_MSG_GLOBAL_REQUEST = 80,
+    SSH_MSG_REQUEST_SUCCESS = 81,
+    SSH_MSG_REQUEST_FAILURE = 82,
     SSH_MSG_CHANNEL_OPEN = 90,
     SSH_MSG_CHANNEL_OPEN_CONFIRMATION = 91,
     SSH_MSG_CHANNEL_OPEN_FAILURE = 92,
@@ -105,8 +114,21 @@ enum SshMessageType {
 
 // OpenSSH public key blob helpers.
 std::string sshRsaKeyBlob(const PublicKey &key);
-std::string sshKeyAlgorithmName(const std::string &blob);  // "ssh-rsa", ...
+std::string sshEd25519KeyBlob(const PublicKey &key);
+std::string sshPublicKeyBlob(const PublicKey &key);
+std::string sshKeyAlgorithmName(const std::string &blob);  // "ssh-rsa", "ssh-ed25519", ...
 bool sshParseRsaKeyBlob(const std::string &blob, PublicKey *key);
+bool sshParseEd25519KeyBlob(const std::string &blob, PublicKey *key);
+bool sshParsePublicKeyBlob(const std::string &blob, PublicKey *key);
+// RFC 4253 §5.1: "SSH-2.0-..." or compatibility "SSH-1.99-..." both mean protocol 2.
+bool sshIsProtocol2Identification(const std::string &line);
+
+enum class SshClientAuthMethod {
+    None = 0,
+    Password,
+    PublicKey,
+    KeyboardInteractive,
+};
 
 class SshConnectionPrivate;
 
@@ -117,7 +139,9 @@ public:
                       std::uint32_t remoteWindow, std::uint32_t localWindow, std::uint32_t maxPacketSize);
 
     std::string recv(std::int32_t maxSize);
+    std::string recvStderr(std::int32_t maxSize);
     bool send(const std::string &data);
+    bool sendStderr(const std::string &data);
     void closeChannel();
     void notifyEof();
     void notifyRemoteClose();
@@ -130,12 +154,16 @@ public:
     std::uint32_t initialWindow;
     std::uint32_t maxPacketSize;
     Queue<std::string> incoming;
+    Queue<std::string> stderrIncoming;
     Event windowAdjust;
     bool eofSent;
     bool eofReceived;
     bool closed;  // our side initiated close
     bool remoteClosed;
     bool exitStatusSent;
+    bool hasExitStatus;
+    std::uint32_t exitStatus;
+    std::string exitSignal;
     SshTerminalSize termSize;
     std::shared_ptr<SshChannelCallback> callback;
 };
@@ -169,12 +197,30 @@ public:
     bool deriveKeys();
     std::string deriveKey(char label, std::size_t len);
     bool sendNewKeys();
+    bool setupTransportKeys(bool sendSide);
     bool sendPacket(const std::string &payload);
     bool recvPacket(std::string *payload);
     std::string readLine();
     void computeExchangeHash(const std::string &serverHostKeyBlob);
     bool verifyPublicKeySignature(const std::string &user, const std::string &algo, const std::string &blob,
                                   const std::string &signature);
+    bool maybeRekey();
+    bool beginRekey(bool sendInit);
+    void handleGlobalRequest(const std::string &payload);
+    void handleExtInfo(const std::string &payload);
+    void handleExtendedData(const std::string &payload);
+    void handleRequestReply(bool success);
+    bool sendKeepalive();
+    void keepaliveLoop();
+    void activateDelayedCompression();
+    bool compressPayload(const std::string &in, std::string *out);
+    bool decompressPayload(const std::string &in, std::string *out);
+    std::vector<std::string> hostKeyAlgorithmsForKey() const;
+    std::vector<std::string> compressionAlgorithms() const;
+    std::vector<std::string> kexAlgorithmsForRole() const;
+    bool chachaCrypt(bool encrypt, std::uint32_t seq, const std::string &key, std::string *packetWithTag);
+    bool chachaDecryptLength(std::uint32_t seq, const std::string &key, const std::string &encLen4,
+                             std::uint32_t *packetLen);
 
     // Connection layer.
     std::shared_ptr<SshChannelPrivate> createChannel(std::uint32_t peerId, std::uint32_t remoteWindow,
@@ -189,6 +235,7 @@ public:
     void handleChannelRequest(const std::string &payload);
     void handleChannelRequestReply(const std::string &payload, bool success);
     bool sendChannelData(SshChannelPrivate *ch, const std::string &data);
+    bool sendChannelExtendedData(SshChannelPrivate *ch, std::uint32_t dataType, const std::string &data);
     bool sendChannelEof(SshChannelPrivate *ch);
     bool sendChannelClose(SshChannelPrivate *ch);
     bool sendWindowAdjust(SshChannelPrivate *ch, std::uint32_t n);
@@ -196,6 +243,7 @@ public:
     bool sendOpenChannel();
     bool sendChannelSuccess(std::uint32_t peerChannelId);
     bool sendChannelFailure(std::uint32_t peerChannelId);
+    bool sendConnectionService();
 
     // Auth (server).
     void handleAuthRequest(const std::string &payload);
@@ -207,11 +255,16 @@ public:
     // Client helpers.
     bool startClientAuth(const std::string &user, const std::string &password);
     bool startClientPublicKeyAuth(const std::string &user, const PrivateKey &key);
-    bool sendServiceAcceptRequest();
+    bool startClientKeyboardInteractiveAuth();
+    bool handleUserauthInfoRequest(const std::string &payload);
     bool sendUserauthService();
     bool waitAuthReply();
     bool waitChannelOpen();
     bool waitRequestReply();
+    bool authMethodAvailable(const std::string &method) const;
+    void finishClientAuthReply(bool ok);
+    void setAuthErrorIfEmpty(const std::string &fallback);
+    std::string pickPublicKeyAlgo(const PrivateKey &key) const;
 
     void setError(const std::string &message, Socket::SocketError err = Socket::RemoteHostClosedError);
     bool sendUnimplemented(std::uint32_t seq);
@@ -232,13 +285,20 @@ public:
     // KEX state.
     bool kexStarted;
     bool kexDone;
+    bool initialKexDone;
+    bool rekeyInProgress;
     std::string myKexInitPayload;
     std::string peerKexInitPayload;
-    bool peerExtInfoC;  // peer advertised ext-info-c in its KEXINIT (RFC 8308)
+    bool peerExtInfoC;
+    bool peerExtInfoS;
+    bool peerStrictKex;
+    bool localStrictKex;
+    bool strictKexActive;
     std::string kexAlgo;
     std::string hostKeyAlgo;
     std::string cipherAlgo;
     std::string macAlgo;
+    std::string compressionAlgo;
     std::string sessionId;
     std::string exchangeHash;
     std::string clientEphPriv;
@@ -257,14 +317,39 @@ public:
     std::string macS2C;
     std::unique_ptr<Cipher> sendCipher;
     std::unique_ptr<Cipher> recvCipher;
+    std::unique_ptr<Aead> sendAead;
+    std::unique_ptr<Aead> recvAead;
     std::string sendMacKey;
     std::string recvMacKey;
+    std::string sendChaChaKey;
+    std::string recvChaChaKey;
+    std::string sendGcmIv;
+    std::string recvGcmIv;
     std::uint32_t sendSeq;
     std::uint32_t recvSeq;
     int blockSize;
     int macLength;
     bool sendEncrypted;
     bool recvEncrypted;
+    bool macEtm;
+    bool isAeadCipher;
+    bool isChaChaCipher;
+    bool delayedCompressionActive;
+    z_stream *sendZ;
+    z_stream *recvZ;
+
+    // Rekey / keepalive counters.
+    std::uint64_t bytesSent;
+    std::uint64_t bytesReceived;
+    std::uint64_t rekeyLimitBytes;
+    float rekeyIntervalSeconds;
+    std::int64_t lastRekeyTimeMs;
+    float serverAliveInterval;
+    int serverAliveCountMax;
+    int serverAliveOutstanding;
+    bool compressionEnabled;
+    bool connectionServiceAccepted;
+    std::vector<std::string> serverSigAlgs;
 
     // Serialization.
     Lock sendLock;
@@ -302,12 +387,18 @@ public:
     Event kexDoneEvent;
     std::shared_ptr<SshHostKeyVerifier> hostKeyVerifier;
     float loginTimeout;
+    std::string peerHostName;
     std::string clientUser;
+    std::string clientPassword;
+    SshClientAuthMethod clientAuthMethod = SshClientAuthMethod::None;
+    std::vector<std::string> peerAuthMethods;
+    std::string clientAuthError;
     std::string clientKeyAlgo;
     std::string clientKeyBlob;
 
-    // Background read-loop coroutine (client only).
+    // Background coroutines (client).
     std::shared_ptr<Coroutine> readLoopCoroutine;
+    std::shared_ptr<Coroutine> keepaliveCoroutine;
     Event connectionClosed;
 };
 
@@ -328,6 +419,11 @@ public:
     std::shared_ptr<SshConnectionPrivate> conn;
     std::shared_ptr<SshHostKeyVerifier> hostKeyVerifier;
     float loginTimeout = 30.0f;
+    float serverAliveInterval = 0.0f;
+    int serverAliveCountMax = 3;
+    std::uint64_t rekeyLimitBytes = 0;
+    float rekeyIntervalSeconds = 0.0f;
+    bool compressionEnabled = false;
 };
 
 }  // namespace qtng

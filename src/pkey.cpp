@@ -56,10 +56,16 @@ PublicKeyPrivate::PublicKeyPrivate()
 PublicKeyPrivate::PublicKeyPrivate(PublicKeyPrivate *other)
     : hasPrivate(false)
 {
-    if (other->context && other->pkey) {
+    if (!other->pkey) {
+        return;
+    }
+    pkey = other->pkey;
+    hasPrivate = other->hasPrivate;
+    if (other->context) {
         context.reset(EVP_PKEY_CTX_dup(other->context.get()));
-        pkey = other->pkey;
-        hasPrivate = other->hasPrivate;
+    }
+    if (!context) {
+        context.reset(EVP_PKEY_CTX_new(pkey.get(), nullptr));
     }
 }
 
@@ -76,6 +82,8 @@ PublicKey::Algorithm PublicKeyPrivate::algorithm() const
             return PublicKey::Dsa;
         case EVP_PKEY_EC:
             return PublicKey::Ec;
+        case EVP_PKEY_ED25519:
+            return PublicKey::Ed25519;
         default:
             return PublicKey::Opaque;
         }
@@ -156,6 +164,17 @@ PrivateKey PublicKeyPrivate::generate(PublicKey::Algorithm algo, int bits)
         openssl_setPkey(&key, pkey.release(), true);
     } else if (algo == PrivateKey::Ec) {
         return key;
+    } else if (algo == PrivateKey::Ed25519) {
+        EvpPkeyCtxPtr ctx(EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, nullptr));
+        if (!ctx) {
+            return key;
+        }
+        EVP_PKEY *rawPkey = nullptr;
+        if (EVP_PKEY_keygen_init(ctx.get()) <= 0 || EVP_PKEY_keygen(ctx.get(), &rawPkey) <= 0) {
+            return key;
+        }
+        EvpPkeyPtr pkey(rawPkey);
+        openssl_setPkey(&key, pkey.release(), true);
     } else {
         NG_UNREACHABLE();
         return key;
@@ -169,10 +188,14 @@ string PublicKeyPrivate::sign(const char *data, size_t dataSize, MessageDigest::
         return string();
     }
 
+    const bool pureEddsa = (algorithm() == PublicKey::Ed25519);
     int rvalue = 0;
-    const EVP_MD *md = getOpenSSL_MD(hashAlgo);
-    if (!md) {
-        return string();
+    const EVP_MD *md = nullptr;
+    if (!pureEddsa) {
+        md = getOpenSSL_MD(hashAlgo);
+        if (!md) {
+            return string();
+        }
     }
 
     EvpMdCtxPtr mctx(EVP_MD_CTX_new());
@@ -182,6 +205,22 @@ string PublicKeyPrivate::sign(const char *data, size_t dataSize, MessageDigest::
     rvalue = EVP_DigestSignInit(mctx.get(), nullptr, md, nullptr, pkey.get());
     if (!rvalue) {
         return string();
+    }
+    if (pureEddsa) {
+        size_t siglen = 0;
+        rvalue = EVP_DigestSign(mctx.get(), nullptr, &siglen, reinterpret_cast<const unsigned char *>(data), dataSize);
+        if (!rvalue || siglen == 0) {
+            return string();
+        }
+        string result;
+        result.resize(static_cast<int>(siglen));
+        rvalue = EVP_DigestSign(mctx.get(), reinterpret_cast<unsigned char *>(&result[0]), &siglen,
+                                reinterpret_cast<const unsigned char *>(data), dataSize);
+        if (!rvalue) {
+            return string();
+        }
+        result.resize(static_cast<int>(siglen));
+        return result;
     }
     rvalue = EVP_DigestSignUpdate(mctx.get(), data, static_cast<unsigned int>(dataSize));
     if (!rvalue) {
@@ -209,10 +248,14 @@ bool PublicKeyPrivate::verify(const char *data, size_t dataSize, const char *has
         return false;
     }
 
+    const bool pureEddsa = (algorithm() == PublicKey::Ed25519);
     int rvalue = 0;
-    const EVP_MD *md = getOpenSSL_MD(hashAlgo);
-    if (!md) {
-        return false;
+    const EVP_MD *md = nullptr;
+    if (!pureEddsa) {
+        md = getOpenSSL_MD(hashAlgo);
+        if (!md) {
+            return false;
+        }
     }
 
     EvpMdCtxPtr mctx(EVP_MD_CTX_new());
@@ -223,6 +266,11 @@ bool PublicKeyPrivate::verify(const char *data, size_t dataSize, const char *has
     rvalue = EVP_DigestVerifyInit(mctx.get(), nullptr, md, nullptr, pkey.get());
     if (!rvalue) {
         return false;
+    }
+    if (pureEddsa) {
+        rvalue = EVP_DigestVerify(mctx.get(), reinterpret_cast<const unsigned char *>(hash), hashSize,
+                                  reinterpret_cast<const unsigned char *>(data), dataSize);
+        return rvalue == 1;
     }
     rvalue = EVP_DigestVerifyUpdate(mctx.get(), data, static_cast<unsigned int>(dataSize));
     if (!rvalue) {
