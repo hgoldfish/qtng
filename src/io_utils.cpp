@@ -897,37 +897,37 @@ shared_ptr<FileLike> FileLike::open(const string &filepath, const string &mode)
 class BytesIOPrivate
 {
 public:
-    explicit BytesIOPrivate(int32_t pos)
-        : buf(nullptr)
-        , ext(nullptr)
-        , extSize(0)
-        , pos(pos)
+    explicit BytesIOPrivate(int32_t cursor)
+        : writable(nullptr)
+        , view(nullptr)
+        , viewSize(0)
+        , cursor(cursor)
     {
     }
 
     const char *readPtr() const
     {
-        if (buf) {
-            return buf->data();
+        if (writable) {
+            return writable->data();
         }
-        return ext;
+        return view;
     }
 
     size_t length() const
     {
-        if (buf) {
-            return buf->size();
+        if (writable) {
+            return writable->size();
         }
-        return extSize;
+        return viewSize;
     }
 
-    bool writable() const { return buf != nullptr; }
+    bool isWritable() const { return writable != nullptr; }
 
-    string *buf;
-    string owned;
-    const char *ext;
-    size_t extSize;
-    int32_t pos;
+    string *writable;
+    string storage;
+    const char *view;
+    size_t viewSize;
+    int32_t cursor;
 };
 
 BytesIO::BytesIO(const char *buf, size_t size, BufferOwnership ownership, int32_t pos)
@@ -935,13 +935,13 @@ BytesIO::BytesIO(const char *buf, size_t size, BufferOwnership ownership, int32_
 {
     NG_D(BytesIO);
     if (ownership == BufferOwnership::Borrow) {
-        d->ext = buf;
-        d->extSize = size;
+        d->view = buf;
+        d->viewSize = size;
     } else {
         if (buf && size > 0) {
-            d->owned.assign(buf, size);
+            d->storage.assign(buf, size);
         }
-        d->buf = &d->owned;
+        d->writable = &d->storage;
     }
 }
 
@@ -950,8 +950,8 @@ BytesIO::BytesIO(const string &buf, BufferOwnership ownership, int32_t pos)
 {
     NG_D(BytesIO);
     assert(ownership == BufferOwnership::Copy);
-    d->owned = buf;
-    d->buf = &d->owned;
+    d->storage = buf;
+    d->writable = &d->storage;
 }
 
 BytesIO::BytesIO(string *buf, BufferOwnership ownership, int32_t pos)
@@ -959,12 +959,12 @@ BytesIO::BytesIO(string *buf, BufferOwnership ownership, int32_t pos)
 {
     NG_D(BytesIO);
     if (ownership == BufferOwnership::Borrow) {
-        d->buf = buf;
+        d->writable = buf;
     } else {
         if (buf) {
-            d->owned = *buf;
+            d->storage = *buf;
         }
-        d->buf = &d->owned;
+        d->writable = &d->storage;
     }
 }
 
@@ -972,8 +972,8 @@ BytesIO::BytesIO()
     : d_ptr(new BytesIOPrivate(0))
 {
     NG_D(BytesIO);
-    d->owned.clear();
-    d->buf = &d->owned;
+    d->storage.clear();
+    d->writable = &d->storage;
 }
 
 BytesIO::~BytesIO()
@@ -984,33 +984,33 @@ BytesIO::~BytesIO()
 int32_t BytesIO::read(char *data, int32_t size)
 {
     NG_D(BytesIO);
-    if (!d->buf && !d->ext) {
+    if (!d->writable && !d->view) {
         return -1;
     }
-    int32_t available = static_cast<int32_t>(d->length()) - d->pos;
+    int32_t available = static_cast<int32_t>(d->length()) - d->cursor;
     if (available <= 0) {
         return 0;
     }
     int32_t toRead = min(size, available);
-    memcpy(data, d->readPtr() + d->pos, static_cast<size_t>(toRead));
-    d->pos += toRead;
+    memcpy(data, d->readPtr() + d->cursor, static_cast<size_t>(toRead));
+    d->cursor += toRead;
     return toRead;
 }
 
 int32_t BytesIO::write(const char *data, int32_t size)
 {
     NG_D(BytesIO);
-    if (!d->writable()) {
+    if (!d->isWritable()) {
         return -1;
     }
-    if (d->pos > static_cast<int32_t>(d->buf->size())) {
-        d->buf->resize(static_cast<size_t>(d->pos));
+    if (d->cursor > static_cast<int32_t>(d->writable->size())) {
+        d->writable->resize(static_cast<size_t>(d->cursor));
     }
-    if (d->pos + size > static_cast<int32_t>(d->buf->size())) {
-        d->buf->resize(static_cast<size_t>(d->pos + size));
+    if (d->cursor + size > static_cast<int32_t>(d->writable->size())) {
+        d->writable->resize(static_cast<size_t>(d->cursor + size));
     }
-    memcpy(&(*d->buf)[static_cast<size_t>(d->pos)], data, static_cast<size_t>(size));
-    d->pos += size;
+    memcpy(&(*d->writable)[static_cast<size_t>(d->cursor)], data, static_cast<size_t>(size));
+    d->cursor += size;
     return size;
 }
 
@@ -1023,7 +1023,7 @@ void BytesIO::close()
 int64_t BytesIO::size()
 {
     NG_D(BytesIO);
-    if (!d->buf && !d->ext) {
+    if (!d->writable && !d->view) {
         return -1;
     }
     return static_cast<int64_t>(d->length());
@@ -1032,7 +1032,7 @@ int64_t BytesIO::size()
 string BytesIO::readall(bool *ok)
 {
     NG_D(BytesIO);
-    if (!d->buf && !d->ext) {
+    if (!d->writable && !d->view) {
         if (ok) {
             *ok = false;
         }
@@ -1041,23 +1041,23 @@ string BytesIO::readall(bool *ok)
     if (ok) {
         *ok = true;
     }
-    if (d->pos >= static_cast<int32_t>(d->length())) {
+    if (d->cursor >= static_cast<int32_t>(d->length())) {
         return string();
     }
-    if (d->buf) {
-        return d->buf->substr(static_cast<size_t>(d->pos));
+    if (d->writable) {
+        return d->writable->substr(static_cast<size_t>(d->cursor));
     }
-    return string(d->ext + d->pos, d->extSize - static_cast<size_t>(d->pos));
+    return string(d->view + d->cursor, d->viewSize - static_cast<size_t>(d->cursor));
 }
 
 string BytesIO::data()
 {
     NG_D(BytesIO);
-    if (d->buf) {
-        return *d->buf;
+    if (d->writable) {
+        return *d->writable;
     }
-    if (d->ext) {
-        return string(d->ext, d->extSize);
+    if (d->view) {
+        return string(d->view, d->viewSize);
     }
     return string();
 }
