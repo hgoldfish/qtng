@@ -138,10 +138,8 @@ public:
     SshChannelPrivate(SshConnectionPrivate *conn, std::uint32_t localId, std::uint32_t peerId,
                       std::uint32_t remoteWindow, std::uint32_t localWindow, std::uint32_t maxPacketSize);
 
-    std::string recv(std::int32_t maxSize);
-    std::string recvStderr(std::int32_t maxSize);
-    bool send(const std::string &data);
-    bool sendStderr(const std::string &data);
+    std::int32_t recv(Queue<std::string> *queue, char *data, std::int32_t size);
+    std::int32_t send(const char *data, std::int32_t size, bool stderr);
     void closeChannel();
     void notifyEof();
     void notifyRemoteClose();
@@ -156,6 +154,8 @@ public:
     Queue<std::string> incoming;
     Queue<std::string> stderrIncoming;
     Event windowAdjust;
+    Lock readLock;
+    Lock writeLock;
     bool eofSent;
     bool eofReceived;
     bool closed;  // our side initiated close

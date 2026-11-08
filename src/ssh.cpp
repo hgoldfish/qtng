@@ -438,109 +438,75 @@ SshChannelPrivate::SshChannelPrivate(SshConnectionPrivate *conn, uint32_t localI
 {
 }
 
-string SshChannelPrivate::recv(int32_t maxSize)
+int32_t SshChannelPrivate::recv(Queue<string> *queue, char *data, int32_t size)
 {
-    string result;
-    while (static_cast<int32_t>(result.size()) < maxSize) {
-        if (incoming.isEmpty()) {
-            // Return as soon as some data is available; only block on an
-            // empty queue, and only while the channel is still open.
-            if (!result.empty() || eofReceived || closed || remoteClosed) {
-                break;
-            }
-            if (!incoming.waitNotEmpty()) {
-                break;
-            }
-            continue;
+    if (size <= 0) {
+        return 0;
+    }
+    while (queue->isEmpty()) {
+        if (eofReceived || closed || remoteClosed) {
+            return 0;
         }
-        string chunk = incoming.get();
+        if (!queue->waitNotEmpty()) {
+            return -1;
+        }
+    }
+    int32_t got = 0;
+    while (got < size && !queue->isEmpty()) {
+        string chunk = queue->get();
         if (chunk.empty()) {
             continue;
         }
-        // A single CHANNEL_DATA packet may carry more than maxSize bytes;
-        // consume only what was asked and push the remainder back (front) so
-        // it is not lost, preserving stream semantics.
-        const size_t need = static_cast<size_t>(maxSize) - result.size();
+        const size_t need = static_cast<size_t>(size - got);
         if (chunk.size() <= need) {
-            result.append(chunk);
+            memcpy(data + got, chunk.data(), chunk.size());
+            got += static_cast<int32_t>(chunk.size());
         } else {
-            result.append(chunk, 0, need);
-            incoming.returns(chunk.substr(need));
+            memcpy(data + got, chunk.data(), need);
+            queue->returns(chunk.substr(need));
+            got += static_cast<int32_t>(need);
             break;
         }
     }
-    return result;
+    return got;
 }
 
-bool SshChannelPrivate::send(const string &data)
+int32_t SshChannelPrivate::send(const char *data, int32_t size, bool stderr)
 {
     if (closed || remoteClosed || eofSent) {
-        return false;
+        return -1;
     }
-    if (data.empty()) {
-        return true;
+    if (size <= 0) {
+        return 0;
     }
-    while (remoteWindow < data.size()) {
-        windowAdjust.clear();
-        if (!windowAdjust.tryWait(30000)) {
-            return false;
-        }
-        if (closed || remoteClosed) {
-            return false;
-        }
-    }
-    remoteWindow -= static_cast<uint32_t>(data.size());
-    return conn->sendChannelData(this, data);
-}
-
-string SshChannelPrivate::recvStderr(int32_t maxSize)
-{
-    string result;
-    while (static_cast<int32_t>(result.size()) < maxSize) {
-        if (stderrIncoming.isEmpty()) {
-            if (!result.empty() || eofReceived || closed || remoteClosed) {
+    int32_t sent = 0;
+    while (sent < size) {
+        while (remoteWindow == 0) {
+            windowAdjust.clear();
+            if (remoteWindow > 0 || closed || remoteClosed) {
                 break;
             }
-            if (!stderrIncoming.waitNotEmpty()) {
-                break;
+            if (!windowAdjust.tryWait(30000)) {
+                return sent > 0 ? sent : -1;
             }
-            continue;
-        }
-        string chunk = stderrIncoming.get();
-        if (chunk.empty()) {
-            continue;
-        }
-        const size_t need = static_cast<size_t>(maxSize) - result.size();
-        if (chunk.size() <= need) {
-            result.append(chunk);
-        } else {
-            result.append(chunk, 0, need);
-            stderrIncoming.returns(chunk.substr(need));
-            break;
-        }
-    }
-    return result;
-}
-
-bool SshChannelPrivate::sendStderr(const string &data)
-{
-    if (closed || remoteClosed || eofSent) {
-        return false;
-    }
-    if (data.empty()) {
-        return true;
-    }
-    while (remoteWindow < data.size()) {
-        windowAdjust.clear();
-        if (!windowAdjust.tryWait(30000)) {
-            return false;
         }
         if (closed || remoteClosed) {
-            return false;
+            return sent > 0 ? sent : -1;
         }
+        if (remoteWindow == 0) {
+            continue;
+        }
+        const uint32_t packetCap = maxPacketSize == 0 ? remoteWindow : maxPacketSize;
+        const uint32_t chunk = min({static_cast<uint32_t>(size - sent), remoteWindow, packetCap});
+        const string piece(data + sent, chunk);
+        const bool ok = stderr ? conn->sendChannelExtendedData(this, 1, piece) : conn->sendChannelData(this, piece);
+        if (!ok) {
+            return sent > 0 ? sent : -1;
+        }
+        remoteWindow -= chunk;
+        sent += static_cast<int32_t>(chunk);
     }
-    remoteWindow -= static_cast<uint32_t>(data.size());
-    return conn->sendChannelExtendedData(this, 1, data);
+    return sent;
 }
 
 void SshChannelPrivate::closeChannel()
@@ -556,6 +522,7 @@ void SshChannelPrivate::closeChannel()
     closed = true;
     incoming.notifyNotEmpty();
     stderrIncoming.notifyNotEmpty();
+    windowAdjust.set();
 }
 
 void SshChannelPrivate::notifyEof()
@@ -571,6 +538,7 @@ void SshChannelPrivate::notifyRemoteClose()
     remoteClosed = true;
     incoming.notifyNotEmpty();
     stderrIncoming.notifyNotEmpty();
+    windowAdjust.set();
     if (callback) {
         callback->onClose();
     }
@@ -2995,30 +2963,148 @@ SshChannel::~SshChannel()
 {
 }
 
-int32_t SshChannel::send(const char *data, size_t size)
+int32_t SshChannel::recv(char *data, int32_t size)
 {
-    if (!d->send(string(data, size))) {
+    ScopedLock<Lock> lock(d->readLock);
+    if (!lock.isSuccess()) {
         return -1;
     }
-    return static_cast<int32_t>(size);
+    return d->recv(&d->incoming, data, size);
 }
 
-string SshChannel::recv(int32_t maxSize)
+int32_t SshChannel::recvall(char *data, int32_t size)
 {
-    return d->recv(maxSize);
-}
-
-int32_t SshChannel::sendStderr(const char *data, size_t size)
-{
-    if (!d->sendStderr(string(data, size))) {
+    ScopedLock<Lock> lock(d->readLock);
+    if (!lock.isSuccess()) {
         return -1;
     }
-    return static_cast<int32_t>(size);
+    int32_t got = 0;
+    while (got < size) {
+        int32_t n = d->recv(&d->incoming, data + got, size - got);
+        if (n <= 0) {
+            return got > 0 ? got : n;
+        }
+        got += n;
+    }
+    return got;
 }
 
-string SshChannel::recvStderr(int32_t maxSize)
+int32_t SshChannel::send(const char *data, int32_t size)
 {
-    return d->recvStderr(maxSize);
+    ScopedLock<Lock> lock(d->writeLock);
+    if (!lock.isSuccess()) {
+        return -1;
+    }
+    return d->send(data, size, false);
+}
+
+int32_t SshChannel::sendall(const char *data, int32_t size)
+{
+    return send(data, size);
+}
+
+string SshChannel::recv(int32_t size)
+{
+    string buf(static_cast<size_t>(size), '\0');
+    int32_t n = recv(&buf[0], size);
+    if (n < 0) {
+        return string();
+    }
+    buf.resize(static_cast<size_t>(n));
+    return buf;
+}
+
+string SshChannel::recvall(int32_t size)
+{
+    string buf(static_cast<size_t>(size), '\0');
+    int32_t n = recvall(&buf[0], size);
+    if (n < 0) {
+        return string();
+    }
+    buf.resize(static_cast<size_t>(n));
+    return buf;
+}
+
+int32_t SshChannel::send(const string &data)
+{
+    return send(data.data(), static_cast<int32_t>(data.size()));
+}
+
+int32_t SshChannel::sendall(const string &data)
+{
+    return sendall(data.data(), static_cast<int32_t>(data.size()));
+}
+
+int32_t SshChannel::recvStderr(char *data, int32_t size)
+{
+    ScopedLock<Lock> lock(d->readLock);
+    if (!lock.isSuccess()) {
+        return -1;
+    }
+    return d->recv(&d->stderrIncoming, data, size);
+}
+
+int32_t SshChannel::recvallStderr(char *data, int32_t size)
+{
+    ScopedLock<Lock> lock(d->readLock);
+    if (!lock.isSuccess()) {
+        return -1;
+    }
+    int32_t got = 0;
+    while (got < size) {
+        int32_t n = d->recv(&d->stderrIncoming, data + got, size - got);
+        if (n <= 0) {
+            return got > 0 ? got : n;
+        }
+        got += n;
+    }
+    return got;
+}
+
+int32_t SshChannel::sendStderr(const char *data, int32_t size)
+{
+    ScopedLock<Lock> lock(d->writeLock);
+    if (!lock.isSuccess()) {
+        return -1;
+    }
+    return d->send(data, size, true);
+}
+
+int32_t SshChannel::sendallStderr(const char *data, int32_t size)
+{
+    return sendStderr(data, size);
+}
+
+string SshChannel::recvStderr(int32_t size)
+{
+    string buf(static_cast<size_t>(size), '\0');
+    int32_t n = recvStderr(&buf[0], size);
+    if (n < 0) {
+        return string();
+    }
+    buf.resize(static_cast<size_t>(n));
+    return buf;
+}
+
+string SshChannel::recvallStderr(int32_t size)
+{
+    string buf(static_cast<size_t>(size), '\0');
+    int32_t n = recvallStderr(&buf[0], size);
+    if (n < 0) {
+        return string();
+    }
+    buf.resize(static_cast<size_t>(n));
+    return buf;
+}
+
+int32_t SshChannel::sendStderr(const string &data)
+{
+    return sendStderr(data.data(), static_cast<int32_t>(data.size()));
+}
+
+int32_t SshChannel::sendallStderr(const string &data)
+{
+    return sendallStderr(data.data(), static_cast<int32_t>(data.size()));
 }
 
 void SshChannel::close()
@@ -3088,14 +3174,14 @@ bool SshChannel::requestWindowChange(uint32_t cols, uint32_t rows)
     extra.putUint32(rows);
     extra.putUint32(0);
     extra.putUint32(0);
-    return d->conn->sendChannelRequest(d.get(), "window-change", extra, true) && d->conn->waitRequestReply();
+    return d->conn->sendChannelRequest(d.get(), "window-change", extra, false);
 }
 
 bool SshChannel::sendSignal(const string &signalName)
 {
     SshBuffer extra;
     extra.putString(signalName);
-    return d->conn->sendChannelRequest(d.get(), "signal", extra, true) && d->conn->waitRequestReply();
+    return d->conn->sendChannelRequest(d.get(), "signal", extra, false);
 }
 
 bool SshChannel::sendExitStatus(uint32_t status)

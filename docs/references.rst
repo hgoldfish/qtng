@@ -4999,12 +4999,15 @@ terminal byte stream plus resize/signal notifications, so a TUI runs in-process.
   ``serveForever()`` / ``start()`` calls it, and callers may also feed an
   already-connected ``SocketLike`` (KCP, Noise, DataChannel, TLS, ...) to host
   SSH over an arbitrary transport.
-* ``SshChannel`` — one session channel. ``send()``/``recv()`` carry the terminal
-  byte stream; ``sendStderr()`` / ``recvStderr()`` carry
-  ``SSH_MSG_CHANNEL_EXTENDED_DATA`` type 1. Client channel requests:
+* ``SshChannel`` — one session channel. ``send()`` / ``recv()`` / ``sendall()`` /
+  ``recvall()`` carry the terminal byte stream with the same overload set as
+  ``Socket`` / ``QuicStream`` (``char*`` and ``std::string``);
+  ``sendStderr()`` / ``recvStderr()`` / ``sendallStderr()`` / ``recvallStderr()``
+  carry ``SSH_MSG_CHANNEL_EXTENDED_DATA`` type 1. Client channel requests:
   ``requestPty()`` / ``requestShell()`` / ``requestExec()`` /
   ``requestSubsystem()`` / ``setEnv()`` / ``requestWindowChange()`` /
-  ``sendSignal()``. ``sendExitStatus()`` reports the session exit status;
+  ``sendSignal()``. ``requestWindowChange()`` and ``sendSignal()`` send
+  ``want_reply=false`` (RFC 4254 §6.7 / §6.9). ``sendExitStatus()`` reports the session exit status;
   ``hasExitStatus()`` / ``exitStatus()`` observe a peer ``exit-status``.
   The server sends ``exit-status`` 0 automatically when
   ``SshApplication::run()`` returns.

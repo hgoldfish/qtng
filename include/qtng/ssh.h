@@ -55,18 +55,24 @@ class SshChannel
 public:
     virtual ~SshChannel();
 
-    // Send data to the peer (blocking, coroutine-safe). Returns bytes sent or
-    // -1 on failure. Empty data returns 0.
-    std::int32_t send(const char *data, size_t size);
-    inline std::int32_t send(const std::string &data) { return send(data.data(), data.size()); }
-    // Receive data from the peer (blocking). Returns an empty string on EOF or
-    // when the channel/connection is closed. At most maxSize bytes are returned.
-    std::string recv(std::int32_t maxSize);
-    // Server/tests: send CHANNEL_EXTENDED_DATA stderr (data type 1).
-    std::int32_t sendStderr(const char *data, size_t size);
-    inline std::int32_t sendStderr(const std::string &data) { return sendStderr(data.data(), data.size()); }
-    // Client: receive stderr bytes (CHANNEL_EXTENDED_DATA type 1).
-    std::string recvStderr(std::int32_t maxSize);
+    // Byte-stream I/O aligned with Socket / QuicStream.
+    std::int32_t recv(char *data, std::int32_t size);
+    std::int32_t recvall(char *data, std::int32_t size);
+    std::int32_t send(const char *data, std::int32_t size);
+    std::int32_t sendall(const char *data, std::int32_t size);
+    std::string recv(std::int32_t size);
+    std::string recvall(std::int32_t size);
+    std::int32_t send(const std::string &data);
+    std::int32_t sendall(const std::string &data);
+    // CHANNEL_EXTENDED_DATA stderr (data type 1); same overload set as above.
+    std::int32_t recvStderr(char *data, std::int32_t size);
+    std::int32_t recvallStderr(char *data, std::int32_t size);
+    std::int32_t sendStderr(const char *data, std::int32_t size);
+    std::int32_t sendallStderr(const char *data, std::int32_t size);
+    std::string recvStderr(std::int32_t size);
+    std::string recvallStderr(std::int32_t size);
+    std::int32_t sendStderr(const std::string &data);
+    std::int32_t sendallStderr(const std::string &data);
     // Send EOF then close the channel.
     void close();
     bool isClosed() const;

@@ -4549,11 +4549,14 @@ shell：``SshApplication`` 回调收到终端字节流以及 resize/信号通知
   ``processRequest(shared_ptr<SocketLike>)`` 是公开的：既可由 ``serveForever()`` /
   ``start()`` 的 accept 循环调用，也可手动传入已连接的 ``SocketLike``（KCP、Noise、
   DataChannel、TLS 等），以便在任意底层传输上托管 SSH。
-* ``SshChannel`` — 单个 session 通道。``send()``/``recv()`` 传输终端字节流；
-  ``sendStderr()`` / ``recvStderr()`` 传输 ``SSH_MSG_CHANNEL_EXTENDED_DATA``
+* ``SshChannel`` — 单个 session 通道。``send()`` / ``recv()`` / ``sendall()`` /
+  ``recvall()`` 传输终端字节流，重载签名对齐 ``Socket`` / ``QuicStream``
+  （``char*`` 与 ``std::string``）；``sendStderr()`` / ``recvStderr()`` /
+  ``sendallStderr()`` / ``recvallStderr()`` 传输 ``SSH_MSG_CHANNEL_EXTENDED_DATA``
   type 1。客户端通道请求：``requestPty()`` / ``requestShell()`` /
   ``requestExec()`` / ``requestSubsystem()`` / ``setEnv()`` /
-  ``requestWindowChange()`` / ``sendSignal()``。``sendExitStatus()`` 上报退出状态；
+  ``requestWindowChange()`` / ``sendSignal()``。``requestWindowChange()`` 与
+  ``sendSignal()`` 使用 ``want_reply=false``（RFC 4254 §6.7 / §6.9）。``sendExitStatus()`` 上报退出状态；
   ``hasExitStatus()`` / ``exitStatus()`` 读取对端 ``exit-status``。服务器在
   ``SshApplication::run()`` 返回后会自动发送 ``exit-status`` 0。
 * ``SshChannelCallback`` — 连接读循环投递的 resize / 信号 / 关闭 / stderr /
