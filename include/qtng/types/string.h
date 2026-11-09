@@ -1527,7 +1527,7 @@ operator+(A a, B b)
 // MsgPack: String is text, so it streams as msgpack str (never bin)
 // ---------------------------------------------------------------------------
 //
-// This is the text-side counterpart of the removed MsgPackStream::operator<<(std::string):
+// This is the text-side counterpart of the deleted operator<<(MsgPackStream &, std::string):
 // a bare std::string could mean either str or bin, but String is unambiguously text. The
 // bytes on the wire are byteSize(), not size() -- size() counts UTF-8 code points, and the
 // content may contain '\0', so passing (data(), byteSize()) is what keeps embedded NULs and

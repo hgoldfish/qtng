@@ -755,7 +755,7 @@ inline float ByteArray::toFloat(bool *ok) const
 // MsgPack: ByteArray is bytes, so it streams as msgpack bin (never str)
 // ---------------------------------------------------------------------------
 //
-// This is the byte-side counterpart of the removed MsgPackStream::operator<<(std::string):
+// This is the byte-side counterpart of the deleted operator<<(MsgPackStream &, std::string):
 // a bare std::string could mean either str or bin, but ByteArray is unambiguously bytes, so
 // the wire type no longer has to be guessed. An empty payload is written as bin of length 0.
 //

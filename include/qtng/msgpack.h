@@ -145,6 +145,15 @@ private:
     NG_DISABLE_COPY(MsgPackStream);
 };
 
+// A bare std::string is ambiguous on the wire (msgpack str vs bin). Use
+// writeString()/readString() or writeBytes()/readBytes() explicitly, or stream
+// qtng::String / qtng::ByteArray which pick str and bin respectively.
+// const char* is deleted too: without this, s << "text" binds to operator<<(bool)
+// via the standard pointer-to-bool conversion and silently writes true/false.
+MsgPackStream &operator<<(MsgPackStream &s, const std::string &str) = delete;
+MsgPackStream &operator<<(MsgPackStream &s, const char *str) = delete;
+MsgPackStream &operator>>(MsgPackStream &s, std::string &str) = delete;
+
 namespace FirstByte {
 const std::uint8_t POSITIVE_FIXINT = 0x7f;
 const std::uint8_t FIXMAP = 0x80;
@@ -554,8 +563,8 @@ inline void variant_read_value(MsgPackStream &s, T &val)
     s >> val;
 }
 
-// std::string must be read through readString(); the generic operator>> is not
-// available because reading strings via >> is intentionally forbidden.
+// std::string must be read through readString(); operator>>(MsgPackStream &,
+// std::string &) is deleted because a bare std::string is ambiguous (str vs bin).
 template<>
 inline void variant_read_value<std::string>(MsgPackStream &s, std::string &val)
 {
@@ -568,9 +577,8 @@ inline void variant_write_value(MsgPackStream &s, const T &val)
     s << val;
 }
 
-// std::string must be written through writeString(); there is no generic
-// operator<< for std::string because a bare std::string cannot say whether it
-// means a MessagePack str or bin.
+// std::string must be written through writeString(); operator<<(MsgPackStream &,
+// const std::string &) is deleted for the same str-vs-bin reason.
 template<>
 inline void variant_write_value<std::string>(MsgPackStream &s, const std::string &val)
 {
