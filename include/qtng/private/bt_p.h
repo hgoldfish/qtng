@@ -305,7 +305,11 @@ std::string btEncodeExtended(std::uint8_t extId, const std::string &payload);
 bool btReadMessage(std::shared_ptr<SocketLike> sock, std::uint8_t *id, std::string *payload, float timeoutSecs);
 std::string btPercentEncode(const std::string &raw);
 std::string btBase32Decode(const std::string &in);  // RFC 4648; empty on failure
-std::string btExtractInfoDict(const std::string &torrentBytes);
+std::string btExtractInfoDict(const char *torrentBytes, size_t size);
+inline std::string btExtractInfoDict(const std::string &torrentBytes)
+{
+    return btExtractInfoDict(torrentBytes.data(), torrentBytes.size());
+}
 std::vector<BtPeerAddr> btDecodeCompactPeerList(const std::string &data, bool ipv6);
 
 constexpr std::uint8_t kBtExtMessageId = 20;

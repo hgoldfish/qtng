@@ -116,14 +116,26 @@ string btPercentEncode(const string &raw)
     return out;
 }
 
-static bool btSkipBencodeValue(const string &data, size_t *pos)
+static size_t btFindChar(const char *data, size_t size, char c, size_t from)
 {
-    if (!pos || *pos >= data.size()) {
+    if (!data || from >= size) {
+        return string::npos;
+    }
+    const void *p = memchr(data + from, static_cast<unsigned char>(c), size - from);
+    if (!p) {
+        return string::npos;
+    }
+    return static_cast<size_t>(static_cast<const char *>(p) - data);
+}
+
+static bool btSkipBencodeValue(const char *data, size_t size, size_t *pos)
+{
+    if (!data || !pos || *pos >= size) {
         return false;
     }
     const char t = data[*pos];
     if (t == 'i') {
-        size_t e = data.find('e', *pos + 1);
+        size_t e = btFindChar(data, size, 'e', *pos + 1);
         if (e == string::npos) {
             return false;
         }
@@ -131,7 +143,7 @@ static bool btSkipBencodeValue(const string &data, size_t *pos)
         return true;
     }
     if (t >= '0' && t <= '9') {
-        size_t colon = data.find(':', *pos);
+        size_t colon = btFindChar(data, size, ':', *pos);
         if (colon == string::npos) {
             return false;
         }
@@ -143,21 +155,21 @@ static bool btSkipBencodeValue(const string &data, size_t *pos)
             len = len * 10 + (data[i] - '0');
         }
         *pos = colon + 1 + static_cast<size_t>(len);
-        return *pos <= data.size();
+        return *pos <= size;
     }
     if (t == 'l' || t == 'd') {
         ++(*pos);
-        while (*pos < data.size() && data[*pos] != 'e') {
+        while (*pos < size && data[*pos] != 'e') {
             if (t == 'd') {
-                if (!btSkipBencodeValue(data, pos)) {
+                if (!btSkipBencodeValue(data, size, pos)) {
                     return false;
                 }
             }
-            if (!btSkipBencodeValue(data, pos)) {
+            if (!btSkipBencodeValue(data, size, pos)) {
                 return false;
             }
         }
-        if (*pos >= data.size() || data[*pos] != 'e') {
+        if (*pos >= size || data[*pos] != 'e') {
             return false;
         }
         ++(*pos);
@@ -166,32 +178,31 @@ static bool btSkipBencodeValue(const string &data, size_t *pos)
     return false;
 }
 
-string btExtractInfoDict(const string &torrentBytes)
+string btExtractInfoDict(const char *torrentBytes, size_t size)
 {
-    if (torrentBytes.empty() || torrentBytes[0] != 'd') {
+    if (!torrentBytes || size == 0 || torrentBytes[0] != 'd') {
         return string();
     }
     size_t pos = 1;
-    while (pos < torrentBytes.size() && torrentBytes[pos] != 'e') {
+    while (pos < size && torrentBytes[pos] != 'e') {
         size_t keyStart = pos;
-        if (!btSkipBencodeValue(torrentBytes, &pos)) {
+        if (!btSkipBencodeValue(torrentBytes, size, &pos)) {
             return string();
         }
-        string key = torrentBytes.substr(keyStart, pos - keyStart);
         // key is bencoded string like "4:info"
         string keyText;
         {
-            size_t colon = key.find(':');
-            if (colon != string::npos) {
-                keyText = key.substr(colon + 1);
+            size_t colon = btFindChar(torrentBytes, pos, ':', keyStart);
+            if (colon != string::npos && colon + 1 < pos) {
+                keyText.assign(torrentBytes + colon + 1, pos - (colon + 1));
             }
         }
         size_t valueStart = pos;
-        if (!btSkipBencodeValue(torrentBytes, &pos)) {
+        if (!btSkipBencodeValue(torrentBytes, size, &pos)) {
             return string();
         }
         if (keyText == "info") {
-            return torrentBytes.substr(valueStart, pos - valueStart);
+            return string(torrentBytes + valueStart, pos - valueStart);
         }
     }
     return string();
@@ -500,46 +511,46 @@ static bool parseInfoDictFields(const Bencode &info, shared_ptr<TorrentMetaPriva
     return true;
 }
 
-static bool parseInfoDictBytes(const string &infoRaw, shared_ptr<TorrentMetaPrivate> d,
+static bool parseInfoDictBytes(const char *infoRaw, size_t size, shared_ptr<TorrentMetaPrivate> d,
                                const vector<string> &trackers)
 {
     d->valid = false;
     d->errorString.clear();
-    if (infoRaw.empty() || infoRaw[0] != 'd') {
+    if (!infoRaw || size == 0 || infoRaw[0] != 'd') {
         d->errorString = "invalid info dict";
         return false;
     }
-    string digest = MessageDigest::digest(infoRaw, MessageDigest::Sha1);
+    string digest = MessageDigest::digest(infoRaw, size, MessageDigest::Sha1);
     d->infoHash = InfoHash::fromBytes(digest);
     if (!d->infoHash.isValid()) {
         d->errorString = "bad infohash";
         return false;
     }
     string err;
-    Bencode info = Bencode::decode(infoRaw, &err);
+    Bencode info = Bencode::decode(infoRaw, size, &err);
     if (!parseInfoDictFields(info, d)) {
         if (d->errorString.empty()) {
             d->errorString = err.empty() ? "invalid info dict" : err;
         }
         return false;
     }
-    d->infoDict = infoRaw;
+    d->infoDict.assign(infoRaw, size);
     d->trackers = trackers;
     d->valid = true;
     return true;
 }
 
-static bool parseTorrentMeta(const string &data, shared_ptr<TorrentMetaPrivate> d)
+static bool parseTorrentMeta(const char *data, size_t size, shared_ptr<TorrentMetaPrivate> d)
 {
     d->valid = false;
     d->errorString.clear();
     string err;
-    Bencode root = Bencode::decode(data, &err);
+    Bencode root = Bencode::decode(data, size, &err);
     if (!root.isDict()) {
         d->errorString = err.empty() ? "invalid torrent" : err;
         return false;
     }
-    string infoRaw = btExtractInfoDict(data);
+    string infoRaw = btExtractInfoDict(data, size);
     if (infoRaw.empty()) {
         // fallback: re-encode info dict
         map<string, Bencode>::const_iterator it = root.toMap().find("info");
@@ -551,7 +562,7 @@ static bool parseTorrentMeta(const string &data, shared_ptr<TorrentMetaPrivate> 
     }
     vector<string> trackers;
     collectTrackers(root, &trackers);
-    return parseInfoDictBytes(infoRaw, d, trackers);
+    return parseInfoDictBytes(infoRaw.data(), infoRaw.size(), d, trackers);
 }
 
 TorrentMeta::TorrentMeta()
@@ -575,7 +586,7 @@ TorrentMeta::~TorrentMeta() { }
 TorrentMeta TorrentMeta::fromBytes(const char *data, size_t size)
 {
     TorrentMeta m;
-    parseTorrentMeta(string(data, size), m.d);
+    parseTorrentMeta(data, size, m.d);
     return m;
 }
 
@@ -594,7 +605,7 @@ TorrentMeta TorrentMeta::fromFile(const string &path)
 TorrentMeta TorrentMeta::fromInfoDict(const char *infoDict, size_t size, const vector<string> &trackers)
 {
     TorrentMeta m;
-    parseInfoDictBytes(string(infoDict, size), m.d, trackers);
+    parseInfoDictBytes(infoDict, size, m.d, trackers);
     return m;
 }
 
@@ -1869,7 +1880,7 @@ bool TorrentSessionPrivate::fetchMetadataFromPeer(shared_ptr<TorrentHandlePrivat
                 continue;
             }
             size_t dictEnd = 0;
-            if (!btSkipBencodeValue(body, &dictEnd)) {
+            if (!btSkipBencodeValue(body.data(), body.size(), &dictEnd)) {
                 return false;
             }
             string err;
@@ -2006,7 +2017,7 @@ void TorrentSessionPrivate::runMetadataPeer(shared_ptr<TorrentHandlePrivate> h, 
             }
             if (extId == kBtLocalUtMetadataId) {
                 size_t dictEnd = 0;
-                if (!btSkipBencodeValue(body, &dictEnd)) {
+                if (!btSkipBencodeValue(body.data(), body.size(), &dictEnd)) {
                     break;
                 }
                 string err;
@@ -2203,7 +2214,7 @@ void TorrentSessionPrivate::runPeer(shared_ptr<TorrentHandlePrivate> h, shared_p
                     btParseExtendedHandshake(body, &peerUt, &peerSize);
                 } else if (extId == kBtLocalUtMetadataId) {
                     size_t dictEnd = 0;
-                    if (btSkipBencodeValue(body, &dictEnd)) {
+                    if (btSkipBencodeValue(body.data(), body.size(), &dictEnd)) {
                         string err;
                         Bencode dict = Bencode::decode(body.substr(0, dictEnd), &err);
                         if (dict.isDict()) {
