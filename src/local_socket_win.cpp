@@ -361,7 +361,7 @@ int LocalSocketPrivate::startAcceptWait()
         return -1;
     }
     if (!RegisterWaitForSingleObject(&wait->waitHandle, wait->overlapped.hEvent, connectWaitCallback, wait, INFINITE,
-                                     WT_EXECUTEONLYONCE)) {
+                                     WT_EXECUTEONLYONCE | WT_EXECUTEINWAITTHREAD)) {
         // The I/O is already in flight; drain it before releasing the OVERLAPPED.
         cancelPendingIo(pipe, &wait->overlapped);
         DWORD ignored = 0;
