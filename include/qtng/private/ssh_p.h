@@ -122,6 +122,8 @@ bool sshParseEd25519KeyBlob(const std::string &blob, PublicKey *key);
 bool sshParsePublicKeyBlob(const std::string &blob, PublicKey *key);
 // RFC 4253 §5.1: "SSH-2.0-..." or compatibility "SSH-1.99-..." both mean protocol 2.
 bool sshIsProtocol2Identification(const std::string &line);
+// Test-only: force the encryption name-list offered in KEXINIT. Pass empty to restore defaults.
+void sshTestSetEncryptionAlgorithms(const std::vector<std::string> &names);
 
 enum class SshClientAuthMethod {
     None = 0,

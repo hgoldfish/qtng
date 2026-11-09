@@ -34,6 +34,16 @@ const char kExtInfoC[] = "ext-info-c";
 const char kStrictKexC[] = "kex-strict-c-v00@openssh.com";
 const char kStrictKexS[] = "kex-strict-s-v00@openssh.com";
 
+vector<string> gTestEncryptionAlgorithms;
+
+vector<string> encryptionAlgorithms()
+{
+    if (!gTestEncryptionAlgorithms.empty()) {
+        return gTestEncryptionAlgorithms;
+    }
+    return kEncryptionAlgorithms;
+}
+
 void poly1305Auth(unsigned char out[16], const unsigned char *m, size_t len, const unsigned char key[32])
 {
     poly1305_state state;
@@ -749,6 +759,11 @@ bool sshIsProtocol2Identification(const string &line)
     return false;
 }
 
+void sshTestSetEncryptionAlgorithms(const vector<string> &names)
+{
+    gTestEncryptionAlgorithms = names;
+}
+
 bool SshConnectionPrivate::readVersion()
 {
     if (serverSide) {
@@ -796,8 +811,9 @@ bool SshConnectionPrivate::sendKexInit()
     buf.putBytes(randomBytes(16));
     buf.putNameList(kexAlgorithmsForRole());
     buf.putNameList(hostKeyAlgorithmsForKey());
-    buf.putNameList(kEncryptionAlgorithms);
-    buf.putNameList(kEncryptionAlgorithms);
+    const vector<string> encAlgos = encryptionAlgorithms();
+    buf.putNameList(encAlgos);
+    buf.putNameList(encAlgos);
     buf.putNameList(kMacAlgorithms);
     buf.putNameList(kMacAlgorithms);
     const vector<string> comps = compressionAlgorithms();
@@ -2855,7 +2871,7 @@ bool SshConnectionPrivate::sendKeepalive()
         return false;
     }
     ++serverAliveOutstanding;
-    if (serverAliveCountMax > 0 && serverAliveOutstanding >= serverAliveCountMax) {
+    if (serverAliveCountMax > 0 && serverAliveOutstanding > serverAliveCountMax) {
         setError("server alive count exceeded");
         running = false;
         if (socket) {
