@@ -4,7 +4,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1072,4 +1072,4 @@ void MdnsResponderPrivate::handleQuery(const DnsMessage &query, const HostAddres
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

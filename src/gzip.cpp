@@ -15,7 +15,7 @@ using namespace std;
 
 NG_LOGGER("qtng.gzip");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class GzipFilePrivate
 {
@@ -278,4 +278,4 @@ bool qGzipDecompress(shared_ptr<FileLike> input, shared_ptr<FileLike> output, in
     return sendfile(gzip, output, gzip->size(), blockSize);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -1,7 +1,7 @@
 #ifndef QTNG_TYPES_CONTAINERS_H
 #define QTNG_TYPES_CONTAINERS_H
 
-// qtng::Map / Vector / List / Set / Deque / UnorderedMap / UnorderedSet
+// QTNG_NAMESPACE::Map / Vector / List / Set / Deque / UnorderedMap / UnorderedSet
 //
 // Implicitly shared (copy-on-write) wrappers around common STL containers: the underlying
 // data structures are not rewritten; a copy is just a reference-count bump, and a write
@@ -69,7 +69,8 @@
 
 #include "qtng/types/cow.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // The handles do not need hand-written copy/assignment: the derived classes have no data
 // members of their own, so the implicitly generated copy constructor and copy assignment
@@ -1323,6 +1324,5 @@ public:
 
 #undef QTNG_COW_PLUMBING
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_CONTAINERS_H

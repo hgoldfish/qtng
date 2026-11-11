@@ -6,7 +6,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 const EVP_MD *getOpenSSL_MD(MessageDigest::Algorithm algo)
 {
@@ -204,4 +204,4 @@ string PBKDF2_HMAC(int keylen, const string &password, const string &salt,
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

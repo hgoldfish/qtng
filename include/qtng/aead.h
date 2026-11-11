@@ -7,7 +7,8 @@
 #include "qtng/md.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // Authenticated encryption with associated data (AES-GCM / ChaCha20-Poly1305).
 class Aead
@@ -92,6 +93,5 @@ inline std::string aesEcbEncryptBlock(const std::string &key, const std::string 
     return aesEcbEncryptBlock(key.data(), key.size(), block16.data(), block16.size());
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_AEAD_H

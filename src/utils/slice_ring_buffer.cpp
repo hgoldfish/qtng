@@ -19,7 +19,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 namespace {
@@ -466,4 +466,4 @@ void SliceRingBuffer::clear()
 }
 
 }  // namespace utils
-}  // namespace qtng
+QTNG_NAMESPACE_END

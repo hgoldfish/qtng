@@ -12,7 +12,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1624,4 +1624,4 @@ string DhtNode::errorString() const
     return d->error;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

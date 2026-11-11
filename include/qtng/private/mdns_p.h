@@ -12,7 +12,8 @@
 #include "qtng/mdns.h"
 #include "qtng/socket.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 static const std::uint16_t kMdnsPort = 5353;
 static const char kMdnsV4Group[] = "224.0.0.251";
@@ -190,6 +191,5 @@ public:
     std::map<std::string, std::vector<HostAddress>> hosts;  // key: host name
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_MDNS_P_H

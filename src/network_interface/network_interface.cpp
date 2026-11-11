@@ -11,7 +11,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 static vector<NetworkInterfacePrivate *> postProcess(vector<NetworkInterfacePrivate *> list)
 {
@@ -349,27 +349,26 @@ vector<HostAddress> NetworkInterface::allAddresses()
     return result;
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #ifndef NG_NO_DEBUG_STREAM
-static inline ostream &flagsDebug(ostream &debug, qtng::NetworkInterface::InterfaceFlags flags)
+static inline ostream &flagsDebug(ostream &debug, QTNG_NAMESPACE::NetworkInterface::InterfaceFlags flags)
 {
-    if (flags & qtng::NetworkInterface::IsUp)
+    if (flags & QTNG_NAMESPACE::NetworkInterface::IsUp)
         debug << "IsUp ";
-    if (flags & qtng::NetworkInterface::IsRunning)
+    if (flags & QTNG_NAMESPACE::NetworkInterface::IsRunning)
         debug << "IsRunning ";
-    if (flags & qtng::NetworkInterface::CanBroadcast)
+    if (flags & QTNG_NAMESPACE::NetworkInterface::CanBroadcast)
         debug << "CanBroadcast ";
-    if (flags & qtng::NetworkInterface::IsLoopBack)
+    if (flags & QTNG_NAMESPACE::NetworkInterface::IsLoopBack)
         debug << "IsLoopBack ";
-    if (flags & qtng::NetworkInterface::IsPointToPoint)
+    if (flags & QTNG_NAMESPACE::NetworkInterface::IsPointToPoint)
         debug << "IsPointToPoint ";
-    if (flags & qtng::NetworkInterface::CanMulticast)
+    if (flags & QTNG_NAMESPACE::NetworkInterface::CanMulticast)
         debug << "CanMulticast ";
     return debug;
 }
 
-ostream &operator<<(ostream &debug, const qtng::NetworkAddressEntry &entry)
+ostream &operator<<(ostream &debug, const QTNG_NAMESPACE::NetworkAddressEntry &entry)
 {
     debug << "(address = " << entry.ip();
     if (!entry.netmask().isNull())
@@ -380,7 +379,7 @@ ostream &operator<<(ostream &debug, const qtng::NetworkAddressEntry &entry)
     return debug;
 }
 
-ostream &operator<<(ostream &debug, const qtng::NetworkInterface &networkInterface)
+ostream &operator<<(ostream &debug, const QTNG_NAMESPACE::NetworkInterface &networkInterface)
 {
     debug << "NetworkInterface(name = " << networkInterface.name()
           << ", hardware address = " << networkInterface.hardwareAddress() << ", flags = ";

@@ -9,7 +9,8 @@
 #include "qtng/io_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 #ifndef QTNG_NO_CRYPTO
 class SslSocket;
@@ -102,6 +103,5 @@ inline std::shared_ptr<SocketLike> asSocketLike(Socket *s)
 
 std::shared_ptr<Socket> convertSocketLikeToSocket(std::shared_ptr<SocketLike> socket);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_SOCKET_UTILS_H

@@ -7,7 +7,8 @@
 
 #ifdef NG_OS_UNIX
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace stack_pool {
 
 // Caches coroutine stacks so that short-lived coroutines reuse the same VMAs
@@ -28,8 +29,7 @@ void release(void *stack, std::size_t size);
 void sweep();
 
 }  // namespace stack_pool
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // NG_OS_UNIX
 
 #endif  // QTNG_STACK_POOL_H

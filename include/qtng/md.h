@@ -8,7 +8,8 @@
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class MessageDigestPrivate;
 class MessageDigest
@@ -43,7 +44,7 @@ public:
     inline void update(const std::string &data) { addData(data.data(), data.size()); }
     inline void update(const char *data, size_t len) { addData(data, len); }
     inline std::string digest() { return result(); }
-    inline std::string hexDigest() { return qtng::utils::bytesToHex(result()); }
+    inline std::string hexDigest() { return QTNG_NAMESPACE::utils::bytesToHex(result()); }
 public:
     static std::string hash(const char *data, size_t dataSize, Algorithm algo);
     inline static std::string hash(const std::string &data, Algorithm algo)
@@ -67,7 +68,7 @@ inline std::string MessageDigest::hash(const char *data, size_t dataSize, Algori
 {
     MessageDigest m(algo);
     m.addData(data, dataSize);
-    return qtng::utils::bytesToHex(m.result());
+    return QTNG_NAMESPACE::utils::bytesToHex(m.result());
 }
 
 inline std::string MessageDigest::digest(const char *data, size_t dataSize, Algorithm algo)
@@ -90,6 +91,5 @@ std::string hmac(const MessageDigest::Algorithm, const char *, const char *) = d
 std::string PBKDF2_HMAC(int keylen, const std::string &password, const std::string &salt,
                        const MessageDigest::Algorithm hashAlgo = MessageDigest::Sha256, int i = 10000);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_MD_H

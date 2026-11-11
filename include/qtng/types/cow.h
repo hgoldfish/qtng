@@ -36,7 +36,8 @@
 #include <new>
 #include <utility>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 typedef std::atomic<std::uint32_t> CowRef;
 
@@ -195,6 +196,5 @@ protected:
     CowData<Underlying> *d;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_COW_H

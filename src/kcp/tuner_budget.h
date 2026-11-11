@@ -21,7 +21,8 @@
 #include <algorithm>
 #include <cstdint>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 inline std::uint32_t stepKcpSendBudgetBbr(std::uint32_t sendBudgetSegs, std::uint32_t targetSegs,
                                           std::uint32_t memoryCapSegs, bool appLimited, bool startupGrow,
@@ -99,6 +100,5 @@ inline std::uint32_t stepKcpProbeCeiling(std::uint32_t ceiling, std::uint32_t fl
     return std::min(cap, std::max(ceiling, floorSegs));
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif

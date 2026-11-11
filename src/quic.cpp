@@ -18,7 +18,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -2500,4 +2500,4 @@ shared_ptr<SocketLike> asSocketLike(shared_ptr<QuicStream> s)
     return make_shared<QuicStreamSocketLike>(s);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

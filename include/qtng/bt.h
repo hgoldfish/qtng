@@ -11,7 +11,8 @@
 #include "qtng/kademlia.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // 20-byte SHA-1 infohash; same layout as BitTorrent DHT node ids.
 using InfoHash = NodeId;
@@ -246,6 +247,5 @@ private:
     NG_DISABLE_COPY(TorrentSession)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_BT_H

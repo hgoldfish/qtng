@@ -11,7 +11,8 @@
 #include "qtng/udp.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // Mirrored field-for-field by the Qt binding in qt/include/kcp.h and copied one
 // by one in toQtStats() (qt/src/kcp.cpp). Adding a field here without adding it
@@ -245,5 +246,5 @@ inline std::shared_ptr<class SocketLike> asSocketLike(KcpSocket *s)
 
 std::shared_ptr<KcpSocket> convertSocketLikeToKcpSocket(std::shared_ptr<class SocketLike> socket);
 
-}  // namespace qtng
+QTNG_NAMESPACE_END
 #endif  // QTNG_KCP_H

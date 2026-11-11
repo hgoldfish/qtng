@@ -12,7 +12,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1132,4 +1132,4 @@ bool QuicTlsHandshake::handleFinished(const string &msg, string *error)
     return true;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

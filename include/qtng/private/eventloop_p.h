@@ -9,7 +9,8 @@
 #include "qtng/utils/thread_local.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class Functor
 {
@@ -139,7 +140,7 @@ public:
     void set(std::shared_ptr<EventLoopCoroutine> eventLoop);
     void clean();
 private:
-    qtng::utils::ThreadLocal<std::shared_ptr<EventLoopCoroutine>> storage;
+    QTNG_NAMESPACE::utils::ThreadLocal<std::shared_ptr<EventLoopCoroutine>> storage;
 };
 
 CurrentLoopStorage *currentLoop();
@@ -165,6 +166,5 @@ public:
 };
 #endif
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif

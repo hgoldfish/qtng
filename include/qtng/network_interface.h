@@ -11,7 +11,8 @@
 
 #include "qtng/hostaddress.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class NetworkAddressEntryPrivate;
 class NetworkAddressEntry
@@ -123,11 +124,10 @@ private:
 };
 
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #ifndef NG_NO_DEBUG_STREAM
-std::ostream &operator<<(std::ostream &debug, const qtng::NetworkAddressEntry &entry);
-std::ostream &operator<<(std::ostream &debug, const qtng::NetworkInterface &networkInterface);
+std::ostream &operator<<(std::ostream &debug, const QTNG_NAMESPACE::NetworkAddressEntry &entry);
+std::ostream &operator<<(std::ostream &debug, const QTNG_NAMESPACE::NetworkInterface &networkInterface);
 #endif
 
 #endif  // QTNG_NETWORK_INTERFACE_H

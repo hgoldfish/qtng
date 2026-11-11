@@ -36,7 +36,7 @@ NG_LOGGER("qtng.socks5server");
 
 #define S5_PASSWORDAUTH_VERSION 0x01
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 void Socks5RequestHandler::doConnect(const string &hostName, const HostAddress &hostAddress, uint16_t port)
 {
@@ -269,4 +269,4 @@ bool Socks5RequestHandler::parseAddress(string *hostName, HostAddress *addr, uin
     return true;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

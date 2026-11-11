@@ -2,7 +2,7 @@
 
 #include "qtng/types/string_builder.h"
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -101,4 +101,4 @@ ByteArray StringBuilder::toByteArray() const
     return ByteArray(d->buf, len);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

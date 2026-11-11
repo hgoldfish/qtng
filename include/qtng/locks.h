@@ -14,7 +14,8 @@
 #include "qtng/coroutine.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class SemaphorePrivate;
 class Semaphore
@@ -898,6 +899,5 @@ inline T MultiQueueType<T, EventType, ReadWriteLockType>::tryWait()
     return result;
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_LOCKS_H

@@ -7,7 +7,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 SocketLike::SocketLike() { }
 
@@ -352,4 +352,4 @@ void Exchanger::exchange()
     d->operations->joinall();
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

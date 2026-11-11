@@ -16,7 +16,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace stack_pool {
 
 #ifdef NG_OS_UNIX
@@ -317,4 +317,4 @@ void sweep()
 #endif  // NG_OS_UNIX
 
 }  // namespace stack_pool
-}  // namespace qtng
+QTNG_NAMESPACE_END

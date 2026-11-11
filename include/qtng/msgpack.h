@@ -22,7 +22,8 @@
 #include <variant>
 #endif
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class MsgPackExtData
 {
@@ -97,8 +98,8 @@ public:
     MsgPackStream &operator>>(std::int64_t &i64);
     MsgPackStream &operator>>(float &f);
     MsgPackStream &operator>>(double &d);
-    MsgPackStream &operator>>(qtng::utils::DateTime &dt);
-    MsgPackStream &operator>>(qtng::utils::Date &d);
+    MsgPackStream &operator>>(QTNG_NAMESPACE::utils::DateTime &dt);
+    MsgPackStream &operator>>(QTNG_NAMESPACE::utils::Date &d);
     MsgPackStream &operator>>(MsgPackExtData &ext);
     // Read exactly `len` bytes from the device as-is, without interpreting a
     // MessagePack header. Use readBytes(std::string &) to read a bin value.
@@ -121,8 +122,8 @@ public:
     MsgPackStream &operator<<(std::int64_t i64);
     MsgPackStream &operator<<(float f);
     MsgPackStream &operator<<(double d);
-    MsgPackStream &operator<<(const qtng::utils::DateTime &dt);
-    MsgPackStream &operator<<(const qtng::utils::Date &d);
+    MsgPackStream &operator<<(const QTNG_NAMESPACE::utils::DateTime &dt);
+    MsgPackStream &operator<<(const QTNG_NAMESPACE::utils::Date &d);
     MsgPackStream &operator<<(const MsgPackExtData &ext);
 
     // Emit a MessagePack bin value: the BIN8/BIN16/BIN32 header followed by
@@ -147,7 +148,7 @@ private:
 
 // A bare std::string is ambiguous on the wire (msgpack str vs bin). Use
 // writeString()/readString() or writeBytes()/readBytes() explicitly, or stream
-// qtng::String / qtng::ByteArray which pick str and bin respectively.
+// QTNG_NAMESPACE::String / QTNG_NAMESPACE::ByteArray which pick str and bin respectively.
 // const char* is deleted too: without this, s << "text" binds to operator<<(bool)
 // via the standard pointer-to-bool conversion and silently writes true/false.
 MsgPackStream &operator<<(MsgPackStream &s, const std::string &str) = delete;
@@ -546,13 +547,13 @@ struct variant_wire_match<MsgPackExtData>
 };
 
 template<>
-struct variant_wire_match<qtng::utils::DateTime>
+struct variant_wire_match<QTNG_NAMESPACE::utils::DateTime>
 {
     static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Ext; }
 };
 
 template<>
-struct variant_wire_match<qtng::utils::Date>
+struct variant_wire_match<QTNG_NAMESPACE::utils::Date>
 {
     static bool accepts(MsgPackWireKind kind) { return kind == MsgPackWireKind::Ext; }
 };
@@ -652,5 +653,5 @@ MsgPackStream &operator>>(MsgPackStream &s, std::variant<Ts...> &v)
 }
 #endif  // C++17 std::variant support
 
-}  // namespace qtng
+QTNG_NAMESPACE_END
 #endif  // QTNG_MSGPACK_H

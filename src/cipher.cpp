@@ -12,7 +12,7 @@ using namespace std;
 
 NG_LOGGER("qtng.cipher");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 const EVP_MD *getOpenSSL_MD(MessageDigest::Algorithm algo);
 
@@ -605,4 +605,4 @@ int Cipher::blockSize() const
     return blockSize;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -11,7 +11,8 @@
 
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class QuicConnection;
 class QuicStream;
@@ -104,6 +105,5 @@ private:
     NG_DECLARE_PRIVATE(Http3Connection)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HTTP3_H

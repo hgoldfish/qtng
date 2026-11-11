@@ -20,7 +20,7 @@ using namespace std;
 
 NG_LOGGER("qtng.httpd")
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 static const string DEFAULT_ERROR_MESSAGE =
         "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\"\n"
@@ -666,4 +666,4 @@ void SimpleHttpRequestHandler::doHEAD()
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

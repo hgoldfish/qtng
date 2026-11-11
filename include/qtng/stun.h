@@ -8,7 +8,8 @@
 #include "qtng/hostaddress.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // Result of a STUN Binding query (RFC 8489). Contains the reflexive
 // (server-reflexive) address as seen by the STUN server plus round-trip time.
@@ -97,6 +98,5 @@ private:
     NG_DISABLE_COPY_MOVE(StunServer)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_STUN_H

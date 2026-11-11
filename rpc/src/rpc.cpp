@@ -22,10 +22,10 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace rpc {
 
-shared_ptr<qtng::SocketLike> defaultConnectionFactory(const string &peerNameOrAddress)
+shared_ptr<QTNG_NAMESPACE::SocketLike> defaultConnectionFactory(const string &peerNameOrAddress)
 {
     string scheme;
     string host;
@@ -33,42 +33,42 @@ shared_ptr<qtng::SocketLike> defaultConnectionFactory(const string &peerNameOrAd
     try {
         utils::Url url(peerNameOrAddress);
         if (!url.isValid()) {
-            return shared_ptr<qtng::SocketLike>();
+            return shared_ptr<QTNG_NAMESPACE::SocketLike>();
         }
         scheme = url.scheme();
         host = url.host();
         port = url.port();
     } catch (...) {
         // Url::parse() uses std::stoi() for the port and throws on garbage.
-        return shared_ptr<qtng::SocketLike>();
+        return shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
     for (char &ch : scheme) {
         ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
     }
     if (host.empty() || port <= 0 || port > 65535) {
-        return shared_ptr<qtng::SocketLike>();
+        return shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
     const std::uint16_t port16 = static_cast<std::uint16_t>(port);
 
     if (scheme == "tcp") {
-        shared_ptr<qtng::Socket> socket(qtng::Socket::createConnection(host, port16));
+        shared_ptr<QTNG_NAMESPACE::Socket> socket(QTNG_NAMESPACE::Socket::createConnection(host, port16));
         if (!socket) {
-            return shared_ptr<qtng::SocketLike>();
+            return shared_ptr<QTNG_NAMESPACE::SocketLike>();
         }
-        return qtng::asSocketLike(socket);
+        return QTNG_NAMESPACE::asSocketLike(socket);
     }
     if (scheme == "kcp") {
-        shared_ptr<qtng::KcpSocket> socket(qtng::KcpSocket::createConnection(host, port16));
+        shared_ptr<QTNG_NAMESPACE::KcpSocket> socket(QTNG_NAMESPACE::KcpSocket::createConnection(host, port16));
         if (!socket) {
-            return shared_ptr<qtng::SocketLike>();
+            return shared_ptr<QTNG_NAMESPACE::SocketLike>();
         }
-        return qtng::asSocketLike(socket);
+        return QTNG_NAMESPACE::asSocketLike(socket);
     }
-    return shared_ptr<qtng::SocketLike>();
+    return shared_ptr<QTNG_NAMESPACE::SocketLike>();
 }
 
 RpcPrivate::RpcPrivate(Rpc *q)
-    : myPeerName(qtng::randomBytes(16))
+    : myPeerName(QTNG_NAMESPACE::randomBytes(16))
     , maxPacketSize(0)
     , payloadSizeHint(0)
     , keepaliveTimeout(-1.0f)
@@ -96,7 +96,7 @@ void RpcPrivate::shutdown()
     rawConnections.clear();
 }
 
-void RpcPrivate::setupChannel(const shared_ptr<qtng::SocketChannel> &channel)
+void RpcPrivate::setupChannel(const shared_ptr<QTNG_NAMESPACE::SocketChannel> &channel)
 {
     if (maxPacketSize > 0) {
         channel->setMaxPacketSize(maxPacketSize);
@@ -109,29 +109,29 @@ void RpcPrivate::setupChannel(const shared_ptr<qtng::SocketChannel> &channel)
     }
 }
 
-string RpcPrivate::makeAddress(const shared_ptr<qtng::SocketLike> &socket) const
+string RpcPrivate::makeAddress(const shared_ptr<QTNG_NAMESPACE::SocketLike> &socket) const
 {
     if (!socket) {
         return string();
     }
-    const qtng::HostAddress &addr = socket->peerAddress();
+    const QTNG_NAMESPACE::HostAddress &addr = socket->peerAddress();
     string ip = addr.toString();
-    if (addr.protocol() == qtng::HostAddress::IPv6Protocol) {
+    if (addr.protocol() == QTNG_NAMESPACE::HostAddress::IPv6Protocol) {
         ip = "[" + ip + "]";
     }
     return ip + ":" + std::to_string(socket->peerPort());
 }
 
-bool RpcPrivate::handleRequest(shared_ptr<qtng::SocketLike> connection)
+bool RpcPrivate::handleRequest(shared_ptr<QTNG_NAMESPACE::SocketLike> connection)
 {
     if (!connection) {
         return false;
     }
-    connection->setOption(qtng::Socket::LowDelayOption, true);
+    connection->setOption(QTNG_NAMESPACE::Socket::LowDelayOption, true);
     const string rpcHeader = connection->recvall(2);
     if (rpcHeader == "\x4e\x67") {
-        shared_ptr<qtng::SocketChannel> channel =
-                make_shared<qtng::SocketChannel>(connection, qtng::NegativePole);
+        shared_ptr<QTNG_NAMESPACE::SocketChannel> channel =
+                make_shared<QTNG_NAMESPACE::SocketChannel>(connection, QTNG_NAMESPACE::NegativePole);
         setupChannel(channel);
         const string address = makeAddress(connection);
         shared_ptr<Peer> peer = preparePeer(channel, string(), address);
@@ -150,23 +150,23 @@ bool RpcPrivate::handleRequest(shared_ptr<qtng::SocketLike> connection)
     return false;
 }
 
-shared_ptr<Peer> RpcPrivate::connect(shared_ptr<qtng::SocketLike> connection, const string &peerName)
+shared_ptr<Peer> RpcPrivate::connect(shared_ptr<QTNG_NAMESPACE::SocketLike> connection, const string &peerName)
 {
     if (!connection) {
         return shared_ptr<Peer>();
     }
-    connection->setOption(qtng::Socket::LowDelayOption, true);
+    connection->setOption(QTNG_NAMESPACE::Socket::LowDelayOption, true);
     if (connection->sendall("\x4e\x67") != 2) {
         return shared_ptr<Peer>();
     }
-    shared_ptr<qtng::SocketChannel> channel =
-            make_shared<qtng::SocketChannel>(connection, qtng::PositivePole);
+    shared_ptr<QTNG_NAMESPACE::SocketChannel> channel =
+            make_shared<QTNG_NAMESPACE::SocketChannel>(connection, QTNG_NAMESPACE::PositivePole);
     setupChannel(channel);
     const string address = makeAddress(connection);
     return preparePeer(channel, peerName, address);
 }
 
-shared_ptr<Peer> RpcPrivate::preparePeer(const shared_ptr<qtng::DataChannel> &channel, const string &peerName,
+shared_ptr<Peer> RpcPrivate::preparePeer(const shared_ptr<QTNG_NAMESPACE::DataChannel> &channel, const string &peerName,
                                          const string &peerAddress)
 {
     ValueMap myHeader;
@@ -213,7 +213,7 @@ shared_ptr<Peer> RpcPrivate::preparePeer(const shared_ptr<qtng::DataChannel> &ch
     }
     peers.insert(make_pair(itsPeerName, peer));
 
-    qtng::callInEventLoopAsync([rpcSelf, peer] {
+    QTNG_NAMESPACE::callInEventLoopAsync([rpcSelf, peer] {
         if (!rpcSelf || !peer) {
             return;
         }
@@ -224,7 +224,7 @@ shared_ptr<Peer> RpcPrivate::preparePeer(const shared_ptr<qtng::DataChannel> &ch
 
 void RpcPrivate::setCurrentPeerAndHeader(const shared_ptr<Peer> &peer, const Value &header)
 {
-    const std::uintptr_t coroutineId = qtng::Coroutine::current()->id();
+    const std::uintptr_t coroutineId = QTNG_NAMESPACE::Coroutine::current()->id();
     PeerAndHeader &t = localStore[coroutineId];
     t.header = header;
     t.peer = peer;
@@ -232,20 +232,20 @@ void RpcPrivate::setCurrentPeerAndHeader(const shared_ptr<Peer> &peer, const Val
 
 void RpcPrivate::deleteCurrentPeerAndHeader()
 {
-    const std::uintptr_t coroutineId = qtng::Coroutine::current()->id();
+    const std::uintptr_t coroutineId = QTNG_NAMESPACE::Coroutine::current()->id();
     localStore.erase(coroutineId);
 }
 
 shared_ptr<Peer> RpcPrivate::getCurrentPeer()
 {
-    const std::uintptr_t coroutineId = qtng::Coroutine::current()->id();
+    const std::uintptr_t coroutineId = QTNG_NAMESPACE::Coroutine::current()->id();
     map<std::uintptr_t, PeerAndHeader>::iterator it = localStore.find(coroutineId);
     return it == localStore.end() ? shared_ptr<Peer>() : it->second.peer;
 }
 
 Value RpcPrivate::getRpcHeader()
 {
-    const std::uintptr_t coroutineId = qtng::Coroutine::current()->id();
+    const std::uintptr_t coroutineId = QTNG_NAMESPACE::Coroutine::current()->id();
     map<std::uintptr_t, PeerAndHeader>::iterator it = localStore.find(coroutineId);
     return it == localStore.end() ? Value() : it->second.header;
 }
@@ -262,37 +262,37 @@ void RpcPrivate::removePeer(const string &name, Peer *peer)
     }
 }
 
-shared_ptr<qtng::SocketLike> RpcPrivate::makeRawSocket(const string &peerName, string &connectionId)
+shared_ptr<QTNG_NAMESPACE::SocketLike> RpcPrivate::makeRawSocket(const string &peerName, string &connectionId)
 {
     if (!connectionFactory) {
-        return shared_ptr<qtng::SocketLike>();
+        return shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
-    shared_ptr<qtng::SocketLike> conn = connectionFactory(peerName);
+    shared_ptr<QTNG_NAMESPACE::SocketLike> conn = connectionFactory(peerName);
     if (!conn) {
-        return shared_ptr<qtng::SocketLike>();
+        return shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
-    conn->setOption(qtng::Socket::LowDelayOption, true);
-    connectionId = qtng::randomBytes(16);
+    conn->setOption(QTNG_NAMESPACE::Socket::LowDelayOption, true);
+    connectionId = QTNG_NAMESPACE::randomBytes(16);
     string packet("\x33\x74", 2);
     packet += connectionId;
     if (conn->sendall(packet) != static_cast<int>(packet.size())) {
         connectionId.clear();
-        return shared_ptr<qtng::SocketLike>();
+        return shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
     if (conn->recvall(2) != "\xf3\x97") {
         connectionId.clear();
-        return shared_ptr<qtng::SocketLike>();
+        return shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
     return conn;
 }
 
-shared_ptr<qtng::SocketLike> RpcPrivate::takeRawSocket(const string &connectionId)
+shared_ptr<QTNG_NAMESPACE::SocketLike> RpcPrivate::takeRawSocket(const string &connectionId)
 {
-    map<string, shared_ptr<qtng::SocketLike>>::iterator it = rawConnections.find(connectionId);
+    map<string, shared_ptr<QTNG_NAMESPACE::SocketLike>>::iterator it = rawConnections.find(connectionId);
     if (it == rawConnections.end()) {
-        return shared_ptr<qtng::SocketLike>();
+        return shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
-    shared_ptr<qtng::SocketLike> socket = it->second;
+    shared_ptr<QTNG_NAMESPACE::SocketLike> socket = it->second;
     rawConnections.erase(it);
     return socket;
 }
@@ -365,12 +365,12 @@ void Rpc::setLoggingCallback(shared_ptr<LoggingCallback> loggingCallback)
     d_ptr->loggingCallback = std::move(loggingCallback);
 }
 
-function<shared_ptr<qtng::SocketLike>(const string &)> Rpc::connectionFactory() const
+function<shared_ptr<QTNG_NAMESPACE::SocketLike>(const string &)> Rpc::connectionFactory() const
 {
     return d_ptr->connectionFactory;
 }
 
-void Rpc::setConnectionFactory(function<shared_ptr<qtng::SocketLike>(const string &)> f)
+void Rpc::setConnectionFactory(function<shared_ptr<QTNG_NAMESPACE::SocketLike>(const string &)> f)
 {
     d_ptr->connectionFactory = std::move(f);
 }
@@ -395,12 +395,12 @@ void Rpc::unregisterInstance(const string &name)
     d_ptr->services.erase(name);
 }
 
-bool Rpc::handleRequest(shared_ptr<qtng::SocketLike> connection)
+bool Rpc::handleRequest(shared_ptr<QTNG_NAMESPACE::SocketLike> connection)
 {
     return d_ptr->handleRequest(std::move(connection));
 }
 
-shared_ptr<Peer> Rpc::connect(shared_ptr<qtng::SocketLike> connection, const string &peerName)
+shared_ptr<Peer> Rpc::connect(shared_ptr<QTNG_NAMESPACE::SocketLike> connection, const string &peerName)
 {
     return d_ptr->connect(std::move(connection), peerName);
 }
@@ -448,12 +448,12 @@ Value Rpc::getRpcHeader()
     return d_ptr->getRpcHeader();
 }
 
-shared_ptr<qtng::SocketLike> Rpc::makeRawSocket(const string &peerName, string &connectionId)
+shared_ptr<QTNG_NAMESPACE::SocketLike> Rpc::makeRawSocket(const string &peerName, string &connectionId)
 {
     return d_ptr->makeRawSocket(peerName, connectionId);
 }
 
-shared_ptr<qtng::SocketLike> Rpc::takeRawSocket(const string &connectionId)
+shared_ptr<QTNG_NAMESPACE::SocketLike> Rpc::takeRawSocket(const string &connectionId)
 {
     return d_ptr->takeRawSocket(connectionId);
 }
@@ -512,7 +512,7 @@ RpcBuilder &RpcBuilder::loggingCallback(shared_ptr<LoggingCallback> cb)
     return *this;
 }
 
-RpcBuilder &RpcBuilder::connectionFactory(function<shared_ptr<qtng::SocketLike>(const string &)> f)
+RpcBuilder &RpcBuilder::connectionFactory(function<shared_ptr<QTNG_NAMESPACE::SocketLike>(const string &)> f)
 {
     ensureCreated()->d_func()->connectionFactory = std::move(f);
     return *this;
@@ -532,4 +532,4 @@ std::shared_ptr<Rpc> RpcBuilder::ensureCreated()
 }
 
 }  // namespace rpc
-}  // namespace qtng
+QTNG_NAMESPACE_END

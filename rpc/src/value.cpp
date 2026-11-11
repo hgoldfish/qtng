@@ -2,7 +2,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace rpc {
 
 Value::Type Value::type() const
@@ -119,17 +119,17 @@ const std::map<std::string, Value> &Value::asMap() const
     throw RpcSerializationException("value is not a map.");
 }
 
-qtng::utils::DateTime Value::asDateTime() const
+QTNG_NAMESPACE::utils::DateTime Value::asDateTime() const
 {
-    if (const qtng::utils::DateTime *dt = std::get_if<qtng::utils::DateTime>(&data)) {
+    if (const QTNG_NAMESPACE::utils::DateTime *dt = std::get_if<QTNG_NAMESPACE::utils::DateTime>(&data)) {
         return *dt;
     }
     throw RpcSerializationException("value is not a datetime.");
 }
 
-qtng::MsgPackExtData Value::asExt() const
+QTNG_NAMESPACE::MsgPackExtData Value::asExt() const
 {
-    if (const qtng::MsgPackExtData *e = std::get_if<qtng::MsgPackExtData>(&data)) {
+    if (const QTNG_NAMESPACE::MsgPackExtData *e = std::get_if<QTNG_NAMESPACE::MsgPackExtData>(&data)) {
         return *e;
     }
     throw RpcSerializationException("value is not an ext data.");
@@ -260,29 +260,29 @@ std::uint64_t loadBigEndian64(const char *p)
     return v;
 }
 
-qtng::utils::DateTime unpackTimestamp(const std::string &payload)
+QTNG_NAMESPACE::utils::DateTime unpackTimestamp(const std::string &payload)
 {
     if (payload.size() == 4) {
-        return qtng::utils::DateTime::fromSecsSinceEpoch(
+        return QTNG_NAMESPACE::utils::DateTime::fromSecsSinceEpoch(
                 static_cast<std::int64_t>(loadBigEndian32(payload.data())));
     }
     if (payload.size() == 8) {
         const std::uint64_t t = loadBigEndian64(payload.data());
         const std::uint64_t nsec = (t >> 34) & 0x3fffffffULL;
         const std::uint64_t secs = t & 0x3ffffffffULL;
-        return qtng::utils::DateTime::fromMSecsSinceEpoch(
+        return QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(
                 static_cast<std::int64_t>(secs * 1000 + nsec / 1000000));
     }
     if (payload.size() == 12) {
         const std::uint32_t nsec = loadBigEndian32(payload.data());
         const std::uint64_t secs = loadBigEndian64(payload.data() + 4);
-        return qtng::utils::DateTime::fromMSecsSinceEpoch(
+        return QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(
                 static_cast<std::int64_t>(secs * 1000 + nsec / 1000000));
     }
-    return qtng::utils::DateTime();
+    return QTNG_NAMESPACE::utils::DateTime();
 }
 
-void writeValue(qtng::MsgPackStream &s, const Value &v)
+void writeValue(QTNG_NAMESPACE::MsgPackStream &s, const Value &v)
 {
     switch (v.type()) {
     case Value::Type::Nil:
@@ -332,7 +332,7 @@ void writeValue(qtng::MsgPackStream &s, const Value &v)
         break;
     }
     case Value::Type::DateTime: {
-        const qtng::utils::DateTime &dt = v.asDateTime();
+        const QTNG_NAMESPACE::utils::DateTime &dt = v.asDateTime();
         if (dt.isValid()) {
             s << dt;
         } else {
@@ -354,7 +354,7 @@ void writeValue(qtng::MsgPackStream &s, const Value &v)
     }
 }
 
-Value readValue(qtng::MsgPackStream &s)
+Value readValue(QTNG_NAMESPACE::MsgPackStream &s)
 {
     std::uint8_t b = 0;
     if (!s.peekByte(&b)) {
@@ -435,13 +435,13 @@ Value readValue(qtng::MsgPackStream &s)
         return Value(std::move(m));
     }
     case WireKind::Ext: {
-        qtng::MsgPackExtData ext;
+        QTNG_NAMESPACE::MsgPackExtData ext;
         s >> ext;
         if (!s.isOk()) {
             throw RpcSerializationException("can not read ext data.");
         }
         if (ext.type() == 0xff) {
-            const qtng::utils::DateTime dt = unpackTimestamp(ext.payload());
+            const QTNG_NAMESPACE::utils::DateTime dt = unpackTimestamp(ext.payload());
             if (dt.isValid()) {
                 return Value(dt);
             }
@@ -455,7 +455,7 @@ Value readValue(qtng::MsgPackStream &s)
 
 }  // namespace
 
-bool Value::pack(qtng::MsgPackStream &s, const Value &v)
+bool Value::pack(QTNG_NAMESPACE::MsgPackStream &s, const Value &v)
 {
     try {
         writeValue(s, saveState(v));
@@ -465,7 +465,7 @@ bool Value::pack(qtng::MsgPackStream &s, const Value &v)
     }
 }
 
-Value Value::unpack(qtng::MsgPackStream &s)
+Value Value::unpack(QTNG_NAMESPACE::MsgPackStream &s)
 {
     return restoreState(readValue(s));
 }
@@ -473,7 +473,7 @@ Value Value::unpack(qtng::MsgPackStream &s)
 std::string Value::pack(const Value &v)
 {
     std::string buf;
-    qtng::MsgPackStream s(&buf, qtng::BufferOwnership::Borrow, true);
+    QTNG_NAMESPACE::MsgPackStream s(&buf, QTNG_NAMESPACE::BufferOwnership::Borrow, true);
     writeValue(s, saveState(v));
     if (!s.isOk()) {
         throw RpcSerializationException("can not pack value.");
@@ -483,7 +483,7 @@ std::string Value::pack(const Value &v)
 
 Value Value::unpack(const std::string &data)
 {
-    qtng::MsgPackStream s(data);
+    QTNG_NAMESPACE::MsgPackStream s(data);
     return restoreState(readValue(s));
 }
 
@@ -560,4 +560,4 @@ Value Value::restoreState(const Value &v)
 }
 
 }  // namespace rpc
-}  // namespace qtng
+QTNG_NAMESPACE_END

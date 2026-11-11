@@ -1,9 +1,9 @@
 #ifndef QTNG_TYPES_BYTES_H
 #define QTNG_TYPES_BYTES_H
 
-// qtng::ByteArray -- an implicitly shared sequence of bytes.
+// QTNG_NAMESPACE::ByteArray -- an implicitly shared sequence of bytes.
 //
-// ByteArray shares the storage and layout of qtng::String (see
+// ByteArray shares the storage and layout of QTNG_NAMESPACE::String (see
 // types/private/string_data.h) but nothing else: every operation below is defined in terms
 // of *bytes*, and belongs here rather than on the shared base precisely because String's
 // counterparts must be defined in terms of text (UTF-8 code points). A byte indexOf() is
@@ -35,7 +35,8 @@
 #include "qtng/msgpack.h"
 #include "qtng/types/private/string_data.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 namespace detail {
 
@@ -779,6 +780,5 @@ inline MsgPackStream &operator>>(MsgPackStream &s, ByteArray &bytes)
     return s;
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_BYTES_H

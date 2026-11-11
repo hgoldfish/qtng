@@ -1,7 +1,7 @@
 #ifndef QTNG_TYPES_STRING_BUILDER_H
 #define QTNG_TYPES_STRING_BUILDER_H
 
-// qtng::StringBuilder -- for building strings.
+// QTNG_NAMESPACE::StringBuilder -- for building strings.
 //
 // String is immutable, so building one needs a mutable staging area. The builder
 // accumulates directly in a shared block (growing by capacity when needed), so
@@ -20,7 +20,8 @@
 #include "qtng/types/bytes.h"
 #include "qtng/types/string.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class StringBuilder
 {
@@ -107,6 +108,5 @@ private:
     std::uint32_t capacity;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_STRING_BUILDER_H

@@ -11,7 +11,8 @@
 #include "qtng/socket.h"
 #include "qtng/udp.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // UDP-specific peer path: HostAddress + port, convertible to opaque DatagramPath.
 class UdpDatagramPath
@@ -70,6 +71,5 @@ private:
     std::function<bool(char *, std::int32_t *, HostAddress *, std::uint16_t *)> filterCallback;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_UDP_P_H

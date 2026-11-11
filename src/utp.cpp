@@ -25,7 +25,7 @@ using namespace std;
 
 NG_LOGGER("qtng.utp_stream");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1701,18 +1701,18 @@ int32_t UtpSocket::udpSend(const char *data, int32_t size, const HostAddress &ad
 UtpSocket *UtpSocket::createConnection(const HostAddress &host, uint16_t port, Socket::SocketError *error,
                                        int allowProtocol)
 {
-    return qtng::createConnection<UtpSocket>(host, port, error, allowProtocol, MakeSocketType<UtpSocket>);
+    return QTNG_NAMESPACE::createConnection<UtpSocket>(host, port, error, allowProtocol, MakeSocketType<UtpSocket>);
 }
 
 UtpSocket *UtpSocket::createConnection(const string &hostName, uint16_t port, Socket::SocketError *error,
                                        shared_ptr<SocketDnsCache> dnsCache, int allowProtocol)
 {
-    return qtng::createConnection<UtpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<UtpSocket>);
+    return QTNG_NAMESPACE::createConnection<UtpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<UtpSocket>);
 }
 
 UtpSocket *UtpSocket::createServer(const HostAddress &host, uint16_t port, int backlog)
 {
-    return qtng::createServer<UtpSocket>(host, port, backlog, MakeSocketType<UtpSocket>);
+    return QTNG_NAMESPACE::createServer<UtpSocket>(host, port, backlog, MakeSocketType<UtpSocket>);
 }
 
 class UtpSocketLikeImpl : public SocketLike
@@ -1785,4 +1785,4 @@ shared_ptr<UtpSocket> convertSocketLikeToUtpSocket(shared_ptr<SocketLike> socket
     return shared_ptr<UtpSocket>();
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

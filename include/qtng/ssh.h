@@ -10,7 +10,8 @@
 #include "qtng/socket_server.h"
 #include "qtng/socket_utils.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class SshChannelPrivate;
 class SshServerPrivate;
@@ -198,6 +199,5 @@ private:
     NG_DISABLE_COPY(SshClient)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_SSH_H

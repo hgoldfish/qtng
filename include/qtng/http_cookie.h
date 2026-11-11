@@ -11,7 +11,8 @@
 #include "qtng/utils/platform.h"
 #include "qtng/utils/datetime.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class HttpCookiePrivate;
 class HttpCookie
@@ -42,8 +43,8 @@ public:
     SameSite sameSitePolicy() const;
     void setSameSitePolicy(SameSite sameSite);
     bool isSessionCookie() const;
-    qtng::utils::DateTime expirationDate() const;
-    void setExpirationDate(const qtng::utils::DateTime &date);
+    QTNG_NAMESPACE::utils::DateTime expirationDate() const;
+    void setExpirationDate(const QTNG_NAMESPACE::utils::DateTime &date);
     std::string domain() const;
     void setDomain(const std::string &domain);
     std::string path() const;
@@ -86,11 +87,10 @@ private:
     HttpCookieJarPrivate * const d_ptr;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #ifndef NG_NO_DEBUG_STREAM
 #include "qtng/utils/platform.h"
-std::ostream &operator<<(std::ostream &out, const qtng::HttpCookie &cookie);
+std::ostream &operator<<(std::ostream &out, const QTNG_NAMESPACE::HttpCookie &cookie);
 #endif
 
 #endif  // QTNG_HTTP_COOKIE_H

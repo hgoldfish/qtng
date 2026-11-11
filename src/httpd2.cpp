@@ -6,7 +6,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 void BaseHttpProxyRequestHandler::logRequest(HttpStatus, int) { }
 
@@ -172,4 +172,4 @@ shared_ptr<SocketLike> BaseHttpProxyRequestHandler::makeConnection(const string 
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -8,7 +8,8 @@
 #include <thread>
 #include <vector>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class EventLoopCoroutine;
 
@@ -44,6 +45,5 @@ private:
     friend void ngThreadEntry(NgThread *self);
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_COROUTINE_UTILS_P_H

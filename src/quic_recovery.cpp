@@ -5,7 +5,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 // --- QuicRttStats (RFC 9002 §5.1-5.3) ---
 
@@ -298,4 +298,4 @@ uint64_t QuicLossRecovery::earliestLostTimeUs(QuicPacketNumberSpace space) const
     return m_earliestLostTimeUs[space];
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -19,7 +19,7 @@ using namespace std;
 
 NG_LOGGER("qtng.socket");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 SocketPrivate::SocketPrivate(HostAddress::NetworkLayerProtocol protocol, Socket::SocketType type, Socket *parent)
     : q_ptr(parent)
@@ -738,19 +738,19 @@ vector<HostAddress> Socket::resolve(const string &hostName)
 
 Socket *Socket::createConnection(const HostAddress &host, uint16_t port, Socket::SocketError *error, int allowProtocol)
 {
-    return qtng::createConnection<Socket>(host, port, error, allowProtocol, MakeSocketType<Socket>);
+    return QTNG_NAMESPACE::createConnection<Socket>(host, port, error, allowProtocol, MakeSocketType<Socket>);
 }
 
 Socket *Socket::createConnection(const string &hostName, uint16_t port, Socket::SocketError *error,
                                  shared_ptr<SocketDnsCache> dnsCache, int allowProtocol)
 {
-    return qtng::createConnection<Socket>(hostName, port, error, dnsCache, allowProtocol,
+    return QTNG_NAMESPACE::createConnection<Socket>(hostName, port, error, dnsCache, allowProtocol,
                                                            MakeSocketType<Socket>);
 }
 
 Socket *Socket::createServer(const HostAddress &host, uint16_t port, int backlog)
 {
-    return qtng::createServer<Socket>(host, port, backlog, MakeSocketType<Socket>);
+    return QTNG_NAMESPACE::createServer<Socket>(host, port, backlog, MakeSocketType<Socket>);
 }
 
 class PollPrivate
@@ -978,4 +978,4 @@ void SocketDnsCache::setTimeToLive(uint64_t msecs)
     d->timeToLive = msecs;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

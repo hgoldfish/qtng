@@ -7,11 +7,16 @@ cmake_minimum_required(VERSION 3.14)
 set(QTNG_QT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(QTNG_ROOT "${QTNG_QT_DIR}/..")
 
+# Core is only linked privately by qtnetworkng; bridge TUs hardcode qtng_core:: and
+# must see the same mangled symbols. FORCE the CACHE before add_subdirectory so a
+# fresh qtng is built as qtng_core; if qtng already exists under the default name,
+# append the PUBLIC def so this tree remaps (prefer a clean build if both
+# -DQTNG_NAMESPACE=qtng and =qtng_core end up on the command line).
+set(QTNG_NAMESPACE "qtng_core" CACHE STRING "C++ namespace for libqtng" FORCE)
 if(NOT TARGET qtng)
     add_subdirectory("${QTNG_ROOT}" "${CMAKE_BINARY_DIR}/qtng-core" EXCLUDE_FROM_ALL)
-    # Core is only linked privately by qtnetworkng; compile it into namespace qtng_core so
-    # bridge TUs (core_access.h) link against the same mangled symbols as the Qt API layer.
-    target_compile_definitions(qtng PRIVATE qtng=qtng_core)
+else()
+    target_compile_definitions(qtng PUBLIC QTNG_NAMESPACE=qtng_core)
 endif()
 
 # QTNG_QT_VERSION: auto (prefer Qt5, else Qt6), 5, or 6.

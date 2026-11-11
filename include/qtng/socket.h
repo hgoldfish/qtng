@@ -17,7 +17,8 @@
 #  undef fileno
 #endif
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class SocketPrivate;
 class SocketDnsCache;
@@ -339,6 +340,5 @@ SocketType *MakeSocketType(HostAddress::NetworkLayerProtocol protocol)
     return new SocketType(protocol);
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_SOCKET_H

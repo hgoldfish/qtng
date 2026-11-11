@@ -38,7 +38,7 @@ using namespace std;
 
 NG_LOGGER("qtng.kcp_stream");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 const char PACKET_TYPE_UNCOMPRESSED_DATA = 0x01;
 const char PACKET_TYPE_CREATE_MULTIPATH = 0x02;
@@ -155,7 +155,7 @@ static constexpr uint64_t kBbrProbeRttIntervalMs = 10000;
 
 // Counts every real heap allocation made for ikcp segments. A pooled reuse does
 // not count; only a pool miss that has to call malloc does. Exposed through
-// qtng::kcpSegmentOsAllocationCount() so the benchmark can show the pool's effect.
+// QTNG_NAMESPACE::kcpSegmentOsAllocationCount() so the benchmark can show the pool's effect.
 static std::atomic<uint64_t> g_segmentOsAllocs{0};
 
 // Per-KcpStream pool for ikcp segments.
@@ -2762,18 +2762,18 @@ int32_t KcpSocket::udpSend(const char *data, int32_t size, const HostAddress &ad
 KcpSocket *KcpSocket::createConnection(const HostAddress &host, uint16_t port, Socket::SocketError *error,
                                        int allowProtocol)
 {
-    return qtng::createConnection<KcpSocket>(host, port, error, allowProtocol, MakeSocketType<KcpSocket>);
+    return QTNG_NAMESPACE::createConnection<KcpSocket>(host, port, error, allowProtocol, MakeSocketType<KcpSocket>);
 }
 
 KcpSocket *KcpSocket::createConnection(const string &hostName, uint16_t port, Socket::SocketError *error,
                                        shared_ptr<SocketDnsCache> dnsCache, int allowProtocol)
 {
-    return qtng::createConnection<KcpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<KcpSocket>);
+    return QTNG_NAMESPACE::createConnection<KcpSocket>(hostName, port, error, dnsCache, allowProtocol, MakeSocketType<KcpSocket>);
 }
 
 KcpSocket *KcpSocket::createServer(const HostAddress &host, uint16_t port, int backlog)
 {
-    return qtng::createServer<KcpSocket>(host, port, backlog, MakeSocketType<KcpSocket>);
+    return QTNG_NAMESPACE::createServer<KcpSocket>(host, port, backlog, MakeSocketType<KcpSocket>);
 }
 
 class KcpSocketLikeImpl : public SocketLike
@@ -2846,4 +2846,4 @@ shared_ptr<KcpSocket> convertSocketLikeToKcpSocket(shared_ptr<SocketLike> socket
     return shared_ptr<KcpSocket>();
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

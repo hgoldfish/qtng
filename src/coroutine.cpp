@@ -6,7 +6,7 @@ using namespace std;
 
 NG_LOGGER("qtng.coroutine");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 CoroutineException::CoroutineException() { }
 
@@ -117,4 +117,4 @@ BaseCoroutine *BaseCoroutine::current()
     return currentCoroutine().get();
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

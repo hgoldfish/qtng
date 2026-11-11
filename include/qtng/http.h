@@ -17,7 +17,8 @@
 #include "qtng/md.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 namespace detail {
 
@@ -88,7 +89,7 @@ public:
         std::string newContentType;
         if (contentType.empty()) {
 #ifndef NG_OS_ANDROID
-            newContentType = qtng::utils::mimeTypeForFileName(filename);
+            newContentType = QTNG_NAMESPACE::utils::mimeTypeForFileName(filename);
 #endif
         } else {
             newContentType = contentType;
@@ -147,12 +148,12 @@ public:
 public:
     std::string method() const;
     void setMethod(const std::string &method);
-    qtng::utils::Url url() const;
-    void setUrl(const qtng::utils::Url &url);
-    void setUrl(const std::string &url) { setUrl(qtng::utils::Url(url)); }
-    qtng::utils::UrlQuery query() const;
+    QTNG_NAMESPACE::utils::Url url() const;
+    void setUrl(const QTNG_NAMESPACE::utils::Url &url);
+    void setUrl(const std::string &url) { setUrl(QTNG_NAMESPACE::utils::Url(url)); }
+    QTNG_NAMESPACE::utils::UrlQuery query() const;
     void setQuery(const std::map<std::string, std::string> &query);
-    void setQuery(const qtng::utils::UrlQuery &query);
+    void setQuery(const QTNG_NAMESPACE::utils::UrlQuery &query);
     std::vector<HttpCookie> cookies() const;
     void setCookies(const std::vector<HttpCookie> &cookies);
     std::shared_ptr<FileLike> body() const;
@@ -187,7 +188,7 @@ public:
 public:
     void setBody(const FormData &formData);
     void setBody(const std::map<std::string, std::string> form);
-    void setBody(const qtng::utils::UrlQuery &form);
+    void setBody(const QTNG_NAMESPACE::utils::UrlQuery &form);
 private:
     std::shared_ptr<HttpRequestPrivate> d;
     friend class HttpSessionPrivate;
@@ -218,9 +219,9 @@ public:
     HttpResponse(HttpResponse &&other);
     HttpResponse &operator=(const HttpResponse &other);
 public:
-    qtng::utils::Url url() const;
-    void setUrl(const qtng::utils::Url &url);
-    void setUrl(const std::string &url) { setUrl(qtng::utils::Url(url)); }
+    QTNG_NAMESPACE::utils::Url url() const;
+    void setUrl(const QTNG_NAMESPACE::utils::Url &url);
+    void setUrl(const std::string &url) { setUrl(QTNG_NAMESPACE::utils::Url(url)); }
     int statusCode() const;
     void setStatusCode(int statusCode);
     std::string statusText() const;
@@ -282,39 +283,39 @@ public:
     HttpResponse get(const std::string &url);
     HttpResponse get(const std::string &url, const std::map<std::string, std::string> &query);
     HttpResponse get(const std::string &url, const std::map<std::string, std::string> &query, const std::map<std::string, std::string> &headers);
-    HttpResponse get(const std::string &url, const qtng::utils::UrlQuery &query);
-    HttpResponse get(const std::string &url, const qtng::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
+    HttpResponse get(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query);
+    HttpResponse get(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
 
     HttpResponse head(const std::string &url);
     HttpResponse head(const std::string &url, const std::map<std::string, std::string> &query);
     HttpResponse head(const std::string &url, const std::map<std::string, std::string> &query,
                       const std::map<std::string, std::string> &headers);
-    HttpResponse head(const std::string &url, const qtng::utils::UrlQuery &query);
-    HttpResponse head(const std::string &url, const qtng::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
+    HttpResponse head(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query);
+    HttpResponse head(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
 
     HttpResponse options(const std::string &url);
     HttpResponse options(const std::string &url, const std::map<std::string, std::string> &query);
     HttpResponse options(const std::string &url, const std::map<std::string, std::string> &query,
                          const std::map<std::string, std::string> &headers);
-    HttpResponse options(const std::string &url, const qtng::utils::UrlQuery &query);
-    HttpResponse options(const std::string &url, const qtng::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
+    HttpResponse options(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query);
+    HttpResponse options(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
 
     HttpResponse delete_(const std::string &url);
     HttpResponse delete_(const std::string &url, const std::map<std::string, std::string> &query);
     HttpResponse delete_(const std::string &url, const std::map<std::string, std::string> &query,
                          const std::map<std::string, std::string> &headers);
-    HttpResponse delete_(const std::string &url, const qtng::utils::UrlQuery &query);
-    HttpResponse delete_(const std::string &url, const qtng::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
+    HttpResponse delete_(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query);
+    HttpResponse delete_(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
 
     HttpResponse post(const std::string &url, const std::string &body);
     HttpResponse post(const std::string &url, std::shared_ptr<FileLike> body);
     HttpResponse post(const std::string &url, const std::map<std::string, std::string> &body);
-    HttpResponse post(const std::string &url, const qtng::utils::UrlQuery &body);
+    HttpResponse post(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &body);
     HttpResponse post(const std::string &url, const FormData &body);
     HttpResponse post(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
     HttpResponse post(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
     HttpResponse post(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
-    HttpResponse post(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+    HttpResponse post(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
     HttpResponse post(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
     // RFC 10008 (The HTTP QUERY Method): a safe and idempotent request that
@@ -324,35 +325,35 @@ public:
     HttpResponse query(const std::string &url, const std::string &body);
     HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body);
     HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body);
-    HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body);
+    HttpResponse query(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &body);
     HttpResponse query(const std::string &url, const FormData &body);
     HttpResponse query(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
     HttpResponse query(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
     HttpResponse query(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
-    HttpResponse query(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+    HttpResponse query(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
     HttpResponse query(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
     HttpResponse patch(const std::string &url, const std::string &body);
     HttpResponse patch(const std::string &url, std::shared_ptr<FileLike> body);
     HttpResponse patch(const std::string &url, const std::map<std::string, std::string> &body);
-    HttpResponse patch(const std::string &url, const qtng::utils::UrlQuery &body);
+    HttpResponse patch(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &body);
     HttpResponse patch(const std::string &url, const FormData &body);
     HttpResponse patch(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
     HttpResponse patch(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
     HttpResponse patch(const std::string &url, const std::map<std::string, std::string> &body,
                        const std::map<std::string, std::string> &headers);
-    HttpResponse patch(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+    HttpResponse patch(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
     HttpResponse patch(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
     HttpResponse put(const std::string &url, const std::string &body);
     HttpResponse put(const std::string &url, std::shared_ptr<FileLike> body);
     HttpResponse put(const std::string &url, const std::map<std::string, std::string> &body);
-    HttpResponse put(const std::string &url, const qtng::utils::UrlQuery &body);
+    HttpResponse put(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &body);
     HttpResponse put(const std::string &url, const FormData &body);
     HttpResponse put(const std::string &url, const std::string &body, const std::map<std::string, std::string> &headers);
     HttpResponse put(const std::string &url, std::shared_ptr<FileLike> body, const std::map<std::string, std::string> &headers);
     HttpResponse put(const std::string &url, const std::map<std::string, std::string> &body, const std::map<std::string, std::string> &headers);
-    HttpResponse put(const std::string &url, const qtng::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
+    HttpResponse put(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &body, const std::map<std::string, std::string> &headers);
     HttpResponse put(const std::string &url, const FormData &body, const std::map<std::string, std::string> &headers);
 
 
@@ -360,8 +361,8 @@ public:
     std::shared_ptr<WebSocketConnection> ws(const std::string &url);
     std::shared_ptr<WebSocketConnection> ws(const std::string &url, const std::map<std::string, std::string> &query);
     std::shared_ptr<WebSocketConnection> ws(const std::string &url, const std::map<std::string, std::string> &query, const std::map<std::string, std::string> &headers);
-    std::shared_ptr<WebSocketConnection> ws(const std::string &url, const qtng::utils::UrlQuery &query);
-    std::shared_ptr<WebSocketConnection> ws(const std::string &url, const qtng::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
+    std::shared_ptr<WebSocketConnection> ws(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query);
+    std::shared_ptr<WebSocketConnection> ws(const std::string &url, const QTNG_NAMESPACE::utils::UrlQuery &query, const std::map<std::string, std::string> &headers);
     int webSocketErrorCode() const;
     std::string webSocketErrorReason() const;
 
@@ -579,6 +580,5 @@ public:
     virtual std::string what() const;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HTTP_H

@@ -11,7 +11,8 @@
 #include "qtng/aead.h"
 #include "qtng/quic.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 enum QuicPacketNumberSpace {
     QuicPnInitial = 0,
@@ -275,6 +276,5 @@ private:
     QuicRttStats m_rtt;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_QUIC_P_H

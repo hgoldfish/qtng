@@ -7,7 +7,8 @@
 #include <string>
 #include <vector>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 // ByteBuffer: a cursor-based byte buffer for stream decoders that need to "peek"
@@ -125,6 +126,5 @@ std::string base64ToBytes(const std::string &data);
 std::string join(const std::vector<std::string> &parts, char separator);
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_UTILS_STRING_UTILS_H

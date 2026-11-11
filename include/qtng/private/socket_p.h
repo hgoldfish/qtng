@@ -9,7 +9,8 @@
 #include "qtng/socket.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 union qt_sockaddr;
 
@@ -123,6 +124,5 @@ public:
     NG_DECLARE_PUBLIC(Socket)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_SOCKET_P_H

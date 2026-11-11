@@ -10,7 +10,8 @@
 #include "qtng/hostaddress.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // 20-byte SHA-1 node id / infohash used by BitTorrent DHT (BEP-5).
 // Distance is bitwise XOR; closer ids share a longer common prefix.
@@ -281,6 +282,5 @@ private:
     NG_DISABLE_COPY(DhtNode)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_KADEMLIA_H

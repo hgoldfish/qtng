@@ -5,7 +5,8 @@
 
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 // SliceRingBuffer: a byte-level double-ended queue backed by a virtual-memory
@@ -92,6 +93,5 @@ private:
 };
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_UTILS_SLICE_RING_BUFFER_H

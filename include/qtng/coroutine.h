@@ -15,7 +15,8 @@
 #endif
 #endif
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class CoroutineException
 {
@@ -178,6 +179,5 @@ void Iterator<T>::yield(const T &t)
 }
 
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_COROUTINE_H

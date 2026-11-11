@@ -15,7 +15,7 @@ using namespace std;
 
 NG_LOGGER("qtng.coroutine.win");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class BaseCoroutinePrivate
 {
@@ -283,6 +283,5 @@ void BaseCoroutine::setPrevious(BaseCoroutine *previous)
     d->previous = previous;
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // NG_OS_WIN

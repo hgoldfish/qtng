@@ -12,7 +12,8 @@
 #include "qtng/socket.h"
 #include "qtng/stun.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // STUN methods (RFC 8489 §6 / RFC 8656 §6).
 enum StunMethod {
@@ -252,6 +253,5 @@ public:
     std::string softwareName;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_STUN_P_H

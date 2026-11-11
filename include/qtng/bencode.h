@@ -14,7 +14,8 @@
 #include "qtng/io_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class Bencode;
 
@@ -355,6 +356,5 @@ private:
     std::map<std::string, Bencode> m_dict;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_BENCODE_H

@@ -13,7 +13,8 @@
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // qHash is a friend, but we can't use default arguments for friends (§8.3.6.4)
 class Certificate;
@@ -51,8 +52,8 @@ public:
     void *handle() const;
 
     std::string digest(MessageDigest::Algorithm algorithm = MessageDigest::Sha256) const;
-    qtng::utils::DateTime effectiveDate() const;
-    qtng::utils::DateTime expiryDate() const;
+    QTNG_NAMESPACE::utils::DateTime effectiveDate() const;
+    QTNG_NAMESPACE::utils::DateTime expiryDate() const;
     PublicKey publicKey() const;
     std::string serialNumber() const;
     std::multimap<AlternativeNameEntryType, std::string> subjectAlternativeNames() const;
@@ -79,10 +80,10 @@ public:
 public:
     static Certificate load(const std::string &data, Ssl::EncodingFormat format = Ssl::Pem);
     static Certificate generate(const PublicKey &publickey, const PrivateKey &caKey, MessageDigest::Algorithm signAlgo,
-                                long serialNumber, const qtng::utils::DateTime &effectiveDate, const qtng::utils::DateTime &expiryDate,
+                                long serialNumber, const QTNG_NAMESPACE::utils::DateTime &effectiveDate, const QTNG_NAMESPACE::utils::DateTime &expiryDate,
                                 const std::multimap<SubjectInfo, std::string> &subjectInfoes);
     static Certificate selfSign(const PrivateKey &key, MessageDigest::Algorithm signAlgo, long serialNumber,
-                                const qtng::utils::DateTime &effectiveDate, const qtng::utils::DateTime &expiryDate,
+                                const QTNG_NAMESPACE::utils::DateTime &effectiveDate, const QTNG_NAMESPACE::utils::DateTime &expiryDate,
                                 const std::multimap<Certificate::SubjectInfo, std::string> &subjectInfoes)
     {
         return generate(key, key, signAlgo, serialNumber, effectiveDate, expiryDate, subjectInfoes);
@@ -104,6 +105,5 @@ public:
 std::ostream &operator<<(std::ostream &debug, const Certificate &certificate);
 std::ostream &operator<<(std::ostream &debug, Certificate::SubjectInfo info);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_CERTIFICATE_H

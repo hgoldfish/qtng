@@ -9,7 +9,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class RandomGeneratorPrivate
 {
@@ -107,4 +107,4 @@ string randomBytes(int numBytes)
     return b;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -66,12 +66,13 @@ inline Value toValue(const std::string &v)
     return Value::str(v);
 }
 
-inline Value toValue(qtng::utils::DateTime v)
+#include "qtng/config.h"
+inline Value toValue(QTNG_NAMESPACE::utils::DateTime v)
 {
     return Value(v);
 }
 
-inline Value toValue(qtng::MsgPackExtData v)
+inline Value toValue(QTNG_NAMESPACE::MsgPackExtData v)
 {
     return Value(std::move(v));
 }

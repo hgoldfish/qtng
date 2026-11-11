@@ -31,7 +31,7 @@ NG_LOGGER("qtng.network_interface")
 #define ARPHRD_IEEE802154   804     /* v2.6.31 */
 #define ARPHRD_6LOWPAN      825     /* v3.14: IPv6 over LoWPAN */
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 enum {
     BufferSize = 8192
@@ -468,4 +468,4 @@ vector<NetworkInterfacePrivate *> NetworkInterfaceManager::scan()
 }
 
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

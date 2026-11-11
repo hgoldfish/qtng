@@ -37,8 +37,9 @@ public:
     bool writeToPath(const std::string &path, ProgressCallback progressCallback = nullptr);
     bool readFromPath(const std::string &path, ProgressCallback progressCallback = nullptr);
     bool readFromPath(ProgressCallback progressCallback = nullptr);
-    bool writeTo(std::shared_ptr<qtng::FileLike> f, ProgressCallback progressCallback = nullptr);
-    bool readFrom(std::shared_ptr<qtng::FileLike> f, ProgressCallback progressCallback = nullptr);
+#include "qtng/config.h"
+    bool writeTo(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, ProgressCallback progressCallback = nullptr);
+    bool readFrom(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, ProgressCallback progressCallback = nullptr);
 
     bool sendall(const std::string &data, ProgressCallback progressCallback = nullptr);
     bool recvall(std::string &data, ProgressCallback progressCallback = nullptr);
@@ -48,12 +49,12 @@ public:
     void setName(const std::string &name);
     std::uint64_t size() const;
     void setSize(std::uint64_t size);
-    qtng::utils::DateTime modified() const;
-    void setModified(const qtng::utils::DateTime &dt);
-    qtng::utils::DateTime created() const;
-    void setCreated(const qtng::utils::DateTime &dt);
-    qtng::utils::DateTime lastAccess() const;
-    void setLastAccess(const qtng::utils::DateTime &dt);
+    QTNG_NAMESPACE::utils::DateTime modified() const;
+    void setModified(const QTNG_NAMESPACE::utils::DateTime &dt);
+    QTNG_NAMESPACE::utils::DateTime created() const;
+    void setCreated(const QTNG_NAMESPACE::utils::DateTime &dt);
+    QTNG_NAMESPACE::utils::DateTime lastAccess() const;
+    void setLastAccess(const QTNG_NAMESPACE::utils::DateTime &dt);
     std::string hash() const;  // binary sha256
     void setHash(const std::string &hash);
 

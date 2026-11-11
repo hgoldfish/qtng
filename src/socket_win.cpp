@@ -163,7 +163,7 @@ static string qt_prettyDebug(const char *data, int len, int maxLength)
 #endif
 
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 union qt_sockaddr {
     sockaddr a;
@@ -1571,6 +1571,5 @@ Socket *SocketPrivate::accept()
 }
 
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // NG_OS_WIN

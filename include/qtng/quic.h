@@ -13,7 +13,8 @@
 #include "qtng/socket.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class DatagramLink;
 class DatagramPath;
@@ -239,6 +240,5 @@ private:
 
 std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<QuicStream> s);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_QUIC_H

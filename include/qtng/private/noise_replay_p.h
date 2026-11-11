@@ -4,7 +4,8 @@
 #include <array>
 #include <cstdint>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // WireGuard receive-side replay window (RFC 6479): 8192-bit bitmap, 64 redundant
 // bits, reject before the counter can wrap through the window.
@@ -63,6 +64,5 @@ struct ReplayCounter
     }
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_NOISE_REPLAY_P_H

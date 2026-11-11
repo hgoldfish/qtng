@@ -9,7 +9,8 @@
 #include "qtng/private/socket_p.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class LocalSocketPrivate
 {
@@ -114,6 +115,5 @@ public:
     NG_DECLARE_PUBLIC(LocalSocket)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_LOCAL_SOCKET_P_H

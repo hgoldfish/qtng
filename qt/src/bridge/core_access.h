@@ -4,10 +4,9 @@
 // Internal bridge header: only included from qt/src/*.cpp translation units.
 // Provides access to qtng core implementation without exposing headers to consumers.
 //
-// Core types are remapped into namespace qtng_core so they do not collide with the
-// Qt binding API (also namespace qtng) or share include guards with qt/include/.
-
-#define qtng qtng_core
+// Core types live in QTNG_NAMESPACE (qt/CMakeLists sets it to qtng_core) so they do
+// not collide with the Qt binding API (QTNETWORKNG_NAMESPACE, default qtng) or share
+// include guards with qt/include/.
 
 #include "qtng/coroutine.h"
 #include "qtng/deferred.h"
@@ -49,9 +48,9 @@
 #include "qtng/private/network_interface_p.h"
 #include "qtng/private/kademlia_p.h"
 
-// The Qt-backed core event loop backend. Declared here with the qtng->qtng_core macro active so
-// qt/src translation units can name it (e.g. for dynamic_cast-based backend checks) without
-// re-including core headers later.
+// The Qt-backed core event loop backend. Declared in QTNG_NAMESPACE (qtng_core) so
+// qt/src translation units can name it (e.g. for dynamic_cast-based backend checks)
+// without re-including core headers later.
 namespace qtng_core {
 class QtEventLoopCoroutine : public EventLoopCoroutine
 {
@@ -69,8 +68,6 @@ public:
 #  include "qtng/noise.h"
 #  include "qtng/private/crypto_p.h"
 #endif
-
-#undef qtng
 
 #include "bridge/convert.h"
 

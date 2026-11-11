@@ -36,7 +36,7 @@ typedef ULONG NET_IFINDEX, *PNET_IFINDEX;
 #  endif
 #endif
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -460,6 +460,5 @@ vector<NetworkInterfacePrivate *> NetworkInterfaceManager::scan()
 }
 
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // NG_OS_WIN

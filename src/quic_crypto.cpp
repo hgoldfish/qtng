@@ -7,7 +7,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 string quicInitialSalt()
 {
@@ -251,4 +251,4 @@ bool quicUnprotectPacket(const QuicTrafficKeys &keys, const char *data, size_t s
     return true;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

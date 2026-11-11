@@ -46,7 +46,7 @@ using namespace std;
 
 NG_LOGGER("qtng.io_utils");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1780,4 +1780,4 @@ pair<string, string> safeJoinPath(const string &parentDir, const string &subPath
     return make_pair(joined, safeSubPath);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

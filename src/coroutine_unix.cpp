@@ -9,7 +9,7 @@ using namespace std;
 
 NG_LOGGER("qtng.coroutine.unix");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class BaseCoroutinePrivate
 {
@@ -283,4 +283,4 @@ void BaseCoroutine::setPrevious(BaseCoroutine *previous)
     d->previous = previous;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

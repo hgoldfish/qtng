@@ -12,7 +12,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 typedef map<string, string> OidNameMap;
 static OidNameMap createOidMap()
@@ -389,4 +389,4 @@ string QAsn1Element::toString() const
     return string();
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

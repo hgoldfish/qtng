@@ -5,7 +5,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class QuicRenoCongestionControlPrivate
 {
@@ -91,4 +91,4 @@ void QuicRenoCongestionControl::onPersistentCongestion()
     d->m_ssthresh = d->m_cwnd;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

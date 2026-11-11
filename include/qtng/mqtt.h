@@ -12,7 +12,8 @@
 #  include "qtng/ssl.h"
 #endif
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class Event;
 class SocketLike;
@@ -147,6 +148,5 @@ private:
     NG_DECLARE_PRIVATE(MqttClient);
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_MQTT_H

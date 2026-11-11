@@ -5,7 +5,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 namespace {
@@ -106,4 +106,4 @@ void logMessage(LogLevel level, const char *category, const string &message)
 }
 
 }  // namespace utils
-}  // namespace qtng
+QTNG_NAMESPACE_END

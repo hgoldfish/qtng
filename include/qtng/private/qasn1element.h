@@ -19,7 +19,8 @@
 
 #include "qtng/utils/datetime.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class FileLike;
 
@@ -68,7 +69,7 @@ public:
     static QAsn1Element fromObjectId(const std::string &id);
 
     bool toBool(bool *ok = 0) const;
-    qtng::utils::DateTime toDateTime() const;
+    QTNG_NAMESPACE::utils::DateTime toDateTime() const;
     std::multimap<std::string, std::string> toInfo() const;
     std::int64_t toInteger(bool *ok = 0) const;
     std::vector<QAsn1Element> toVector() const;
@@ -96,6 +97,5 @@ inline bool operator!=(const QAsn1Element &e1, const QAsn1Element &e2)
     return e1.mType != e2.mType || e1.mValue != e2.mValue;
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_ASN1ELEMENT_P_H

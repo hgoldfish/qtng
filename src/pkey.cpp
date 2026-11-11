@@ -17,7 +17,7 @@ using namespace std;
 
 NG_LOGGER("qtng.pkey");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class PublicKeyPrivate
 {
@@ -1035,4 +1035,4 @@ PublicKey PrivateKeyReader::readPublicFile(const string &filePath)
     return d->readPublicFile(filePath);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

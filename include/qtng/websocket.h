@@ -10,7 +10,8 @@
 
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class WebSocketConfigurationPrivate;
 class WebSocketConfiguration
@@ -122,6 +123,5 @@ private:
     friend class HttpSessionPrivate;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif

@@ -7,7 +7,8 @@
 
 #include "qtng/socket.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // Opaque peer identity for a datagram transport. Not tied to IP/port —
 // ICMP / multipath / custom links may use any non-empty key string.
@@ -60,5 +61,5 @@ public:
     virtual std::string errorString() const;
 };
 
-}  // namespace qtng
+QTNG_NAMESPACE_END
 #endif  // QTNG_UDP_H

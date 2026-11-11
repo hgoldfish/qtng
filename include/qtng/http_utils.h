@@ -11,7 +11,8 @@
 #include "qtng/utils/datetime.h"
 #include "qtng/utils/string_utils.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 enum HttpVersion {
     Unknown = 0,
@@ -117,8 +118,8 @@ enum KnownHeader {
 };
 
 std::string normalizeHeaderName(const std::string &headerName);
-qtng::utils::DateTime fromHttpDate(const std::string &value);
-std::string toHttpDate(const qtng::utils::DateTime &dt);
+QTNG_NAMESPACE::utils::DateTime fromHttpDate(const std::string &value);
+std::string toHttpDate(const QTNG_NAMESPACE::utils::DateTime &dt);
 std::string toString(KnownHeader knownHeader);
 
 struct HttpHeader
@@ -149,10 +150,10 @@ public:
     std::int64_t contentLength() const;
     void setLocation(const std::string &url);
     std::string location() const;
-    void setLastModified(const qtng::utils::DateTime &lastModified);
-    qtng::utils::DateTime lastModified() const;
-    void setModifiedSince(const qtng::utils::DateTime &modifiedSince);
-    qtng::utils::DateTime modifiedSince() const;
+    void setLastModified(const QTNG_NAMESPACE::utils::DateTime &lastModified);
+    QTNG_NAMESPACE::utils::DateTime lastModified() const;
+    void setModifiedSince(const QTNG_NAMESPACE::utils::DateTime &modifiedSince);
+    QTNG_NAMESPACE::utils::DateTime modifiedSince() const;
 
     void setHeader(const std::string &name, const std::string &value);
     void addHeader(const std::string &name, const std::string &value);
@@ -183,7 +184,7 @@ class HttpHeaderManager : public WithHttpHeaders<EmptyClass>
 template<typename Base>
 void WithHttpHeaders<Base>::setContentLength(std::int64_t contentLength)
 {
-    setHeader("Content-Length", qtng::utils::number(static_cast<long long>(contentLength)));
+    setHeader("Content-Length", QTNG_NAMESPACE::utils::number(static_cast<long long>(contentLength)));
 }
 
 template<typename Base>
@@ -191,7 +192,7 @@ std::int64_t WithHttpHeaders<Base>::contentLength() const
 {
     bool ok = false;
     std::string s = header("Content-Length");
-    long long parsed = qtng::utils::parseLongLong(s, &ok);
+    long long parsed = QTNG_NAMESPACE::utils::parseLongLong(s, &ok);
     if (ok) {
         const std::int64_t l = static_cast<std::int64_t>(parsed);
         if (l >= 0) {
@@ -233,33 +234,33 @@ void WithHttpHeaders<Base>::setLocation(const std::string &url)
 }
 
 template<typename Base>
-qtng::utils::DateTime WithHttpHeaders<Base>::lastModified() const
+QTNG_NAMESPACE::utils::DateTime WithHttpHeaders<Base>::lastModified() const
 {
     const std::string &value = header("Last-Modified");
     if (value.empty()) {
-        return qtng::utils::DateTime();
+        return QTNG_NAMESPACE::utils::DateTime();
     }
     return fromHttpDate(value);
 }
 
 template<typename Base>
-void WithHttpHeaders<Base>::setLastModified(const qtng::utils::DateTime &lastModified)
+void WithHttpHeaders<Base>::setLastModified(const QTNG_NAMESPACE::utils::DateTime &lastModified)
 {
     setHeader("Last-Modified", toHttpDate(lastModified));
 }
 
 template<typename Base>
-void WithHttpHeaders<Base>::setModifiedSince(const qtng::utils::DateTime &modifiedSince)
+void WithHttpHeaders<Base>::setModifiedSince(const QTNG_NAMESPACE::utils::DateTime &modifiedSince)
 {
     setHeader("Modified-Since", toHttpDate(modifiedSince));
 }
 
 template<typename Base>
-qtng::utils::DateTime WithHttpHeaders<Base>::modifiedSince() const
+QTNG_NAMESPACE::utils::DateTime WithHttpHeaders<Base>::modifiedSince() const
 {
     const std::string &value = header("Modified-Since");
     if (value.empty()) {
-        return qtng::utils::DateTime();
+        return QTNG_NAMESPACE::utils::DateTime();
     }
     return fromHttpDate(value);
 }
@@ -269,7 +270,7 @@ bool WithHttpHeaders<Base>::hasHeader(const std::string &headerName) const
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers[i];
-        if (qtng::utils::equalsIgnoreCase(header.name(), headerName)) {
+        if (QTNG_NAMESPACE::utils::equalsIgnoreCase(header.name(), headerName)) {
             return true;
         }
     }
@@ -281,7 +282,7 @@ bool WithHttpHeaders<Base>::removeHeader(const std::string &headerName)
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers[i];
-        if (qtng::utils::equalsIgnoreCase(header.name(), headerName)) {
+        if (QTNG_NAMESPACE::utils::equalsIgnoreCase(header.name(), headerName)) {
             headers.erase(headers.begin() + i);
             return true;
         }
@@ -337,7 +338,7 @@ std::string WithHttpHeaders<Base>::header(const std::string &headerName, const s
 {
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers[i];
-        if (qtng::utils::equalsIgnoreCase(header.name(), headerName)) {
+        if (QTNG_NAMESPACE::utils::equalsIgnoreCase(header.name(), headerName)) {
             return header.value();
         }
     }
@@ -356,7 +357,7 @@ std::vector<std::string> WithHttpHeaders<Base>::multiHeader(const std::string &h
     std::vector<std::string> values;
     for (int i = 0; i < headers.size(); ++i) {
         const HttpHeader &header = headers[i];
-        if (qtng::utils::equalsIgnoreCase(header.name(), headerName)) {
+        if (QTNG_NAMESPACE::utils::equalsIgnoreCase(header.name(), headerName)) {
             values.push_back(header.value());
         }
     }
@@ -487,6 +488,5 @@ private:
     NG_DISABLE_COPY_MOVE(ChunkedWriter)
     std::shared_ptr<FileLike> stream_;
 };
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HTTP_UTILS_H

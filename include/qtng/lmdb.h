@@ -9,7 +9,8 @@
 
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class DatabasePrivate;
 class Database;
@@ -280,6 +281,5 @@ private:
     NG_DISABLE_COPY_MOVE(LmdbBuilder)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_LMDB_H

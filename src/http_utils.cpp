@@ -12,7 +12,7 @@ using namespace std;
 
 NG_LOGGER("qtng.http")
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 bool toMessage(HttpStatus status, string *shortMessage, string *longMessage)
 {
@@ -782,4 +782,4 @@ void ChunkedWriter::close()
     stream_->write("0\r\n\r\n", 5);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

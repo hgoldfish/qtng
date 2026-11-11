@@ -11,7 +11,7 @@ using namespace std;
 
 NG_LOGGER("qtng.http1");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -355,4 +355,4 @@ void Http3Protocol::exchange(HttpSessionPrivate *, HttpRequest &, HttpResponse &
 }
 #endif
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

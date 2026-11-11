@@ -33,7 +33,7 @@ using namespace std;
 
 NG_LOGGER("qtng.hostaddress");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 template<typename T>
 static inline T qFromUnaligned(const void *src)
@@ -1356,9 +1356,8 @@ uint qHash(const HostAddress &key, uint seed) noexcept
     return qHashBits(key.d->ipv6.a6.data(), 16, seed);
 }
 
-}  // namespace qtng
-
-ostream &operator<<(ostream &out, const qtng::HostAddress &t)
+QTNG_NAMESPACE_END
+ostream &operator<<(ostream &out, const QTNG_NAMESPACE::HostAddress &t)
 {
     return out << t.toString();
 }

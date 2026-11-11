@@ -11,7 +11,8 @@
 #include "qtng/socket_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 enum DataChannelPole {
     PositivePole = 1,
@@ -149,6 +150,5 @@ inline std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<SocketChannel> c
     return asSocketLike(std::dynamic_pointer_cast<DataChannel>(channel));
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_DATA_CHANNEL_H

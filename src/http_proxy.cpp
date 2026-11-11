@@ -7,7 +7,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class HttpProxyPrivate
 {
@@ -209,4 +209,4 @@ shared_ptr<HttpProxy> SimpleProxySwitcher::selectHttpProxy(const string &url)
 // implemented in http.cpp
 void setProxySwitcher(class HttpSession *session, shared_ptr<BaseProxySwitcher> switcher);
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

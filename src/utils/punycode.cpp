@@ -6,7 +6,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 namespace {
@@ -193,4 +193,4 @@ bool punycodeDecode(const string &input, vector<uint32_t> &output)
 }
 
 }  // namespace utils
-}  // namespace qtng
+QTNG_NAMESPACE_END

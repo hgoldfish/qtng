@@ -27,20 +27,21 @@ class RpcPrivate
 public:
     RpcPrivate(Rpc *q);
     ~RpcPrivate();
-    bool handleRequest(std::shared_ptr<qtng::SocketLike> connection);
-    std::shared_ptr<Peer> connect(std::shared_ptr<qtng::SocketLike> connection, const std::string &peerName);
-    std::shared_ptr<Peer> preparePeer(const std::shared_ptr<qtng::DataChannel> &channel, const std::string &peerName,
+#include "qtng/config.h"
+    bool handleRequest(std::shared_ptr<QTNG_NAMESPACE::SocketLike> connection);
+    std::shared_ptr<Peer> connect(std::shared_ptr<QTNG_NAMESPACE::SocketLike> connection, const std::string &peerName);
+    std::shared_ptr<Peer> preparePeer(const std::shared_ptr<QTNG_NAMESPACE::DataChannel> &channel, const std::string &peerName,
                                       const std::string &peerAddress);
     void setCurrentPeerAndHeader(const std::shared_ptr<Peer> &peer, const Value &header);
     void deleteCurrentPeerAndHeader();
     std::shared_ptr<Peer> getCurrentPeer();
     Value getRpcHeader();
     void removePeer(const std::string &name, Peer *peer);
-    std::shared_ptr<qtng::SocketLike> makeRawSocket(const std::string &peerName, std::string &connectionId);
-    std::shared_ptr<qtng::SocketLike> takeRawSocket(const std::string &connectionId);
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> makeRawSocket(const std::string &peerName, std::string &connectionId);
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> takeRawSocket(const std::string &connectionId);
     void shutdown();
-    std::string makeAddress(const std::shared_ptr<qtng::SocketLike> &socket) const;
-    void setupChannel(const std::shared_ptr<qtng::SocketChannel> &channel);
+    std::string makeAddress(const std::shared_ptr<QTNG_NAMESPACE::SocketLike> &socket) const;
+    void setupChannel(const std::shared_ptr<QTNG_NAMESPACE::SocketChannel> &channel);
 
 public:
     std::string myPeerName;
@@ -49,11 +50,11 @@ public:
     float keepaliveTimeout;
     std::shared_ptr<HeaderCallback> headerCallback;
     std::shared_ptr<LoggingCallback> loggingCallback;
-    std::function<std::shared_ptr<qtng::SocketLike>(const std::string &)> connectionFactory;
+    std::function<std::shared_ptr<QTNG_NAMESPACE::SocketLike>(const std::string &)> connectionFactory;
     std::map<std::string, std::shared_ptr<Callable>> services;
     std::map<std::string, RpcFunction> functions;
     std::multimap<std::string, std::shared_ptr<Peer>> peers;
-    std::map<std::string, std::shared_ptr<qtng::SocketLike>> rawConnections;
+    std::map<std::string, std::shared_ptr<QTNG_NAMESPACE::SocketLike>> rawConnections;
     std::map<std::uintptr_t, PeerAndHeader> localStore;
 
 private:

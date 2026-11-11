@@ -7,7 +7,8 @@
 #include "qtng/io_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class GzipFilePrivate;
 class GzipFile : public FileLike
@@ -43,6 +44,5 @@ private:
 bool qGzipCompress(std::shared_ptr<FileLike> input, std::shared_ptr<FileLike> output, int level = -1, int blockSize = 1024 * 8);
 bool qGzipDecompress(std::shared_ptr<FileLike> input, std::shared_ptr<FileLike> output, int blockSize = 1024 * 8);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_GZIP_H

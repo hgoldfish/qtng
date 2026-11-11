@@ -8,7 +8,8 @@
 #include "qtng/socket.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class LocalSocketPrivate;
 class LocalSocket
@@ -86,6 +87,5 @@ inline std::shared_ptr<class SocketLike> asSocketLike(LocalSocket *s)
 
 std::shared_ptr<LocalSocket> convertSocketLikeToLocalSocket(std::shared_ptr<class SocketLike> socket);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_LOCAL_SOCKET_H

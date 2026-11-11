@@ -15,7 +15,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace rpc {
 
 namespace {
@@ -36,11 +36,11 @@ std::int64_t fileTimeToMSecs(const std::filesystem::file_time_type &t)
 
 std::string computeFileHash(const std::string &filePath)
 {
-    std::shared_ptr<qtng::FileLike> f = qtng::FileLike::open(filePath, "r");
+    std::shared_ptr<QTNG_NAMESPACE::FileLike> f = QTNG_NAMESPACE::FileLike::open(filePath, "r");
     if (!f) {
         return std::string();
     }
-    qtng::MessageDigest hasher(qtng::MessageDigest::Sha256);
+    QTNG_NAMESPACE::MessageDigest hasher(QTNG_NAMESPACE::MessageDigest::Sha256);
     std::string buf(1024 * 32, '\0');
     while (true) {
         const std::int32_t n = f->read(&buf[0], static_cast<std::int32_t>(buf.size()));
@@ -61,11 +61,11 @@ class RpcFilePrivate
 {
 public:
     RpcFilePrivate(RpcFile *q);
-    bool sendfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFile::ProgressCallback progressCallback);
-    bool recvfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFile::ProgressCallback progressCallback,
+    bool sendfileViaChannel(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, RpcFile::ProgressCallback progressCallback);
+    bool recvfileViaChannel(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, RpcFile::ProgressCallback progressCallback,
                             const std::string &header);
-    bool sendfileViaRawSocket(std::shared_ptr<qtng::FileLike> f, RpcFile::ProgressCallback progressCallback);
-    bool recvfileViaRawSocket(std::shared_ptr<qtng::FileLike> f, RpcFile::ProgressCallback progressCallback,
+    bool sendfileViaRawSocket(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, RpcFile::ProgressCallback progressCallback);
+    bool recvfileViaRawSocket(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, RpcFile::ProgressCallback progressCallback,
                               const std::string &header);
 
 public:
@@ -88,7 +88,7 @@ RpcFilePrivate::RpcFilePrivate(RpcFile *q)
 {
 }
 
-bool RpcFilePrivate::sendfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFile::ProgressCallback progressCallback)
+bool RpcFilePrivate::sendfileViaChannel(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, RpcFile::ProgressCallback progressCallback)
 {
     RpcFile *q = q_ptr;
     if (!q->channel) {
@@ -130,7 +130,7 @@ bool RpcFilePrivate::sendfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFi
     return true;
 }
 
-bool RpcFilePrivate::recvfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFile::ProgressCallback progressCallback,
+bool RpcFilePrivate::recvfileViaChannel(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, RpcFile::ProgressCallback progressCallback,
                                         const std::string &header)
 {
     RpcFile *q = q_ptr;
@@ -146,10 +146,10 @@ bool RpcFilePrivate::recvfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFi
     q->channel->setCapacity(STREAM_WINDOW_PACKETS);
 
     std::uint64_t count = static_cast<std::uint64_t>(header.size());
-    std::unique_ptr<qtng::MessageDigest> hasher;
+    std::unique_ptr<QTNG_NAMESPACE::MessageDigest> hasher;
     const bool doHash = !hash.empty();
     if (doHash) {
-        hasher.reset(new qtng::MessageDigest(qtng::MessageDigest::Sha256));
+        hasher.reset(new QTNG_NAMESPACE::MessageDigest(QTNG_NAMESPACE::MessageDigest::Sha256));
     }
     while (count < size) {
         std::string buf = q->channel->recvPacket();
@@ -179,7 +179,7 @@ bool RpcFilePrivate::recvfileViaChannel(std::shared_ptr<qtng::FileLike> f, RpcFi
     return true;
 }
 
-bool RpcFilePrivate::sendfileViaRawSocket(std::shared_ptr<qtng::FileLike> f,
+bool RpcFilePrivate::sendfileViaRawSocket(std::shared_ptr<QTNG_NAMESPACE::FileLike> f,
                                           RpcFile::ProgressCallback progressCallback)
 {
     RpcFile *q = q_ptr;
@@ -219,7 +219,7 @@ bool RpcFilePrivate::sendfileViaRawSocket(std::shared_ptr<qtng::FileLike> f,
     return true;
 }
 
-bool RpcFilePrivate::recvfileViaRawSocket(std::shared_ptr<qtng::FileLike> f,
+bool RpcFilePrivate::recvfileViaRawSocket(std::shared_ptr<QTNG_NAMESPACE::FileLike> f,
                                           RpcFile::ProgressCallback progressCallback, const std::string &header)
 {
     RpcFile *q = q_ptr;
@@ -233,10 +233,10 @@ bool RpcFilePrivate::recvfileViaRawSocket(std::shared_ptr<qtng::FileLike> f,
         return true;
     }
     std::uint64_t count = static_cast<std::uint64_t>(header.size());
-    std::unique_ptr<qtng::MessageDigest> hasher;
+    std::unique_ptr<QTNG_NAMESPACE::MessageDigest> hasher;
     const bool doHash = !hash.empty();
     if (doHash) {
-        hasher.reset(new qtng::MessageDigest(qtng::MessageDigest::Sha256));
+        hasher.reset(new QTNG_NAMESPACE::MessageDigest(QTNG_NAMESPACE::MessageDigest::Sha256));
     }
     while (count < size) {
         std::string buf = q->rawSocket->recv(1024);
@@ -299,9 +299,9 @@ RpcFile::~RpcFile()
 std::shared_ptr<RpcFile> RpcFile::prepareToSend(std::int64_t size)
 {
     std::shared_ptr<RpcFile> rpcFile = std::make_shared<RpcFile>();
-    rpcFile->setName(qtng::utils::bytesToHex(qtng::randomBytes(8)));
+    rpcFile->setName(QTNG_NAMESPACE::utils::bytesToHex(QTNG_NAMESPACE::randomBytes(8)));
     rpcFile->setSize(static_cast<std::uint64_t>(size));
-    const qtng::utils::DateTime now = qtng::utils::DateTime::currentDateTimeUtc();
+    const QTNG_NAMESPACE::utils::DateTime now = QTNG_NAMESPACE::utils::DateTime::currentDateTimeUtc();
     rpcFile->setCreated(now);
     rpcFile->setModified(now);
     rpcFile->setLastAccess(now);
@@ -315,7 +315,7 @@ bool RpcFile::calculateHash()
         return false;
     }
     const std::string path = d->filePath;
-    const std::string hash = qtng::callInThread<std::string>([path] { return computeFileHash(path); });
+    const std::string hash = QTNG_NAMESPACE::callInThread<std::string>([path] { return computeFileHash(path); });
     if (hash.empty()) {
         return false;
     }
@@ -330,7 +330,7 @@ bool RpcFile::isValid() const
 
 bool RpcFile::writeToPath(const std::string &path, ProgressCallback progressCallback)
 {
-    std::shared_ptr<qtng::FileLike> f = qtng::FileLike::open(path, "w");
+    std::shared_ptr<QTNG_NAMESPACE::FileLike> f = QTNG_NAMESPACE::FileLike::open(path, "w");
     if (!f) {
         if (progressCallback) {
             progressCallback(-1, 0, d_ptr->size);
@@ -342,7 +342,7 @@ bool RpcFile::writeToPath(const std::string &path, ProgressCallback progressCall
 
 bool RpcFile::readFromPath(const std::string &path, ProgressCallback progressCallback)
 {
-    std::shared_ptr<qtng::FileLike> f = qtng::FileLike::open(path, "r");
+    std::shared_ptr<QTNG_NAMESPACE::FileLike> f = QTNG_NAMESPACE::FileLike::open(path, "r");
     if (!f) {
         if (progressCallback) {
             progressCallback(-1, 0, d_ptr->size);
@@ -363,7 +363,7 @@ bool RpcFile::readFromPath(ProgressCallback progressCallback)
     return readFromPath(d_ptr->filePath, std::move(progressCallback));
 }
 
-bool RpcFile::writeTo(std::shared_ptr<qtng::FileLike> f, ProgressCallback progressCallback)
+bool RpcFile::writeTo(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, ProgressCallback progressCallback)
 {
     if (!ready.tryWait()) {
         return false;
@@ -374,7 +374,7 @@ bool RpcFile::writeTo(std::shared_ptr<qtng::FileLike> f, ProgressCallback progre
     return d_ptr->recvfileViaChannel(f, std::move(progressCallback), std::string());
 }
 
-bool RpcFile::readFrom(std::shared_ptr<qtng::FileLike> f, ProgressCallback progressCallback)
+bool RpcFile::readFrom(std::shared_ptr<QTNG_NAMESPACE::FileLike> f, ProgressCallback progressCallback)
 {
     if (!ready.tryWait()) {
         return false;
@@ -390,7 +390,7 @@ bool RpcFile::sendall(const std::string &data, ProgressCallback progressCallback
     if (!ready.tryWait()) {
         return false;
     }
-    std::shared_ptr<qtng::FileLike> f = qtng::FileLike::bytes(data);
+    std::shared_ptr<QTNG_NAMESPACE::FileLike> f = QTNG_NAMESPACE::FileLike::bytes(data);
     if (rawSocket) {
         return d_ptr->sendfileViaRawSocket(f, std::move(progressCallback));
     }
@@ -402,7 +402,7 @@ bool RpcFile::recvall(std::string &data, ProgressCallback progressCallback)
     if (!ready.tryWait()) {
         return false;
     }
-    std::shared_ptr<qtng::FileLike> f = qtng::FileLike::bytes(&data);
+    std::shared_ptr<QTNG_NAMESPACE::FileLike> f = QTNG_NAMESPACE::FileLike::bytes(&data);
     if (rawSocket) {
         return d_ptr->recvfileViaRawSocket(f, std::move(progressCallback), std::string());
     }
@@ -429,32 +429,32 @@ void RpcFile::setSize(std::uint64_t size)
     d_ptr->size = size;
 }
 
-qtng::utils::DateTime RpcFile::modified() const
+QTNG_NAMESPACE::utils::DateTime RpcFile::modified() const
 {
-    return qtng::utils::DateTime::fromMSecsSinceEpoch(static_cast<std::int64_t>(d_ptr->mtime));
+    return QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(static_cast<std::int64_t>(d_ptr->mtime));
 }
 
-void RpcFile::setModified(const qtng::utils::DateTime &dt)
+void RpcFile::setModified(const QTNG_NAMESPACE::utils::DateTime &dt)
 {
     d_ptr->mtime = static_cast<std::uint64_t>(dt.toMSecsSinceEpoch());
 }
 
-qtng::utils::DateTime RpcFile::created() const
+QTNG_NAMESPACE::utils::DateTime RpcFile::created() const
 {
-    return qtng::utils::DateTime::fromMSecsSinceEpoch(static_cast<std::int64_t>(d_ptr->ctime));
+    return QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(static_cast<std::int64_t>(d_ptr->ctime));
 }
 
-void RpcFile::setCreated(const qtng::utils::DateTime &dt)
+void RpcFile::setCreated(const QTNG_NAMESPACE::utils::DateTime &dt)
 {
     d_ptr->ctime = static_cast<std::uint64_t>(dt.toMSecsSinceEpoch());
 }
 
-qtng::utils::DateTime RpcFile::lastAccess() const
+QTNG_NAMESPACE::utils::DateTime RpcFile::lastAccess() const
 {
-    return qtng::utils::DateTime::fromMSecsSinceEpoch(static_cast<std::int64_t>(d_ptr->atime));
+    return QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(static_cast<std::int64_t>(d_ptr->atime));
 }
 
-void RpcFile::setLastAccess(const qtng::utils::DateTime &dt)
+void RpcFile::setLastAccess(const QTNG_NAMESPACE::utils::DateTime &dt)
 {
     d_ptr->atime = static_cast<std::uint64_t>(dt.toMSecsSinceEpoch());
 }
@@ -537,4 +537,4 @@ std::shared_ptr<Serializable> RpcFile::clone() const
 }
 
 }  // namespace rpc
-}  // namespace qtng
+QTNG_NAMESPACE_END

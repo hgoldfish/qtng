@@ -72,11 +72,12 @@ public:
         : data(std::move(v))
     {
     }
-    Value(qtng::utils::DateTime dt)
+#include "qtng/config.h"
+    Value(QTNG_NAMESPACE::utils::DateTime dt)
         : data(dt)
     {
     }
-    Value(qtng::MsgPackExtData ext)
+    Value(QTNG_NAMESPACE::MsgPackExtData ext)
         : data(std::move(ext))
     {
     }
@@ -100,8 +101,8 @@ public:
     const std::string &asBin() const;
     const std::vector<Value> &asArray() const;
     const std::map<std::string, Value> &asMap() const;
-    qtng::utils::DateTime asDateTime() const;
-    qtng::MsgPackExtData asExt() const;
+    QTNG_NAMESPACE::utils::DateTime asDateTime() const;
+    QTNG_NAMESPACE::MsgPackExtData asExt() const;
     std::shared_ptr<Serializable> asObject() const;
 
     // map helpers.
@@ -118,8 +119,8 @@ public:
     std::shared_ptr<T> asShared() const;
 
     // wire encoding / decoding (msgpack, str/bin distinguished).
-    static bool pack(qtng::MsgPackStream &s, const Value &v);
-    static Value unpack(qtng::MsgPackStream &s);
+    static bool pack(QTNG_NAMESPACE::MsgPackStream &s, const Value &v);
+    static Value unpack(QTNG_NAMESPACE::MsgPackStream &s);
     static std::string pack(const Value &v);
     static Value unpack(const std::string &data);
 
@@ -130,7 +131,7 @@ public:
 private:
     using VariantType = std::variant<std::monostate, bool, std::int64_t, std::uint64_t, double,
                                      detail::ValueStr, detail::ValueBin, std::vector<Value>,
-                                     std::map<std::string, Value>, qtng::utils::DateTime, qtng::MsgPackExtData,
+                                     std::map<std::string, Value>, QTNG_NAMESPACE::utils::DateTime, QTNG_NAMESPACE::MsgPackExtData,
                                      std::shared_ptr<Serializable>>;
     explicit Value(detail::ValueStr s)
         : data(std::move(s))
@@ -204,15 +205,15 @@ struct ValueConverter<std::string>
 };
 
 template<>
-struct ValueConverter<qtng::utils::DateTime>
+struct ValueConverter<QTNG_NAMESPACE::utils::DateTime>
 {
-    static qtng::utils::DateTime convert(const Value &v) { return v.asDateTime(); }
+    static QTNG_NAMESPACE::utils::DateTime convert(const Value &v) { return v.asDateTime(); }
 };
 
 template<>
-struct ValueConverter<qtng::MsgPackExtData>
+struct ValueConverter<QTNG_NAMESPACE::MsgPackExtData>
 {
-    static qtng::MsgPackExtData convert(const Value &v) { return v.asExt(); }
+    static QTNG_NAMESPACE::MsgPackExtData convert(const Value &v) { return v.asExt(); }
 };
 
 template<>

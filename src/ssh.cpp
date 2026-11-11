@@ -17,7 +17,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1470,14 +1470,14 @@ bool SshConnectionPrivate::sendPacket(const string &payloadIn)
         string seqStr;
         seqStr.append(4, '\0');
         ngToBigEndian(sendSeq, &seqStr[0]);
-        string mac = qtng::hmac(macHashForAlgo(macAlgo), sendMacKey, seqStr + encrypted);
+        string mac = QTNG_NAMESPACE::hmac(macHashForAlgo(macAlgo), sendMacKey, seqStr + encrypted);
         out = encrypted + mac;
         ++sendSeq;
     } else {
         string seqStr;
         seqStr.append(4, '\0');
         ngToBigEndian(sendSeq, &seqStr[0]);
-        string mac = qtng::hmac(macHashForAlgo(macAlgo), sendMacKey, seqStr + plaintext);
+        string mac = QTNG_NAMESPACE::hmac(macHashForAlgo(macAlgo), sendMacKey, seqStr + plaintext);
         string encrypted = sendCipher->addData(plaintext);
         if (encrypted.size() != plaintext.size()) {
             return false;
@@ -1607,7 +1607,7 @@ bool SshConnectionPrivate::recvPacket(string *payload)
         string seqStr;
         seqStr.append(4, '\0');
         ngToBigEndian(recvSeq, &seqStr[0]);
-        string expected = qtng::hmac(macHashForAlgo(macAlgo), recvMacKey, seqStr + ciphertext);
+        string expected = QTNG_NAMESPACE::hmac(macHashForAlgo(macAlgo), recvMacKey, seqStr + ciphertext);
         if (expected != mac) {
             setError("MAC mismatch");
             return false;
@@ -1650,7 +1650,7 @@ bool SshConnectionPrivate::recvPacket(string *payload)
             string seqStr;
             seqStr.append(4, '\0');
             ngToBigEndian(recvSeq, &seqStr[0]);
-            string expected = qtng::hmac(macHashForAlgo(macAlgo), recvMacKey, seqStr + plaintext);
+            string expected = QTNG_NAMESPACE::hmac(macHashForAlgo(macAlgo), recvMacKey, seqStr + plaintext);
             const string actual = socket->recvall(static_cast<int32_t>(macLength));
             if (actual.size() < static_cast<size_t>(macLength) || expected != actual) {
                 setError("MAC mismatch");
@@ -3498,4 +3498,4 @@ string SshClient::errorString() const
     return d->conn->errorString;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

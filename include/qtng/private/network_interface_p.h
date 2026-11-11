@@ -9,7 +9,8 @@
 #include "qtng/network_interface.h"
 #include "qtng/private/hostaddress_p.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class NetworkAddressEntryPrivate
 {
@@ -81,6 +82,5 @@ private:
     std::vector<NetworkInterfacePrivate *> scan();
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif

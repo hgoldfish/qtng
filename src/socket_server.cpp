@@ -7,7 +7,7 @@ using namespace std;
 
 NG_LOGGER("qtng.socket_server");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class BaseStreamServerPrivate
 {
@@ -359,4 +359,4 @@ void BaseRequestHandler::finish()
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

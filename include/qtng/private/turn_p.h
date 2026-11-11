@@ -15,7 +15,8 @@
 #include "qtng/socket.h"
 #include "qtng/turn.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // UDP endpoint of a peer (relay side). Ordering is defined so the type can be
 // used as a std::map key.
@@ -227,6 +228,5 @@ public:
     TurnServer::AuthCallback auth;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TURN_P_H

@@ -12,7 +12,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 #define QTLMDB_DEBUG 1
 
@@ -1020,4 +1020,4 @@ shared_ptr<Lmdb> LmdbBuilder::create()
     return shared_ptr<Lmdb>(new Lmdb(d.release()));
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

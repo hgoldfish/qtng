@@ -5,7 +5,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -715,4 +715,4 @@ bool HpackDecoder::decode(const string &data, vector<HpackHeader> *headers)
     return true;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

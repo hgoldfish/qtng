@@ -28,7 +28,7 @@ using namespace std;
     }
 #endif
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class BencodeStreamPrivate
 {
@@ -946,4 +946,4 @@ bool Bencode::operator==(const Bencode &other) const
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

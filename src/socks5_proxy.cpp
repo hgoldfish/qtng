@@ -7,7 +7,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 #define S5_VERSION_5 0x05
 #define S5_CONNECT 0x01
@@ -473,4 +473,4 @@ Socks5Exception::Error Socks5Exception::error() const
     return err;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

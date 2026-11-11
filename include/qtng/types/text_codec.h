@@ -1,7 +1,8 @@
 #ifndef QTNG_TYPES_TEXT_CODEC_H
 #define QTNG_TYPES_TEXT_CODEC_H
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class String;
 class ByteArray;
@@ -28,6 +29,5 @@ CodecStatus decode(String *out, const ByteArray &data, const char *encoding,
 CodecStatus encode(ByteArray *out, const String &text, const char *encoding,
                    CodecError errors = CodecError::Strict);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_TEXT_CODEC_H

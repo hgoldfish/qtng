@@ -14,7 +14,8 @@
 #include "qtng/utils/platform.h"
 #endif
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class BaseStreamServerPrivate;
 class BaseStreamServer
@@ -350,6 +351,5 @@ private:
     bool parseAddress(std::string *hostName, HostAddress *addr, std::uint16_t *port);
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif

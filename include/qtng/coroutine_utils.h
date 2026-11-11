@@ -29,7 +29,8 @@
 #  define QTNG_HAS_STD_THREAD 1
 #endif
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 template<typename T>
 T callInEventLoop(std::function<T()> func)
@@ -420,6 +421,5 @@ T ThreadPool::call(std::function<T()> func)
     return *result;
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_COROUTINE_UTILS_H

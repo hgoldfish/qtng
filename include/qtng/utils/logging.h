@@ -4,7 +4,8 @@
 #include <sstream>
 #include <string>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 enum class LogLevel {
@@ -74,24 +75,23 @@ void setLogHandler(LogHandler handler);
 LogHandler logHandler();
 
 } // namespace utils
-} // namespace qtng
-
+QTNG_NAMESPACE_END
 // Declare one logger category per translation unit, exactly like Qt's
 // Q_LOGGING_CATEGORY. Must be placed at NAMESPACE SCOPE (never inside a
 // function body): it emits a file-static category pointer and inline no-arg
 // overloads of ngDebug()/ngInfo()/ngWarning()/ngCritical()/ngFatal() that bind
 // to it. Subsequent code in the same TU can then write `ngDebug() << ...`.
 //
-// Use it inside `namespace qtng { ... }` (as the src/ files do) WITHOUT a
-// `using namespace qtng::utils;` in scope: the utils overloads carry a default
+// Use it inside `QTNG_NAMESPACE_BEGIN ... QTNG_NAMESPACE_END` (as the src/ files do) WITHOUT a
+// `using namespace QTNG_NAMESPACE::utils;` in scope: the utils overloads carry a default
 // category argument, so a using-directive would make the no-arg `ngDebug()`
 // ambiguous with the macro-generated overloads. At most one NG_LOGGER per TU.
 #define NG_LOGGER(name) \
     static const char *ng_logger_category = name; \
-    inline ::qtng::utils::LogStream ngDebug() { return ::qtng::utils::ngDebug(ng_logger_category); } \
-    inline ::qtng::utils::LogStream ngInfo() { return ::qtng::utils::ngInfo(ng_logger_category); } \
-    inline ::qtng::utils::LogStream ngWarning() { return ::qtng::utils::ngWarning(ng_logger_category); } \
-    inline ::qtng::utils::LogStream ngCritical() { return ::qtng::utils::ngCritical(ng_logger_category); } \
-    inline ::qtng::utils::LogStream ngFatal() { return ::qtng::utils::ngFatal(ng_logger_category); }
+    inline ::QTNG_NAMESPACE::utils::LogStream ngDebug() { return ::QTNG_NAMESPACE::utils::ngDebug(ng_logger_category); } \
+    inline ::QTNG_NAMESPACE::utils::LogStream ngInfo() { return ::QTNG_NAMESPACE::utils::ngInfo(ng_logger_category); } \
+    inline ::QTNG_NAMESPACE::utils::LogStream ngWarning() { return ::QTNG_NAMESPACE::utils::ngWarning(ng_logger_category); } \
+    inline ::QTNG_NAMESPACE::utils::LogStream ngCritical() { return ::QTNG_NAMESPACE::utils::ngCritical(ng_logger_category); } \
+    inline ::QTNG_NAMESPACE::utils::LogStream ngFatal() { return ::QTNG_NAMESPACE::utils::ngFatal(ng_logger_category); }
 
 #endif

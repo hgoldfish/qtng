@@ -10,7 +10,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1106,4 +1106,4 @@ void TurnServerPrivate::relayLoop(const shared_ptr<Allocation> &alloc)
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

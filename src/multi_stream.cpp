@@ -27,7 +27,7 @@ using namespace std;
 
 NG_LOGGER("qtng.multi_stream");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1903,4 +1903,4 @@ shared_ptr<SocketLike> asSocketLike(shared_ptr<MultiStreamSlave> slave)
     return make_shared<MultiStreamSlaveSocketLikeImpl>(slave);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

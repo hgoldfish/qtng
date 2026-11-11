@@ -24,7 +24,7 @@ using namespace std;
 
 NG_LOGGER("qtng.http");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 static int urlDefaultPort(const utils::Url &url)
 {
@@ -2490,4 +2490,4 @@ HttpResponse HttpDeepCopy::response(const HttpResponse &resp)
 
 }  // namespace detail
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

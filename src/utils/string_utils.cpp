@@ -13,7 +13,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 namespace {
@@ -569,4 +569,4 @@ bool isValidUtf8(const string &text)
 }
 
 }  // namespace utils
-}  // namespace qtng
+QTNG_NAMESPACE_END

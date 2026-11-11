@@ -6,7 +6,8 @@
 
 #include "qtng/hostaddress.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 enum AddressClassification {
     LoopbackAddress = 1,
@@ -87,6 +88,5 @@ public:
     friend class HostAddress;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HOSTADDRESS_P_H

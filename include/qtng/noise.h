@@ -10,7 +10,8 @@
 #include "qtng/socket_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // X25519 static / ephemeral key material (32 bytes).
 struct NoiseKey
@@ -409,6 +410,5 @@ inline std::shared_ptr<SocketLike> asSocketLike(NoiseSocket *s)
     return asSocketLike(std::shared_ptr<NoiseSocket>(s));
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_NOISE_H

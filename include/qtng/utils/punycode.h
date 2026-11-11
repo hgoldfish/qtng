@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 // RFC 3492 Punycode encode/decode.
@@ -30,6 +31,5 @@ bool punycodeEncode(const std::vector<std::uint32_t> &input, std::string &output
 bool punycodeDecode(const std::string &input, std::vector<std::uint32_t> &output);
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_UTILS_PUNYCODE_H

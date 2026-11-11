@@ -7,7 +7,8 @@
 
 #  include <shared_mutex>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 // WARNING: std::shared_mutex::unlock() releases an exclusive lock only. The
@@ -19,21 +20,19 @@ namespace utils {
 using SharedMutex = std::shared_mutex;
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #elif __cplusplus >= 201402L
 
 #  include <shared_mutex>
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 // WARNING: same mode-agnostic unlock() mismatch as the C++17 branch above.
 using SharedMutex = std::shared_timed_mutex;
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #else
 
 #  ifdef NG_OS_WIN
@@ -44,7 +43,7 @@ using SharedMutex = std::shared_timed_mutex;
 // std::mutex for both shared and exclusive locking (correct, less concurrent).
 #    include <mutex>
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 class SharedMutex
@@ -62,13 +61,12 @@ private:
 };
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #  else
 
 #    include <pthread.h>
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 class SharedMutex
@@ -87,8 +85,7 @@ private:
 };
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #  endif
 
 #endif

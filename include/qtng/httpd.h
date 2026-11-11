@@ -9,7 +9,8 @@
 #include "qtng/socket_server.h"
 #include "qtng/http_utils.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class BaseHttpRequestHandler : public WithHttpHeaders<BaseRequestHandler>
 {
@@ -105,8 +106,8 @@ protected:
 class BaseHttpProxyRequestHandler : public BaseHttpRequestHandler
 {
 protected:
-    virtual void logRequest(qtng::HttpStatus status, int bodySize) override;
-    virtual void logError(qtng::HttpStatus status, const std::string &shortMessage, const std::string &longMessage) override;
+    virtual void logRequest(QTNG_NAMESPACE::HttpStatus status, int bodySize) override;
+    virtual void logError(QTNG_NAMESPACE::HttpStatus status, const std::string &shortMessage, const std::string &longMessage) override;
     virtual void doMethod() override;
     virtual void doCONNECT() override;
 protected:
@@ -159,6 +160,5 @@ public:
 };
 #endif
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif

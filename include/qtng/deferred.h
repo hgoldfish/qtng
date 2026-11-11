@@ -5,7 +5,8 @@
 #include <tuple>
 #include <utility>
 #include <vector>
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 template<typename ARG>
 class Deferred
@@ -186,6 +187,5 @@ void Deferred<void>::run(bool ok)
     }
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // DEFERRED_H

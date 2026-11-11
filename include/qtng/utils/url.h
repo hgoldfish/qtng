@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 class UrlQuery
@@ -76,6 +77,5 @@ inline bool operator<(const Url &a, const Url &b)
 }
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_UTILS_URL_H

@@ -15,7 +15,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 #if __cplusplus < 201703L
 // ODR-use requires an out-of-class definition for static constexpr members in C++11/14.
@@ -1246,7 +1246,7 @@ string NoiseHandshakeStatePrivate::hkdf(const string &chainingKey, const string 
         ngWarning() << "NoiseHandshakeState::hkdf: invalid numOutputs=" << numOutputs;
         return string();
     }
-    return qtng::hkdf(hashAlgo, inputKeyMaterial, chainingKey, string(),
+    return QTNG_NAMESPACE::hkdf(hashAlgo, inputKeyMaterial, chainingKey, string(),
                       static_cast<size_t>(numOutputs) * hashLen);
 }
 
@@ -1997,4 +1997,4 @@ bool NoiseDatagram::lastDecryptOk() const
     return d->lastDecryptOk;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

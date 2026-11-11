@@ -18,6 +18,9 @@ option(QTNG_WITH_SSH "Build SSH protocol (SshServer/SshClient)" OFF)
 # Force-disable TLS even when LibreSSL/OpenSSL is present (also used for CI/no-crypto builds).
 option(QTNG_DISABLE_CRYPTO "Force-disable the crypto/TLS module" OFF)
 
+# C++ namespace for libqtng. Qt binding / remapped consumers set this to qtng_core.
+set(QTNG_NAMESPACE "qtng" CACHE STRING "C++ namespace for libqtng")
+
 # TLS/crypto backend: usable bundled LibreSSL, else system OpenSSL.
 # If neither is available (or QTNG_DISABLE_CRYPTO=ON), disable the crypto module
 # (warning, not a hard error). QUIC/HTTP3 are then forced off.
@@ -555,6 +558,7 @@ if(QTNG_HAVE_CRYPTO AND QTNG_SSL_INCLUDE)
 endif()
 
 # Compile definitions
+target_compile_definitions(qtng PUBLIC QTNG_NAMESPACE=${QTNG_NAMESPACE})
 target_compile_definitions(qtng PUBLIC QTNG_HAVE_ZLIB)
 if(NOT QTNG_HAVE_CRYPTO)
     target_compile_definitions(qtng PUBLIC QTNG_NO_CRYPTO)

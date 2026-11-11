@@ -20,7 +20,8 @@
 #ifndef QTNG_RPC_NAMESPACE
 #  define QTNG_RPC_NAMESPACE rpc
 #endif
-#define BEGIN_QTNG_RPC_NAMESPACE namespace qtng { namespace QTNG_RPC_NAMESPACE {
+#include "qtng/config.h"
+#define BEGIN_QTNG_RPC_NAMESPACE namespace QTNG_NAMESPACE { namespace QTNG_RPC_NAMESPACE {
 #define END_QTNG_RPC_NAMESPACE } }
 
 BEGIN_QTNG_RPC_NAMESPACE
@@ -146,11 +147,11 @@ struct UseStream : public Serializable
     };
     UseStream();
     ~UseStream() override;
-    std::shared_ptr<qtng::VirtualChannel> channel;
+    std::shared_ptr<QTNG_NAMESPACE::VirtualChannel> channel;
     int place;
     bool preferRawSocket;
-    std::shared_ptr<qtng::SocketLike> rawSocket;
-    qtng::Event ready;
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> rawSocket;
+    QTNG_NAMESPACE::Event ready;
 };
 
 // A service instance that implements dispatch itself.

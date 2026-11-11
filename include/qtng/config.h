@@ -1,0 +1,11 @@
+#ifndef QTNG_CORE_CONFIG_H
+#define QTNG_CORE_CONFIG_H
+
+#ifndef QTNG_NAMESPACE
+#  define QTNG_NAMESPACE qtng
+#endif
+
+#define QTNG_NAMESPACE_BEGIN namespace QTNG_NAMESPACE {
+#define QTNG_NAMESPACE_END }
+
+#endif  // QTNG_CORE_CONFIG_H

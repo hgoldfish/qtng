@@ -6,7 +6,8 @@
 
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 std::string randomBytes(int numBytes);
 
@@ -32,6 +33,5 @@ private:
     NG_DISABLE_COPY(RandomGenerator)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_RANDOM_H

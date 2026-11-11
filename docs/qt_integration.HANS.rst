@@ -17,6 +17,18 @@ Qt5/Qt6 可选兼容层
 * **PUBLIC**：``qt/include`` 与 Qt5/6::Core
 * **PRIVATE**：``qtng`` 核心（**不会**向消费者传播核心头文件路径）
 
+核心与 Qt API 的命名空间
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Qt API 位于 ``QTNETWORKNG_NAMESPACE``（默认 ``qtng``，见 ``qt/include/config.h``）。
+核心库使用独立宏 ``QTNG_NAMESPACE``（默认 ``qtng``，见 ``include/qtng/config.h``）。
+``qt/CMakeLists.txt`` 引入核心时会把 CMake 缓存 ``QTNG_NAMESPACE`` 设为 ``qtng_core``，
+避免与 Qt API 的符号冲突。请用该 CACHE / ``-DQTNG_NAMESPACE=...`` 覆盖；**不要**再用
+``#define qtng ...`` 或 ``target_compile_definitions(... qtng=...)`` 去劫持核心命名空间。
+
+单独构建核心时默认仍是 ``qtng``；若要改名，在 configure 时传入
+``-DQTNG_NAMESPACE=<name>``。
+
 兼容层支持 **Qt 5.6 及以上**（Qt 5.x 系列）与 Qt 6。
 
 通过 ``add_subdirectory`` 引入时，兼容层会把选定的 Qt 主版本号 ``QTNG_QT_VERSION_MAJOR``

@@ -25,7 +25,7 @@ using namespace std;
 
 NG_LOGGER("qtng.mqtt");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1293,4 +1293,4 @@ void MqttClient::abort()
     d->abort(UserShutdown, "aborted");
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

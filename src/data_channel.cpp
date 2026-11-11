@@ -30,7 +30,7 @@ NG_LOGGER("qtng.data_channel");
 
 //#define DEBUG_PROTOCOL
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 const uint8_t MAKE_CHANNEL_REQUEST = 1;
 const uint8_t CHANNEL_MADE_REQUEST = 2;
@@ -1890,4 +1890,4 @@ shared_ptr<SocketLike> asSocketLike(shared_ptr<DataChannel> channel)
     return make_shared<DataChannelSocketLikeImpl>(channel);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

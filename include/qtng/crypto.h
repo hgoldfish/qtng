@@ -3,7 +3,8 @@
 
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 namespace Ssl {
 
@@ -49,6 +50,5 @@ enum PeerVerifyMode {
 };
 }  // namespace Ssl
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_CRYPTO_H

@@ -27,7 +27,7 @@ using namespace std;
 NG_LOGGER("qtng.websocket");
 #define DEBUG_PROTOCOL 1
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class WebSocketConfigurationPrivate
 {
@@ -1310,4 +1310,4 @@ std::shared_ptr<const HttpResponse> WebSocketConnection::response() const
     return d->response;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

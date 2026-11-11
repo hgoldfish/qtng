@@ -8,7 +8,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -444,4 +444,4 @@ string PBKDF2_HMAC(int, const string &, const string &, const MessageDigest::Alg
     return string();
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

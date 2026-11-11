@@ -15,7 +15,8 @@
 #include "qtng/locks.h"
 #include "qtng/socket.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 static const int DhtK = 8;
 static const int DhtAlpha = 3;
@@ -121,6 +122,5 @@ public:
     HostAddress::NetworkLayerProtocol proto;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_KADEMLIA_P_H

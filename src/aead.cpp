@@ -10,7 +10,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -345,4 +345,4 @@ string aesEcbEncryptBlock(const char *key, size_t keySize, const char *block16, 
     return out;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -10,7 +10,8 @@
 #include "qtng/hostaddress.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // A service instance discovered via mDNS (RFC 6763).
 struct MdnsService
@@ -103,6 +104,5 @@ private:
     NG_DISABLE_COPY_MOVE(MdnsResponder)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_MDNS_H

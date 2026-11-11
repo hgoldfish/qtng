@@ -20,7 +20,7 @@ using namespace std;
 
 NG_LOGGER("qtng.http2");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1347,4 +1347,4 @@ void Http2Protocol::exchange(HttpSessionPrivate *, HttpRequest &, HttpResponse &
     response.setError(new UnsupportedVersion());
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

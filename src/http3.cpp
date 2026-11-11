@@ -7,7 +7,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -476,4 +476,4 @@ void Http3Connection::close()
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

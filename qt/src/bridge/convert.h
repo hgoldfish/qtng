@@ -13,9 +13,7 @@
 #include <string>
 #include <vector>
 
-#define qtng qtng_core
 #include "qtng/utils/url.h"
-#undef qtng
 
 namespace qtng_bridge {
 

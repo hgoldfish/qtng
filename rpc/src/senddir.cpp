@@ -13,7 +13,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace rpc {
 
 RpcDirFileEntry::RpcDirFileEntry()
@@ -40,8 +40,8 @@ bool RpcDirFileProvider::createDirectory(const std::string &)
     return false;
 }
 
-bool RpcDirFileProvider::updateTimes(const std::string &, const qtng::utils::DateTime &,
-                                     const qtng::utils::DateTime &, const qtng::utils::DateTime &)
+bool RpcDirFileProvider::updateTimes(const std::string &, const QTNG_NAMESPACE::utils::DateTime &,
+                                     const QTNG_NAMESPACE::utils::DateTime &, const QTNG_NAMESPACE::utils::DateTime &)
 {
     return false;
 }
@@ -70,13 +70,13 @@ std::string NativeRpcDirFileProvider::makePath(const std::string &filePath)
     return fullStr;
 }
 
-std::shared_ptr<qtng::FileLike> NativeRpcDirFileProvider::getFile(const std::string &filePath, bool writeMode)
+std::shared_ptr<QTNG_NAMESPACE::FileLike> NativeRpcDirFileProvider::getFile(const std::string &filePath, bool writeMode)
 {
     const std::string fullFilePath = makePath(filePath);
     if (fullFilePath.empty()) {
-        return std::shared_ptr<qtng::FileLike>();
+        return std::shared_ptr<QTNG_NAMESPACE::FileLike>();
     }
-    return qtng::FileLike::open(fullFilePath, writeMode ? "w" : "r");
+    return QTNG_NAMESPACE::FileLike::open(fullFilePath, writeMode ? "w" : "r");
 }
 
 bool NativeRpcDirFileProvider::createDirectory(const std::string &dirPath)
@@ -89,8 +89,8 @@ bool NativeRpcDirFileProvider::createDirectory(const std::string &dirPath)
     return std::filesystem::create_directories(fullDirPath, ec);
 }
 
-bool NativeRpcDirFileProvider::updateTimes(const std::string &filePath, const qtng::utils::DateTime &,
-                                           const qtng::utils::DateTime &, const qtng::utils::DateTime &)
+bool NativeRpcDirFileProvider::updateTimes(const std::string &filePath, const QTNG_NAMESPACE::utils::DateTime &,
+                                           const QTNG_NAMESPACE::utils::DateTime &, const QTNG_NAMESPACE::utils::DateTime &)
 {
     const std::string fullFilePath = makePath(filePath);
     if (fullFilePath.empty()) {
@@ -104,7 +104,7 @@ namespace {
 
 // DataChannel::setCapacity is in packets. This file sends payloadSizeHint
 // chunks (32 KiB if the hint is missing), so size the window to ~8 MiB.
-std::uint32_t streamCapacityPackets(const std::shared_ptr<qtng::DataChannel> &channel)
+std::uint32_t streamCapacityPackets(const std::shared_ptr<QTNG_NAMESPACE::DataChannel> &channel)
 {
     std::uint32_t hint = channel->payloadSizeHint();
     if (hint == 0) {
@@ -127,9 +127,9 @@ public:
     std::string name;
     std::string dirPath;
     std::uint64_t size;
-    qtng::utils::DateTime created;
-    qtng::utils::DateTime lastModified;
-    qtng::utils::DateTime lastAccess;
+    QTNG_NAMESPACE::utils::DateTime created;
+    QTNG_NAMESPACE::utils::DateTime lastModified;
+    QTNG_NAMESPACE::utils::DateTime lastAccess;
     std::vector<RpcDirFileEntry> entries;
     RpcDir * const q_ptr;
 };
@@ -175,7 +175,7 @@ bool RpcDirPrivate::writeTo(std::shared_ptr<RpcDirFileProvider> provider, RpcDir
             continue;
         }
         if (entry.size == 0) {
-            std::shared_ptr<qtng::FileLike> file = provider->getFile(entry.path, true);
+            std::shared_ptr<QTNG_NAMESPACE::FileLike> file = provider->getFile(entry.path, true);
             if (!file) {
                 failAndAbort(progressCallback, CallbackInfo(entry.path, -1, 0, 0, totalWritten, size));
                 return false;
@@ -187,7 +187,7 @@ bool RpcDirPrivate::writeTo(std::shared_ptr<RpcDirFileProvider> provider, RpcDir
             continue;
         }
 
-        std::shared_ptr<qtng::FileLike> file = provider->getFile(entry.path, true);
+        std::shared_ptr<QTNG_NAMESPACE::FileLike> file = provider->getFile(entry.path, true);
         if (!file) {
             failAndAbort(progressCallback, CallbackInfo(entry.path, -1, 0, entry.size, totalWritten, size));
             return false;
@@ -250,7 +250,7 @@ bool RpcDirPrivate::readFrom(std::shared_ptr<RpcDirFileProvider> provider, RpcDi
             continue;
         }
 
-        std::shared_ptr<qtng::FileLike> file = provider->getFile(entry.path, false);
+        std::shared_ptr<QTNG_NAMESPACE::FileLike> file = provider->getFile(entry.path, false);
         if (!file) {
             failAndAbort(progressCallback, CallbackInfo(entry.path, -1, 0, entry.size, totalRead, size));
             return false;
@@ -332,7 +332,7 @@ void populateDir(const std::filesystem::path &dir, const std::string &relativePa
         entry.isdir = de.is_directory();
         entry.size = entry.isdir ? 0 : static_cast<std::uint64_t>(de.file_size());
         const std::int64_t msecs = fileTimeToMSecs(de.last_write_time());
-        entry.created = qtng::utils::DateTime::fromMSecsSinceEpoch(msecs);
+        entry.created = QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(msecs);
         entry.lastModified = entry.created;
         entry.lastAccess = entry.created;
         return entry;
@@ -374,7 +374,7 @@ bool RpcDir::populate()
         return false;
     }
     const std::string dirPath = d->dirPath;
-    const PopulateResult result = qtng::callInThread<PopulateResult>([dirPath] { return populateDirectory(dirPath); });
+    const PopulateResult result = QTNG_NAMESPACE::callInThread<PopulateResult>([dirPath] { return populateDirectory(dirPath); });
     d->entries = result.entries;
     d->size = result.totalSize;
     return true;
@@ -434,32 +434,32 @@ void RpcDir::setSize(std::uint64_t size)
     d_ptr->size = size;
 }
 
-qtng::utils::DateTime RpcDir::lastModified() const
+QTNG_NAMESPACE::utils::DateTime RpcDir::lastModified() const
 {
     return d_ptr->lastModified;
 }
 
-void RpcDir::setLastModified(const qtng::utils::DateTime &dt)
+void RpcDir::setLastModified(const QTNG_NAMESPACE::utils::DateTime &dt)
 {
     d_ptr->lastModified = dt;
 }
 
-qtng::utils::DateTime RpcDir::created() const
+QTNG_NAMESPACE::utils::DateTime RpcDir::created() const
 {
     return d_ptr->created;
 }
 
-void RpcDir::setCreated(const qtng::utils::DateTime &dt)
+void RpcDir::setCreated(const QTNG_NAMESPACE::utils::DateTime &dt)
 {
     d_ptr->created = dt;
 }
 
-qtng::utils::DateTime RpcDir::lastAccess() const
+QTNG_NAMESPACE::utils::DateTime RpcDir::lastAccess() const
 {
     return d_ptr->lastAccess;
 }
 
-void RpcDir::setLastAccess(const qtng::utils::DateTime &dt)
+void RpcDir::setLastAccess(const QTNG_NAMESPACE::utils::DateTime &dt)
 {
     d_ptr->lastAccess = dt;
 }
@@ -526,13 +526,13 @@ bool RpcDir::restoreState(const Value &state)
         }
         d_ptr->size = size->asUint();
         const Value *ctime = state.find("ctime");
-        d_ptr->created = (ctime && ctime->type() == Value::Type::DateTime) ? ctime->asDateTime() : qtng::utils::DateTime();
+        d_ptr->created = (ctime && ctime->type() == Value::Type::DateTime) ? ctime->asDateTime() : QTNG_NAMESPACE::utils::DateTime();
         const Value *mtime = state.find("mtime");
         d_ptr->lastModified =
-                (mtime && mtime->type() == Value::Type::DateTime) ? mtime->asDateTime() : qtng::utils::DateTime();
+                (mtime && mtime->type() == Value::Type::DateTime) ? mtime->asDateTime() : QTNG_NAMESPACE::utils::DateTime();
         const Value *atime = state.find("atime");
         d_ptr->lastAccess =
-                (atime && atime->type() == Value::Type::DateTime) ? atime->asDateTime() : qtng::utils::DateTime();
+                (atime && atime->type() == Value::Type::DateTime) ? atime->asDateTime() : QTNG_NAMESPACE::utils::DateTime();
 
         d_ptr->entries.clear();
         const Value *entries = state.find("entries");
@@ -561,15 +561,15 @@ bool RpcDir::restoreState(const Value &state)
             it = entryObj.find("ctime");
             entry.created = (it != entryObj.end() && it->second.type() == Value::Type::DateTime)
                     ? it->second.asDateTime()
-                    : qtng::utils::DateTime();
+                    : QTNG_NAMESPACE::utils::DateTime();
             it = entryObj.find("mtime");
             entry.lastModified = (it != entryObj.end() && it->second.type() == Value::Type::DateTime)
                     ? it->second.asDateTime()
-                    : qtng::utils::DateTime();
+                    : QTNG_NAMESPACE::utils::DateTime();
             it = entryObj.find("atime");
             entry.lastAccess = (it != entryObj.end() && it->second.type() == Value::Type::DateTime)
                     ? it->second.asDateTime()
-                    : qtng::utils::DateTime();
+                    : QTNG_NAMESPACE::utils::DateTime();
             d_ptr->entries.push_back(std::move(entry));
         }
     } catch (...) {
@@ -600,7 +600,7 @@ RpcDir::RpcDir(const std::string &path)
     d->name = p.filename().string();
     if (std::filesystem::exists(p, ec) && std::filesystem::is_directory(p, ec)) {
         const std::int64_t msecs = fileTimeToMSecs(std::filesystem::last_write_time(p, ec));
-        d->created = qtng::utils::DateTime::fromMSecsSinceEpoch(msecs);
+        d->created = QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(msecs);
         d->lastModified = d->created;
         d->lastAccess = d->created;
         populate();
@@ -618,4 +618,4 @@ RpcDir::~RpcDir()
 }
 
 }  // namespace rpc
-}  // namespace qtng
+QTNG_NAMESPACE_END

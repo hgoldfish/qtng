@@ -8,7 +8,8 @@
 #include "qtng/http.h"
 #include "qtng/socket_utils.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class HttpSessionPrivate;
 class Http2ClientSessionPrivate;
@@ -29,6 +30,5 @@ private:
     friend class Http2Protocol;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HTTP2_P_H

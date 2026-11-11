@@ -14,7 +14,7 @@ using abi::__cxa_current_exception_type;
 
 NG_LOGGER("qtng.fcontext");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 #if (defined(i386) || defined(__i386__) || defined(__i386) || defined(__i486__) || defined(__i586__)          \
      || defined(__i686__) || defined(__X86__) || defined(_X86_) || defined(__THW_INTEL__) || defined(__I86__) \
@@ -323,4 +323,4 @@ void BaseCoroutine::setPrevious(BaseCoroutine *previous)
     d->previous = previous;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -9,7 +9,8 @@
 #include "qtng/locks.h"
 #include "qtng/socket_utils.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class HttpSessionPrivate;
 
@@ -60,6 +61,5 @@ public:
 };
 #endif
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HTTP_PROTOCOL_P_H

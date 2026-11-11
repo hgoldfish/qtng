@@ -15,7 +15,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -879,4 +879,4 @@ int32_t LocalSocketPrivate::send(const char *data, int32_t size, bool all)
     return sent;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

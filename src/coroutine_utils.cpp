@@ -30,7 +30,7 @@ using namespace std;
 
 NG_LOGGER("qtng.coroutine");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 void ngThreadEntry(NgThread *self)
 {
@@ -607,4 +607,4 @@ shared_ptr<Event> ThreadPool::spawn(const function<void()> &func)
             .done;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

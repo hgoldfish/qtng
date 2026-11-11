@@ -3,7 +3,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 string mimeTypeForExtension(const string &extension)
@@ -67,4 +67,4 @@ string mimeTypeForFileName(const string &fileName)
 }
 
 }  // namespace utils
-}  // namespace qtng
+QTNG_NAMESPACE_END

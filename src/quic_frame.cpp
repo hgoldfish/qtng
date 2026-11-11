@@ -4,7 +4,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -635,4 +635,4 @@ bool quicParsePacketHeader(const char *data, size_t size, QuicPacketHeader *head
     return true;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

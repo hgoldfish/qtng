@@ -10,7 +10,8 @@
 #include <vector>
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class FileLike
 {
@@ -158,6 +159,5 @@ private:
 
 std::pair<std::string, std::string> safeJoinPath(const std::string &parentDir, const std::string &subPath);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_IO_UTILS_H

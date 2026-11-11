@@ -28,7 +28,7 @@ NG_LOGGER("qtng.eventloop_win");
 #  define QT_WIN_CALLBACK CALLBACK
 #endif
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 struct WinWatcher;
 
@@ -744,7 +744,6 @@ void WinEventLoopCoroutinePrivate::updateTimeStamp()
 }
 
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // NG_OS_WIN
 

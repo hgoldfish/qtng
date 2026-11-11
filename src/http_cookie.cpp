@@ -11,7 +11,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class HttpCookiePrivate
 {
@@ -887,5 +887,4 @@ bool HttpCookieJar::validateCookie(const HttpCookie &cookie, const string &url) 
     return !qIsEffectiveTLD(domain);
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END

@@ -9,7 +9,8 @@
 #include "qtng/socket_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 enum MultiStreamPole {
     MultiStreamPositivePole = 1,
@@ -153,6 +154,5 @@ private:
 
 std::shared_ptr<SocketLike> asSocketLike(std::shared_ptr<MultiStreamSlave> slave);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_MULTI_STREAM_H

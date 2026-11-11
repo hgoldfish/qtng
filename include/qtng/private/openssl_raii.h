@@ -7,7 +7,8 @@ extern "C" {
 #include <openssl/evp.h>
 }
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 struct EvpPkeyDeleter
 {
@@ -33,6 +34,5 @@ inline std::shared_ptr<EVP_PKEY> shareEvpPkey(EVP_PKEY *pkey)
     return std::shared_ptr<EVP_PKEY>(pkey, EvpPkeyDeleter{});
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_OPENSSL_RAII_H

@@ -11,7 +11,8 @@
 #include "qtng/udp.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class UtpStreamPrivate;
 class MasterUtpStreamPrivate;
@@ -179,5 +180,5 @@ inline std::shared_ptr<class SocketLike> asSocketLike(UtpSocket *s)
 
 std::shared_ptr<UtpSocket> convertSocketLikeToUtpSocket(std::shared_ptr<class SocketLike> socket);
 
-}  // namespace qtng
+QTNG_NAMESPACE_END
 #endif  // QTNG_UTP_H

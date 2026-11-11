@@ -5,7 +5,8 @@
 #include <cstdint>
 #include <string>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 class DateTime;
@@ -108,6 +109,5 @@ private:
 };
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_UTILS_DATETIME_H

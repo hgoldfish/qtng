@@ -11,7 +11,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1044,4 +1044,4 @@ void StunServerPrivate::handleRequest(const StunMessage &msg, const HostAddress 
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

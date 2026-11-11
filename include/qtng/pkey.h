@@ -8,7 +8,8 @@
 #include "qtng/cipher.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class PrivateKey;
 class PrivateKeyWriterPrivate;
@@ -202,6 +203,5 @@ private:
     PrivateKeyReaderPrivate * const d_ptr;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_PKEY_H

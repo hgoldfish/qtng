@@ -19,7 +19,8 @@ class PeerPrivate;
 class Peer : public std::enable_shared_from_this<Peer>
 {
 public:
-    Peer(const std::string &name, const std::shared_ptr<qtng::DataChannel> &channel, const std::shared_ptr<Rpc> &rpc);
+#include "qtng/config.h"
+    Peer(const std::string &name, const std::shared_ptr<QTNG_NAMESPACE::DataChannel> &channel, const std::shared_ptr<Rpc> &rpc);
     virtual ~Peer();
 
 public:
@@ -49,8 +50,8 @@ public:
     Value call(const std::string &method, const Value &arg1, const Value &arg2, const Value &arg3, const Value &arg4,
                const Value &arg5, const Value &arg6, const Value &arg7, const Value &arg8, const Value &arg9);
 
-    std::shared_ptr<qtng::VirtualChannel> makeChannel();
-    std::shared_ptr<qtng::VirtualChannel> takeChannel(std::uint32_t channelNumber);
+    std::shared_ptr<QTNG_NAMESPACE::VirtualChannel> makeChannel();
+    std::shared_ptr<QTNG_NAMESPACE::VirtualChannel> takeChannel(std::uint32_t channelNumber);
 
     // opaque per-peer storage (pbook keeps its encryption key/iv here).
     void setProperty(const std::string &key, const Value &v);

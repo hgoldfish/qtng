@@ -3,13 +3,13 @@
 
 #include <string>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 std::string mimeTypeForFileName(const std::string &fileName);
 std::string mimeTypeForExtension(const std::string &extension);
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_UTILS_MIME_H

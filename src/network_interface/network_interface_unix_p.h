@@ -90,7 +90,8 @@ static inline int qt_safe_close(int fd)
 }
 
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 static NetworkInterface::InterfaceFlags convertint(uint rawint)
 {
@@ -109,6 +110,5 @@ static NetworkInterface::InterfaceFlags convertint(uint rawint)
     return flags;
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif // QNETWORKINTERFACE_UNIX_P_H

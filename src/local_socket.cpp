@@ -11,7 +11,7 @@ using namespace std;
 
 NG_LOGGER("qtng.local_socket");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 LocalSocketPrivate::LocalSocketPrivate(LocalSocket *parent)
     : q_ptr(parent)
@@ -713,4 +713,4 @@ shared_ptr<LocalSocket> convertSocketLikeToLocalSocket(shared_ptr<SocketLike> so
     return impl->s;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

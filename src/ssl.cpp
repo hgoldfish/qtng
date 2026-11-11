@@ -23,7 +23,7 @@ using namespace std;
 
 NG_LOGGER("qtng.ssl");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class SslCipherPrivate
 {
@@ -1818,7 +1818,7 @@ SslSocket *SslSocket::createConnection(const HostAddress &host, uint16_t port, c
             [config](HostAddress::NetworkLayerProtocol protocol) -> SslSocket * {
         return new SslSocket(protocol, config);
     };
-    return qtng::createConnection<SslSocket>(host, port, error, allowProtocol, func);
+    return QTNG_NAMESPACE::createConnection<SslSocket>(host, port, error, allowProtocol, func);
 }
 
 SslSocket *SslSocket::createConnection(const string &hostName, uint16_t port, const SslConfiguration &config,
@@ -1829,7 +1829,7 @@ SslSocket *SslSocket::createConnection(const string &hostName, uint16_t port, co
             [config](HostAddress::NetworkLayerProtocol protocol) -> SslSocket * {
         return new SslSocket(protocol, config);
     };
-    return qtng::createConnection<SslSocket>(hostName, port, error, dnsCache, allowProtocol, func);
+    return QTNG_NAMESPACE::createConnection<SslSocket>(hostName, port, error, dnsCache, allowProtocol, func);
 }
 
 SslSocket *SslSocket::createServer(const HostAddress &host, uint16_t port, const SslConfiguration &config, int backlog)
@@ -1838,7 +1838,7 @@ SslSocket *SslSocket::createServer(const HostAddress &host, uint16_t port, const
             [config](HostAddress::NetworkLayerProtocol protocol) -> SslSocket * {
         return new SslSocket(protocol, config);
     };
-    return qtng::createServer<SslSocket>(host, port, backlog, func);
+    return QTNG_NAMESPACE::createServer<SslSocket>(host, port, backlog, func);
 }
 
 namespace {
@@ -2394,4 +2394,4 @@ shared_ptr<SocketLike> encrypted(shared_ptr<Cipher> cipher, shared_ptr<SocketLik
     return make_shared<EncryptedSocketLike>(cipher, socket);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

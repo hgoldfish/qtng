@@ -14,7 +14,7 @@ using namespace std;
 
 NG_LOGGER("qtng.eventloop");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -217,7 +217,7 @@ std::map<int, EventLoopFactory> &eventLoopFactoriesInstance()
 
 std::atomic<int> &preferredEventLoopTypeInstance()
 {
-    // 0 == not specified; otherwise a qtng::EventLoopType value.
+    // 0 == not specified; otherwise a QTNG_NAMESPACE::EventLoopType value.
     static std::atomic<int> type(0);
     return type;
 }
@@ -598,4 +598,4 @@ void Timeout::restart()
     timeoutId = EventLoopCoroutine::get()->callLater(msecs, new TimeoutFunctor(this, BaseCoroutine::current()));
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

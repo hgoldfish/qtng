@@ -10,7 +10,8 @@
 #include "qtng/socket_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class Socks5Exception
 {
@@ -94,6 +95,5 @@ private:
     NG_DECLARE_PRIVATE(Socks5Proxy)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_SOCKS5PROXY_H

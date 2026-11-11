@@ -19,7 +19,8 @@
 #include "qtng/utils/platform.h"
 #include "qtng/utils/url.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class HttpProxy;
 class Socks5Proxy;
@@ -93,7 +94,7 @@ class ConnectionPoolItem
 public:
     ConnectionPoolItem() { }
 public:
-    qtng::utils::DateTime lastUsed;
+    QTNG_NAMESPACE::utils::DateTime lastUsed;
     std::shared_ptr<Semaphore> semaphore;
     std::vector<std::shared_ptr<SocketLike>> connections;
 #ifndef QTNG_NO_HTTP2
@@ -162,6 +163,5 @@ public:
     NG_DECLARE_PUBLIC(HttpSession)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HTTP_P_H

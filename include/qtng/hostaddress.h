@@ -13,7 +13,8 @@
 
 struct sockaddr;
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 struct IPv6Address
 {
@@ -119,22 +120,21 @@ private:
     std::shared_ptr<HostAddressPrivate> d;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 namespace std {
 template <>
-struct hash<qtng::HostAddress>
+struct hash<QTNG_NAMESPACE::HostAddress>
 {
-    size_t operator()(const qtng::HostAddress &key) const noexcept
+    size_t operator()(const QTNG_NAMESPACE::HostAddress &key) const noexcept
     {
-        return static_cast<size_t>(qtng::qHash(key, 0));
+        return static_cast<size_t>(QTNG_NAMESPACE::qHash(key, 0));
     }
 };
 }  // namespace std
 
 #ifndef NG_NO_DEBUG_STREAM
 #include "qtng/utils/platform.h"
-std::ostream &operator<<(std::ostream &out, const qtng::HostAddress &t);
+std::ostream &operator<<(std::ostream &out, const QTNG_NAMESPACE::HostAddress &t);
 #endif
 
 #endif  // QTNG_HOSTADDRESS_H

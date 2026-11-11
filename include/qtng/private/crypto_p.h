@@ -11,13 +11,13 @@ extern "C" {
 #include "qtng/pkey.h"
 #include "qtng/certificate.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 const EVP_MD *getOpenSSL_MD(MessageDigest::Algorithm algo);
 const EVP_CIPHER *getOpenSSL_CIPHER(Cipher::Algorithm algo, Cipher::Mode mode);
 bool openssl_setPkey(PublicKey *key, EVP_PKEY *pkey, bool hasPrivate);
 bool openssl_setCertificate(Certificate *cert, X509 *x509);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_CRYPTO_P_H

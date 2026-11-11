@@ -19,9 +19,10 @@ struct RpcDirFileEntry
     RpcDirFileEntry();
     std::string path;
     std::uint64_t size;
-    qtng::utils::DateTime created;
-    qtng::utils::DateTime lastModified;
-    qtng::utils::DateTime lastAccess;
+#include "qtng/config.h"
+    QTNG_NAMESPACE::utils::DateTime created;
+    QTNG_NAMESPACE::utils::DateTime lastModified;
+    QTNG_NAMESPACE::utils::DateTime lastAccess;
     bool isdir;
 };
 
@@ -68,12 +69,12 @@ public:
     void setName(const std::string &name);
     std::uint64_t size() const;
     void setSize(std::uint64_t size);
-    qtng::utils::DateTime lastModified() const;
-    void setLastModified(const qtng::utils::DateTime &dt);
-    qtng::utils::DateTime created() const;
-    void setCreated(const qtng::utils::DateTime &dt);
-    qtng::utils::DateTime lastAccess() const;
-    void setLastAccess(const qtng::utils::DateTime &dt);
+    QTNG_NAMESPACE::utils::DateTime lastModified() const;
+    void setLastModified(const QTNG_NAMESPACE::utils::DateTime &dt);
+    QTNG_NAMESPACE::utils::DateTime created() const;
+    void setCreated(const QTNG_NAMESPACE::utils::DateTime &dt);
+    QTNG_NAMESPACE::utils::DateTime lastAccess() const;
+    void setLastAccess(const QTNG_NAMESPACE::utils::DateTime &dt);
     std::vector<RpcDirFileEntry> entries() const;
     void setEntries(const std::vector<RpcDirFileEntry> &entries);
 
@@ -94,20 +95,20 @@ class RpcDirFileProvider
 {
 public:
     virtual ~RpcDirFileProvider();
-    virtual std::shared_ptr<qtng::FileLike> getFile(const std::string &filePath, bool writeMode) = 0;
+    virtual std::shared_ptr<QTNG_NAMESPACE::FileLike> getFile(const std::string &filePath, bool writeMode) = 0;
     virtual bool createDirectory(const std::string &dirPath);
-    virtual bool updateTimes(const std::string &filePath, const qtng::utils::DateTime &created,
-                             const qtng::utils::DateTime &lastModified, const qtng::utils::DateTime &lastAccess);
+    virtual bool updateTimes(const std::string &filePath, const QTNG_NAMESPACE::utils::DateTime &created,
+                             const QTNG_NAMESPACE::utils::DateTime &lastModified, const QTNG_NAMESPACE::utils::DateTime &lastAccess);
 };
 
 class NativeRpcDirFileProvider : public RpcDirFileProvider
 {
 public:
     explicit NativeRpcDirFileProvider(const std::string &root);
-    std::shared_ptr<qtng::FileLike> getFile(const std::string &filePath, bool writeMode) override;
+    std::shared_ptr<QTNG_NAMESPACE::FileLike> getFile(const std::string &filePath, bool writeMode) override;
     bool createDirectory(const std::string &dirPath) override;
-    bool updateTimes(const std::string &filePath, const qtng::utils::DateTime &created,
-                     const qtng::utils::DateTime &lastModified, const qtng::utils::DateTime &lastAccess) override;
+    bool updateTimes(const std::string &filePath, const QTNG_NAMESPACE::utils::DateTime &created,
+                     const QTNG_NAMESPACE::utils::DateTime &lastModified, const QTNG_NAMESPACE::utils::DateTime &lastAccess) override;
     std::string makePath(const std::string &filePath);
 
 private:

@@ -1,7 +1,7 @@
 #include "qtng/rpc/base.h"
 #include "qtng/rpc/value.h"
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace rpc {
 
 Value RpcRemoteException::saveState() const
@@ -29,4 +29,4 @@ UseStream::UseStream()
 UseStream::~UseStream() = default;
 
 }  // namespace rpc
-}  // namespace qtng
+QTNG_NAMESPACE_END

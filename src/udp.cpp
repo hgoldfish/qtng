@@ -10,7 +10,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 UdpDatagramPath::UdpDatagramPath()
     : m_port(0)
@@ -303,4 +303,4 @@ int32_t DatagramLink::recvfrom(std::vector<Datagram> *datagrams)
     return n;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -8,7 +8,8 @@
 #include "qtng/coroutine.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class CoroutinePrivate;
 class Coroutine : public BaseCoroutine, public std::enable_shared_from_this<Coroutine>
@@ -85,6 +86,5 @@ void useEventloop(EventLoopType type);
 // (Ev, Qt) are registered by qtng itself.
 void registerEventLoop(EventLoopType type, EventLoopFactory factory);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_EVENTLOOP_H

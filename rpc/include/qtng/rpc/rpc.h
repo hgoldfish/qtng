@@ -30,7 +30,8 @@ class RpcBuilder;
 //
 // Rpc installs this as the initial connectionFactory, so a peer named by its
 // URL (e.g. "tcp://127.0.0.1:8002") can hand out raw sockets out of the box.
-std::shared_ptr<qtng::SocketLike> defaultConnectionFactory(const std::string &peerNameOrAddress);
+#include "qtng/config.h"
+std::shared_ptr<QTNG_NAMESPACE::SocketLike> defaultConnectionFactory(const std::string &peerNameOrAddress);
 
 // The rpc hub. It does not connect to or listen on anything by itself: the
 // application hands it established socketlikes via handleRequest()/connect().
@@ -52,8 +53,8 @@ public:
     void setHeaderCallback(std::shared_ptr<HeaderCallback> headerCallback);
     std::shared_ptr<LoggingCallback> loggingCallback() const;
     void setLoggingCallback(std::shared_ptr<LoggingCallback> loggingCallback);
-    std::function<std::shared_ptr<qtng::SocketLike>(const std::string &)> connectionFactory() const;
-    void setConnectionFactory(std::function<std::shared_ptr<qtng::SocketLike>(const std::string &)> f);
+    std::function<std::shared_ptr<QTNG_NAMESPACE::SocketLike>(const std::string &)> connectionFactory() const;
+    void setConnectionFactory(std::function<std::shared_ptr<QTNG_NAMESPACE::SocketLike>(const std::string &)> f);
 
     // service registration.
     void registerFunction(const std::string &name, RpcFunction f);
@@ -64,10 +65,10 @@ public:
 
     // serve an inbound socket (magic bytes are consumed here). Blocking: the
     // rpc handshake runs in the calling coroutine.
-    bool handleRequest(std::shared_ptr<qtng::SocketLike> connection);
+    bool handleRequest(std::shared_ptr<QTNG_NAMESPACE::SocketLike> connection);
 
     // take an established outbound socket and turn it into a peer.
-    std::shared_ptr<Peer> connect(std::shared_ptr<qtng::SocketLike> connection, const std::string &peerName = std::string());
+    std::shared_ptr<Peer> connect(std::shared_ptr<QTNG_NAMESPACE::SocketLike> connection, const std::string &peerName = std::string());
 
     // peer lookup.
     std::shared_ptr<Peer> get(const std::string &peerName) const;
@@ -79,8 +80,8 @@ public:
     Value getRpcHeader();
 
     // raw sockets (for UseStream::preferRawSocket).
-    std::shared_ptr<qtng::SocketLike> makeRawSocket(const std::string &peerName, std::string &connectionId);
-    std::shared_ptr<qtng::SocketLike> takeRawSocket(const std::string &connectionId);
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> makeRawSocket(const std::string &peerName, std::string &connectionId);
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> takeRawSocket(const std::string &connectionId);
 
     void shutdown();
 
@@ -115,7 +116,7 @@ public:
     RpcBuilder &keepaliveTimeout(float t);
     RpcBuilder &headerCallback(std::shared_ptr<HeaderCallback> cb);
     RpcBuilder &loggingCallback(std::shared_ptr<LoggingCallback> cb);
-    RpcBuilder &connectionFactory(std::function<std::shared_ptr<qtng::SocketLike>(const std::string &)> f);
+    RpcBuilder &connectionFactory(std::function<std::shared_ptr<QTNG_NAMESPACE::SocketLike>(const std::string &)> f);
 
     std::shared_ptr<Rpc> create();
 

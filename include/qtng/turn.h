@@ -9,7 +9,8 @@
 #include "qtng/hostaddress.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class TurnClientPrivate;
 // TURN client (RFC 8656) over UDP. open() performs Allocate; afterwards the
@@ -92,6 +93,5 @@ private:
     NG_DISABLE_COPY_MOVE(TurnServer)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TURN_H

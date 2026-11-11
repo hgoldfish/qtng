@@ -1,7 +1,7 @@
 #ifndef QTNG_TYPES_PRIVATE_STRING_DATA_H
 #define QTNG_TYPES_PRIVATE_STRING_DATA_H
 
-// Shared implementation of qtng::String and qtng::ByteArray.
+// Shared implementation of QTNG_NAMESPACE::String and QTNG_NAMESPACE::ByteArray.
 //
 // Their layout and algorithms are identical; only the "type identity" differs: String is
 // text, ByteArray is bytes, and there is no implicit conversion between them. A tag
@@ -51,7 +51,8 @@
 
 #include "qtng/types/cow.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 namespace detail {
 
@@ -377,6 +378,5 @@ static_assert(alignof(BasicCharBlock<ByteArrayTag>) == 8, "ByteArray alignment m
 
 }  // namespace detail
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_PRIVATE_STRING_DATA_H

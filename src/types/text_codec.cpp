@@ -30,7 +30,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -695,4 +695,4 @@ CodecStatus String::toLocal8Bit(ByteArray *out, CodecError errors) const
     return encode(out, *this, "", errors);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

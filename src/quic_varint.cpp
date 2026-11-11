@@ -2,7 +2,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 size_t quicVarintSize(uint64_t value)
 {
@@ -72,4 +72,4 @@ bool quicDecodeVarint(const char *data, size_t size, size_t *consumed, uint64_t 
     return true;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

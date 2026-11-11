@@ -14,7 +14,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace rpc {
 
 namespace {
@@ -120,9 +120,9 @@ void raiseRpcRemoteException(const shared_ptr<RpcRemoteException> &e)
 class PeerPrivate
 {
 public:
-    typedef qtng::ValueEvent<shared_ptr<Response>> Waiter;
+    typedef QTNG_NAMESPACE::ValueEvent<shared_ptr<Response>> Waiter;
 
-    PeerPrivate(const string &name, const shared_ptr<qtng::DataChannel> &channel, const shared_ptr<Rpc> &rpc,
+    PeerPrivate(const string &name, const shared_ptr<QTNG_NAMESPACE::DataChannel> &channel, const shared_ptr<Rpc> &rpc,
                 Peer *parent);
     ~PeerPrivate();
     void shutdown();
@@ -135,21 +135,21 @@ public:
     map<string, shared_ptr<Waiter>> waiters;
     string name;
     string address;
-    shared_ptr<qtng::DataChannel> channel;
+    shared_ptr<QTNG_NAMESPACE::DataChannel> channel;
     shared_ptr<Rpc> rpc;
-    qtng::CoroutineGroup *operations;
+    QTNG_NAMESPACE::CoroutineGroup *operations;
     std::uint64_t nextRequestId;
     bool broken;
     map<string, Value> properties;
     Peer * const q_ptr;
 };
 
-PeerPrivate::PeerPrivate(const string &name, const shared_ptr<qtng::DataChannel> &channel,
+PeerPrivate::PeerPrivate(const string &name, const shared_ptr<QTNG_NAMESPACE::DataChannel> &channel,
                          const shared_ptr<Rpc> &rpc, Peer *parent)
     : name(name)
     , channel(channel)
     , rpc(rpc)
-    , operations(new qtng::CoroutineGroup())
+    , operations(new QTNG_NAMESPACE::CoroutineGroup())
     , nextRequestId(1)
     , broken(false)
     , q_ptr(parent)
@@ -192,7 +192,7 @@ void PeerPrivate::shutdown()
 
     weak_ptr<Peer> self = q_ptr->weak_from_this();
     shared_ptr<Rpc> rpcSelf = rpc;
-    qtng::callInEventLoopAsync([self, rpcSelf] {
+    QTNG_NAMESPACE::callInEventLoopAsync([self, rpcSelf] {
         shared_ptr<Peer> peer = self.lock();
         if (!peer) {
             return;
@@ -235,7 +235,7 @@ Value PeerPrivate::call(const string &methodName, const ValueList &args, const V
     }
 
     Request request;
-    request.id = qtng::randomBytes(16);
+    request.id = QTNG_NAMESPACE::randomBytes(16);
     request.methodName = methodName;
     request.args = args;
     request.kwargs = kwargs;
@@ -247,11 +247,11 @@ Value PeerPrivate::call(const string &methodName, const ValueList &args, const V
     }
 
     if (streamFromClient) {
-        shared_ptr<qtng::VirtualChannel> subChannelFromClient = channel->makeChannel();
+        shared_ptr<QTNG_NAMESPACE::VirtualChannel> subChannelFromClient = channel->makeChannel();
         if (!subChannelFromClient) {
             throw RpcDisconnectedException("can not make sub channel.");
         }
-        shared_ptr<qtng::SocketLike> rawSocket;
+        shared_ptr<QTNG_NAMESPACE::SocketLike> rawSocket;
         string connectionId;
         if (streamFromClient->preferRawSocket) {
             rawSocket = rpcPrivate->makeRawSocket(name, connectionId);
@@ -314,11 +314,11 @@ Value PeerPrivate::call(const string &methodName, const ValueList &args, const V
         if (response->channel == 0) {
             throw RpcInternalException("the response of " + methodName + " is a use-stream, but has no channel number.");
         }
-        shared_ptr<qtng::VirtualChannel> subChannelFromServer = channel->takeChannel(response->channel);
+        shared_ptr<QTNG_NAMESPACE::VirtualChannel> subChannelFromServer = channel->takeChannel(response->channel);
         if (!subChannelFromServer) {
             throw RpcRemoteException();
         }
-        shared_ptr<qtng::SocketLike> rawSocket;
+        shared_ptr<QTNG_NAMESPACE::SocketLike> rawSocket;
         if (!response->rawSocket.empty()) {
             rawSocket = rpcPrivate->takeRawSocket(response->rawSocket);
         }
@@ -386,7 +386,7 @@ void PeerPrivate::handleRequest(shared_ptr<Request> request)
     // once the channel has been claimed, so the normal path needs no dismiss().
     struct UnclaimedChannelCleaner
     {
-        shared_ptr<qtng::DataChannel> dataChannel;
+        shared_ptr<QTNG_NAMESPACE::DataChannel> dataChannel;
         std::uint32_t channelNumber;
         ~UnclaimedChannelCleaner()
         {
@@ -434,11 +434,11 @@ void PeerPrivate::handleRequest(shared_ptr<Request> request)
         if (request->channel == 0) {
             response.exception = Value(make_shared<RpcRemoteException>("bad channel"));
         } else {
-            shared_ptr<qtng::VirtualChannel> subChannelFromClient = channel->takeChannel(request->channel);
+            shared_ptr<QTNG_NAMESPACE::VirtualChannel> subChannelFromClient = channel->takeChannel(request->channel);
             if (!subChannelFromClient) {
                 response.exception = Value(make_shared<RpcRemoteException>("bad channel"));
             } else {
-                shared_ptr<qtng::SocketLike> rawSocket;
+                shared_ptr<QTNG_NAMESPACE::SocketLike> rawSocket;
                 if (!request->rawSocket.empty()) {
                     rawSocket = rpcPrivate->takeRawSocket(request->rawSocket);
                 }
@@ -458,7 +458,7 @@ void PeerPrivate::handleRequest(shared_ptr<Request> request)
     if (response.exception.isNull()) {
         try {
             response.result = lookupAndCall(request->methodName, request->args, request->kwargs, request->header);
-        } catch (qtng::CoroutineException &) {
+        } catch (QTNG_NAMESPACE::CoroutineException &) {
             throw;
         } catch (RpcRemoteException &e) {
             response.exception = Value(e.clone());
@@ -475,14 +475,14 @@ void PeerPrivate::handleRequest(shared_ptr<Request> request)
         streamFromServer = convertUseStream(response.result);
     }
     if (streamFromServer) {
-        shared_ptr<qtng::VirtualChannel> subChannelFromServer = channel->makeChannel();
+        shared_ptr<QTNG_NAMESPACE::VirtualChannel> subChannelFromServer = channel->makeChannel();
         if (broken || !rpc) {
             return;
         }
         if (!subChannelFromServer) {
             response.exception = Value(make_shared<RpcRemoteException>("bad channel"));
         } else {
-            shared_ptr<qtng::SocketLike> rawSocket;
+            shared_ptr<QTNG_NAMESPACE::SocketLike> rawSocket;
             string connectionId;
             if (streamFromServer->preferRawSocket) {
                 rawSocket = rpcPrivate->makeRawSocket(name, connectionId);
@@ -570,7 +570,7 @@ Value PeerPrivate::lookupAndCall(const string &methodName, const ValueList &args
     return sit->second->call(method, args, kwargs);
 }
 
-Peer::Peer(const string &name, const shared_ptr<qtng::DataChannel> &channel, const shared_ptr<Rpc> &rpc)
+Peer::Peer(const string &name, const shared_ptr<QTNG_NAMESPACE::DataChannel> &channel, const shared_ptr<Rpc> &rpc)
     : d_ptr(new PeerPrivate(name, channel, rpc, this))
 {
 }
@@ -724,18 +724,18 @@ Value Peer::call(const string &method, const Value &arg1, const Value &arg2, con
     return d_ptr->call(method, args, ValueMap());
 }
 
-shared_ptr<qtng::VirtualChannel> Peer::makeChannel()
+shared_ptr<QTNG_NAMESPACE::VirtualChannel> Peer::makeChannel()
 {
     if (!isOk()) {
-        return shared_ptr<qtng::VirtualChannel>();
+        return shared_ptr<QTNG_NAMESPACE::VirtualChannel>();
     }
     return d_ptr->channel->makeChannel();
 }
 
-shared_ptr<qtng::VirtualChannel> Peer::takeChannel(uint32_t channelNumber)
+shared_ptr<QTNG_NAMESPACE::VirtualChannel> Peer::takeChannel(uint32_t channelNumber)
 {
     if (!isOk()) {
-        return shared_ptr<qtng::VirtualChannel>();
+        return shared_ptr<QTNG_NAMESPACE::VirtualChannel>();
     }
     return d_ptr->channel->takeChannel(channelNumber);
 }
@@ -752,4 +752,4 @@ Value Peer::property(const string &key) const
 }
 
 }  // namespace rpc
-}  // namespace qtng
+QTNG_NAMESPACE_END

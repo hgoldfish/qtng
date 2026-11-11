@@ -1,7 +1,8 @@
 #ifndef QTNG_UTILS_THREAD_LOCAL_H
 #define QTNG_UTILS_THREAD_LOCAL_H
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 template<typename T>
@@ -38,6 +39,5 @@ private:
 };
 
 }  // namespace utils
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_UTILS_THREAD_LOCAL_H

@@ -5,7 +5,8 @@
 #include "qtng/coroutine.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // this class is not used by other code, but just a stub figure out how to write a new coroutine implementation.
 class BaseCoroutinePrivate;
@@ -36,11 +37,10 @@ public:
     void set(BaseCoroutine *coroutine);
     void clean();
 private:
-    qtng::utils::ThreadLocal<BaseCoroutine *> storage;
+    QTNG_NAMESPACE::utils::ThreadLocal<BaseCoroutine *> storage;
 };
 
 CurrentCoroutineStorage &currentCoroutine();
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_COROUTINE_P_H

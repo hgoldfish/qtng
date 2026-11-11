@@ -21,7 +21,7 @@ using namespace std;
 
 NG_LOGGER("qtng.certificate");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 static uint qHashBits(const void *ptr, size_t len, uint seed)
 {
@@ -1045,4 +1045,4 @@ ostream &operator<<(ostream &debug, Certificate::SubjectInfo info)
     return debug;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

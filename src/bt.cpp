@@ -27,7 +27,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2828,4 +2828,4 @@ string TorrentSession::errorString() const
     return d_ptr->errorString;
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

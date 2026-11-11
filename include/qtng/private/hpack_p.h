@@ -6,7 +6,8 @@
 #include <utility>
 #include <vector>
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 struct HpackHeader
 {
@@ -43,6 +44,5 @@ private:
     bool lookup(std::uint32_t index, HpackHeader *out) const;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HPACK_P_H

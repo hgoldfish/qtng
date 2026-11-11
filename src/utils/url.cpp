@@ -7,7 +7,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 static bool isHex(char ch)
@@ -263,4 +263,4 @@ string Url::toString() const
 }
 
 }  // namespace utils
-}  // namespace qtng
+QTNG_NAMESPACE_END

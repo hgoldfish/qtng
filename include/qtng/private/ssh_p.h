@@ -23,7 +23,8 @@
 struct z_stream_s;
 typedef struct z_stream_s z_stream;
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 // RFC 4251 data type codec.
 class SshBuffer
@@ -428,6 +429,5 @@ public:
     bool compressionEnabled = false;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_SSH_P_H

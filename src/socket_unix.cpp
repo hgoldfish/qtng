@@ -53,7 +53,7 @@ using namespace std;
 
 NG_LOGGER("qtng.socket_unix");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 union qt_sockaddr {
     sockaddr a;
@@ -1642,4 +1642,4 @@ Socket *SocketPrivate::accept()
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

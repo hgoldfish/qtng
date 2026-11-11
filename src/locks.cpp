@@ -15,7 +15,7 @@ using namespace std;
 
 NG_LOGGER("qtng.locks");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class SemaphorePrivate
 {
@@ -854,4 +854,4 @@ bool Gate::tryWait(uint32_t msecs /*= (UINT_MAX)*/)
     }
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -8,7 +8,8 @@
 #include "qtng/md.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class CipherPrivate;
 class Cipher
@@ -88,6 +89,5 @@ private:
     NG_DISABLE_COPY_MOVE(Cipher)
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_CIPHER_H

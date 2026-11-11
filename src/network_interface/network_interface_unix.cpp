@@ -25,7 +25,7 @@ using namespace std;
 
 NG_LOGGER("qtng.network_interface")
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 static HostAddress addressFromSockaddr(sockaddr *sa, int ifindex = 0, const string &ifname = string())
 {
@@ -609,4 +609,4 @@ vector<NetworkInterfacePrivate *> NetworkInterfaceManager::scan()
     return interfaceListing();
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -55,7 +55,7 @@ NG_LOGGER("qtng.msgpack");
     }
 #endif
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 namespace {
 
@@ -1526,4 +1526,4 @@ bool MsgPackStream::writeExtHeader(uint32_t len, uint8_t msgpackType)
     return d->writeExtHeader(len, msgpackType);
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

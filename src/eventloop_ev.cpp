@@ -18,7 +18,7 @@ using namespace std;
 
 NG_LOGGER("qtng.eventloop_ev");
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 
 class EvEventLoopCoroutinePrivate;
 
@@ -415,4 +415,4 @@ EvEventLoopCoroutine::EvEventLoopCoroutine()
 {
 }
 
-}  // namespace qtng
+QTNG_NAMESPACE_END

@@ -9,7 +9,8 @@
 #include "qtng/pkey.h"
 #include "qtng/private/quic_p.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 struct QuicTransportParams {
     std::uint64_t maxIdleTimeoutMs = 30000;
@@ -139,6 +140,5 @@ private:
     bool m_complete = false;
 };
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif

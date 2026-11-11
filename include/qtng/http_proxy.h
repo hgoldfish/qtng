@@ -11,7 +11,8 @@
 #include "qtng/http_utils.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class HttpProxyPrivate;
 class HttpProxy : public WithHttpHeaders<SocketProxy>
@@ -78,6 +79,5 @@ public:
 
 void setProxySwitcher(class HttpSession *session, std::shared_ptr<BaseProxySwitcher> switcher);
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_HTTP_PROXY_H

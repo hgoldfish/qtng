@@ -1,7 +1,7 @@
 #ifndef QTNG_TYPES_STRING_H
 #define QTNG_TYPES_STRING_H
 
-// qtng::String -- an implicitly shared text type.
+// QTNG_NAMESPACE::String -- an implicitly shared text type.
 //
 // Design notes live in types/private/string_data.h. Only three things matter at the API
 // level:
@@ -64,7 +64,8 @@
 #include "qtng/types/private/string_data.h"
 #include "qtng/types/text_codec.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class String;
 
@@ -1549,6 +1550,5 @@ inline MsgPackStream &operator>>(MsgPackStream &s, String &str)
     return s;
 }
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_STRING_H

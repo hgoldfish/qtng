@@ -10,7 +10,7 @@
 
 using namespace std;
 
-namespace qtng {
+QTNG_NAMESPACE_BEGIN
 namespace utils {
 
 namespace {
@@ -656,4 +656,4 @@ int64_t ElapsedTimer::elapsedMicroseconds() const
 }
 
 }  // namespace utils
-}  // namespace qtng
+QTNG_NAMESPACE_END

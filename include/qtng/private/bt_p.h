@@ -20,7 +20,8 @@
 #include "qtng/socket_utils.h"
 #include "qtng/utp.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 static const char kBtProtocol[] = "BitTorrent protocol";
 static const std::int32_t kBtBlockSize = 16 * 1024;
@@ -317,6 +318,5 @@ constexpr std::uint8_t kBtExtHandshakeId = 0;
 constexpr std::uint8_t kBtLocalUtMetadataId = 1;
 constexpr std::int32_t kBtMetadataPieceSize = 16 * 1024;
 
-}  // namespace qtng
-
+QTNG_NAMESPACE_END
 #endif  // QTNG_BT_P_H

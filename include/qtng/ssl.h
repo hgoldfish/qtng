@@ -13,7 +13,8 @@
 #include "qtng/certificate.h"
 #include "qtng/utils/platform.h"
 
-namespace qtng {
+#include "qtng/config.h"
+QTNG_NAMESPACE_BEGIN
 
 class SslCipherPrivate;
 class SslCipher
@@ -285,5 +286,5 @@ std::shared_ptr<SslSocket> convertSocketLikeToSslSocket(std::shared_ptr<SocketLi
 // XXX we always assume the cipher is stream cipher
 std::shared_ptr<SocketLike> encrypted(std::shared_ptr<Cipher> cipher, std::shared_ptr<SocketLike> socket);
 
-}  // namespace qtng
+QTNG_NAMESPACE_END
 #endif  // QTNG_SSL_H

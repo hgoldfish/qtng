@@ -18,6 +18,19 @@ The binding target:
 * **PUBLIC**: ``qt/include`` and Qt5/6::Core
 * **PRIVATE**: ``qtng`` core (headers are **not** propagated to consumers)
 
+Core vs Qt API namespaces
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Qt API lives in ``QTNETWORKNG_NAMESPACE`` (default ``qtng``, see ``qt/include/config.h``).
+The core library uses a separate macro ``QTNG_NAMESPACE`` (default ``qtng``, see
+``include/qtng/config.h``). When ``qt/CMakeLists.txt`` pulls in core, it sets the CMake
+cache ``QTNG_NAMESPACE`` to ``qtng_core`` so mangled core symbols do not collide with the
+Qt API. Prefer that CACHE / ``-DQTNG_NAMESPACE=...`` override; do **not** remap core with
+``#define qtng ...`` or ``target_compile_definitions(... qtng=...)``.
+
+Standalone core builds keep the default ``qtng`` namespace unless you pass
+``-DQTNG_NAMESPACE=<name>`` at configure time.
+
 The binding supports Qt **5.6 or newer** on the Qt5 line, as well as Qt 6.
 
 When pulled in via ``add_subdirectory``, the binding exports the chosen Qt major
