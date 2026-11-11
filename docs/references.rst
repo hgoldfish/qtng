@@ -4968,6 +4968,11 @@ First-phase scope includes multi-file torrents, rarest-first picking, a simple
 endgame, and magnet metadata exchange. Not included yet: MSE encryption, PEX,
 webseeds, or BitTorrent v2.
 
+**On-demand reads.** ``TorrentHandle::hasPiece`` / ``prioritizePieces`` /
+``waitPiece`` / ``readFile`` let a VFS pull pieces by offset from a coroutine:
+the picker prefers higher-priority pieces, and ``waitPiece`` wakes after
+``commitPiece``. Call these APIs only from a coroutine.
+
 Example::
 
     auto dht = std::make_shared<qtng::DhtNode>();

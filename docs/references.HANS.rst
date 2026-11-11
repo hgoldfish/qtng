@@ -4523,6 +4523,10 @@ API 相同）。
 第一期支持多文件种子、rarest-first 选片、简单 endgame，以及 magnet 元数据交换。
 尚未包含：MSE 协议加密、PEX、webseed、BitTorrent v2。
 
+**按需读。** ``TorrentHandle::hasPiece`` / ``prioritizePieces`` / ``waitPiece`` /
+``readFile`` 供虚拟文件系统等场景在协程内按偏移拉片：``PiecePicker`` 优先调度高
+优先级 piece，``waitPiece`` 在 ``commitPiece`` 后唤醒。须在协程中调用。
+
 示例::
 
     auto dht = std::make_shared<qtng::DhtNode>();

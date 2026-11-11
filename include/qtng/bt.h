@@ -195,6 +195,17 @@ public:
     void resume();
     void remove(bool deleteFiles = false);
     void setProgressCallback(std::function<void(const TorrentStats &)> callback);
+
+    // On-demand / sequential read helpers (must be called from a coroutine).
+    bool hasPiece(std::int32_t index) const;
+    // Raise piece download priority for [begin, end). Higher priority is preferred by the picker.
+    void prioritizePieces(std::int32_t begin, std::int32_t end, int priority);
+    // Block until piece is on disk, removed/error, or timeout (seconds; <0 = forever).
+    bool waitPiece(std::int32_t index, float timeout = -1.0f);
+    // Map fileIndex+offset into pieces, prioritize, wait, then copy into buf. Returns bytes read
+    // or -1 on error/timeout. timeout applies to the whole call (seconds; <0 = forever).
+    std::int64_t readFile(std::int32_t fileIndex, std::int64_t offset, char *buf, std::int64_t len,
+                          float timeout = -1.0f);
 private:
     friend class TorrentSession;
     friend class TorrentSessionPrivate;

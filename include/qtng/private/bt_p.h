@@ -178,6 +178,11 @@ struct BlockRequest
 class PiecePicker
 {
 public:
+    PiecePicker()
+        : m_storage(nullptr)
+        , m_pieceCount(0)
+    {
+    }
     void reset(std::int32_t pieceCount, PieceStorage *storage);
     void addPeerBitfield(const std::string &bitfield);
     void addPeerHave(std::int32_t piece);
@@ -190,10 +195,13 @@ public:
     bool isPieceDataComplete(std::int32_t piece) const;
     void abandonPiece(std::int32_t piece);
     std::string *pieceBuffer(std::int32_t piece);
+    void setPriority(std::int32_t begin, std::int32_t end, int priority);
+    int priority(std::int32_t index) const;
 private:
     PieceStorage *m_storage;
     std::int32_t m_pieceCount;
     std::vector<int> m_availability;
+    std::vector<int> m_priority;
     std::set<BlockRequest> m_inflight;
     std::map<std::int32_t, std::string> m_buffers;
     std::map<std::int32_t, std::set<std::int32_t>> m_gotOffsets;
@@ -208,8 +216,10 @@ public:
     TorrentStats statsSnapshot() const;
     void setState(TorrentStats::State st, const std::string &err = std::string());
     void notifyProgress();
+    void notifyPiece(std::int32_t index);
     InfoHash effectiveInfoHash() const;
     std::vector<std::string> effectiveTrackers() const;
+    Event *pieceEvent(std::int32_t index);
 
     std::weak_ptr<class TorrentSessionPrivate> session;
     TorrentMeta meta;
@@ -223,6 +233,7 @@ public:
     std::function<void(const TorrentStats &)> progressCallback;
     std::set<BtPeerAddr> peers;
     std::set<BtPeerAddr> connectedPeers;
+    std::map<std::int32_t, std::shared_ptr<Event>> pieceEvents;
     std::int64_t lastDownloaded;
     std::int64_t lastUploaded;
     double lastRateSampleSecs;

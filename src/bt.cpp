@@ -1147,6 +1147,7 @@ void PiecePicker::reset(std::int32_t pieceCount, PieceStorage *storage)
     m_storage = storage;
     m_pieceCount = pieceCount;
     m_availability.assign(static_cast<size_t>(pieceCount), 0);
+    m_priority.assign(static_cast<size_t>(pieceCount), 0);
     m_inflight.clear();
     m_buffers.clear();
     m_gotOffsets.clear();
@@ -1226,6 +1227,7 @@ bool PiecePicker::nextRequest(const string &peerBitfield, bool endgame, BlockReq
         return false;
     }
     int best = -1;
+    int bestPri = INT32_MIN;
     int bestAvail = INT32_MAX;
     for (int i = 0; i < m_pieceCount; ++i) {
         if (m_storage->hasPiece(i)) {
@@ -1234,13 +1236,26 @@ bool PiecePicker::nextRequest(const string &peerBitfield, bool endgame, BlockReq
         if (!btBitTest(peerBitfield, i)) {
             continue;
         }
-        int avail = m_availability[static_cast<size_t>(i)];
-        if (avail < bestAvail || (avail == bestAvail && (best < 0 || i < best))) {
-            // prefer pieces already partially downloaded
-            if (m_buffers.count(i) || best < 0 || !m_buffers.count(best) || avail < bestAvail) {
-                best = i;
-                bestAvail = avail;
+        const int pri = priority(i);
+        const int avail = m_availability[static_cast<size_t>(i)];
+        const bool partial = m_buffers.count(i) > 0;
+        const bool bestPartial = best >= 0 && m_buffers.count(best) > 0;
+        bool better = false;
+        if (best < 0) {
+            better = true;
+        } else if (pri > bestPri) {
+            better = true;
+        } else if (pri == bestPri) {
+            if (partial && !bestPartial) {
+                better = true;
+            } else if (partial == bestPartial && (avail < bestAvail || (avail == bestAvail && i < best))) {
+                better = true;
             }
+        }
+        if (better) {
+            best = i;
+            bestPri = pri;
+            bestAvail = avail;
         }
     }
     if (best < 0) {
@@ -1261,6 +1276,30 @@ bool PiecePicker::nextRequest(const string &peerBitfield, bool endgame, BlockReq
         return true;
     }
     return false;
+}
+
+void PiecePicker::setPriority(std::int32_t begin, std::int32_t end, int priority)
+{
+    if (m_priority.empty() || m_pieceCount <= 0) {
+        return;
+    }
+    if (begin < 0) {
+        begin = 0;
+    }
+    if (end > m_pieceCount) {
+        end = m_pieceCount;
+    }
+    for (std::int32_t i = begin; i < end; ++i) {
+        m_priority[static_cast<size_t>(i)] = priority;
+    }
+}
+
+int PiecePicker::priority(std::int32_t index) const
+{
+    if (index < 0 || index >= m_pieceCount || m_priority.empty()) {
+        return 0;
+    }
+    return m_priority[static_cast<size_t>(index)];
 }
 
 void PiecePicker::markRequested(const BlockRequest &req)
@@ -1363,6 +1402,32 @@ void TorrentHandlePrivate::notifyProgress()
     }
 }
 
+Event *TorrentHandlePrivate::pieceEvent(std::int32_t index)
+{
+    lock_guard<std::mutex> lock(mutex_);
+    map<std::int32_t, shared_ptr<Event>>::iterator it = pieceEvents.find(index);
+    if (it == pieceEvents.end()) {
+        shared_ptr<Event> ev(new Event());
+        it = pieceEvents.insert(make_pair(index, ev)).first;
+    }
+    return it->second.get();
+}
+
+void TorrentHandlePrivate::notifyPiece(std::int32_t index)
+{
+    shared_ptr<Event> ev;
+    {
+        lock_guard<std::mutex> lock(mutex_);
+        map<std::int32_t, shared_ptr<Event>>::iterator it = pieceEvents.find(index);
+        if (it != pieceEvents.end()) {
+            ev = it->second;
+        }
+    }
+    if (ev) {
+        ev->set();
+    }
+}
+
 TorrentHandle::TorrentHandle() { }
 
 TorrentHandle::TorrentHandle(shared_ptr<TorrentHandlePrivate> priv)
@@ -1456,6 +1521,13 @@ void TorrentHandle::remove(bool deleteFiles)
     d->removed = true;
     d->removedEvent.set();
     d->finishedEvent.set();
+    {
+        lock_guard<std::mutex> lock(d->mutex_);
+        for (map<std::int32_t, shared_ptr<Event>>::iterator it = d->pieceEvents.begin(); it != d->pieceEvents.end();
+             ++it) {
+            it->second->set();
+        }
+    }
     if (deleteFiles && d->storage.isOpen()) {
         // best-effort: close handles; leave files (full delete omitted for safety)
         d->storage.close();
@@ -1469,6 +1541,140 @@ void TorrentHandle::setProgressCallback(function<void(const TorrentStats &)> cal
         lock_guard<std::mutex> lock(d->mutex_);
         d->progressCallback = std::move(callback);
     }
+}
+
+bool TorrentHandle::hasPiece(std::int32_t index) const
+{
+    if (!d || !d->storage.isOpen()) {
+        return false;
+    }
+    return d->storage.hasPiece(index);
+}
+
+void TorrentHandle::prioritizePieces(std::int32_t begin, std::int32_t end, int priority)
+{
+    if (!d) {
+        return;
+    }
+    d->picker.setPriority(begin, end, priority);
+}
+
+bool TorrentHandle::waitPiece(std::int32_t index, float timeout)
+{
+    if (!d) {
+        return false;
+    }
+    if (d->removed) {
+        return false;
+    }
+    if (hasPiece(index)) {
+        return true;
+    }
+    if (!d->storage.isOpen() || !d->meta.isValid() || index < 0 || index >= d->meta.pieceCount()) {
+        return false;
+    }
+    d->picker.setPriority(index, index + 1, 100);
+    Event *ev = d->pieceEvent(index);
+    if (hasPiece(index)) {
+        ev->set();
+        return true;
+    }
+    const bool forever = timeout < 0;
+    const double deadline = forever ? 0.0 : (static_cast<double>(time(nullptr)) + static_cast<double>(timeout));
+    while (!d->removed && !hasPiece(index)) {
+        std::uint32_t slice = 500;
+        if (!forever) {
+            const double now = static_cast<double>(time(nullptr));
+            if (now >= deadline) {
+                break;
+            }
+            slice = static_cast<std::uint32_t>((deadline - now) * 1000.0);
+            if (slice > 500) {
+                slice = 500;
+            }
+            if (slice == 0) {
+                break;
+            }
+        }
+        ev->tryWait(slice);
+        if (hasPiece(index)) {
+            break;
+        }
+        if (ev->isSet()) {
+            ev->clear();
+        }
+    }
+    if (hasPiece(index)) {
+        ev->set();
+        return true;
+    }
+    return false;
+}
+
+std::int64_t TorrentHandle::readFile(std::int32_t fileIndex, std::int64_t offset, char *buf, std::int64_t len,
+                                     float timeout)
+{
+    if (!d || !buf || len <= 0 || offset < 0 || !d->meta.isValid() || !d->storage.isOpen()) {
+        return -1;
+    }
+    const vector<TorrentFileInfo> files = d->meta.files();
+    if (fileIndex < 0 || static_cast<size_t>(fileIndex) >= files.size()) {
+        return -1;
+    }
+    const std::int64_t fileLen = files[static_cast<size_t>(fileIndex)].length();
+    if (offset >= fileLen) {
+        return 0;
+    }
+    if (offset + len > fileLen) {
+        len = fileLen - offset;
+    }
+
+    std::int64_t fileBase = 0;
+    for (std::int32_t i = 0; i < fileIndex; ++i) {
+        fileBase += files[static_cast<size_t>(i)].length();
+    }
+    const std::int64_t globalBegin = fileBase + offset;
+    const std::int64_t globalEnd = globalBegin + len;
+    const std::int32_t pieceLen = d->meta.pieceLength();
+    if (pieceLen <= 0) {
+        return -1;
+    }
+    const std::int32_t firstPiece = static_cast<std::int32_t>(globalBegin / pieceLen);
+    const std::int32_t lastPiece = static_cast<std::int32_t>((globalEnd - 1) / pieceLen);
+    prioritizePieces(firstPiece, lastPiece + 1, 100);
+
+    const double startSecs = static_cast<double>(time(nullptr));
+    std::int64_t done = 0;
+    while (done < len) {
+        if (d->removed) {
+            return done > 0 ? done : -1;
+        }
+        float remain = timeout;
+        if (timeout >= 0) {
+            const double elapsed = static_cast<double>(time(nullptr)) - startSecs;
+            remain = timeout - static_cast<float>(elapsed);
+            if (remain <= 0) {
+                return done > 0 ? done : -1;
+            }
+        }
+        const std::int64_t global = globalBegin + done;
+        const std::int32_t piece = static_cast<std::int32_t>(global / pieceLen);
+        const std::int32_t pieceOff = static_cast<std::int32_t>(global % pieceLen);
+        if (!waitPiece(piece, remain)) {
+            return done > 0 ? done : -1;
+        }
+        const std::int32_t plen = d->storage.pieceLength(piece);
+        const std::int32_t canTake = static_cast<std::int32_t>(
+            min<std::int64_t>(len - done, static_cast<std::int64_t>(plen - pieceOff)));
+        string chunk;
+        if (!d->storage.readBlock(piece, pieceOff, canTake, &chunk) ||
+            static_cast<std::int32_t>(chunk.size()) != canTake) {
+            return done > 0 ? done : -1;
+        }
+        memcpy(buf + done, chunk.data(), static_cast<size_t>(canTake));
+        done += canTake;
+    }
+    return done;
 }
 
 // ---------------------------------------------------------------------------
@@ -2200,6 +2406,7 @@ void TorrentSessionPrivate::runPeer(shared_ptr<TorrentHandlePrivate> h, shared_p
                         string havePl(4, '\0');
                         btWriteBe32(&havePl[0], static_cast<std::uint32_t>(piece));
                         sock->sendall(btEncodeMessage(4, havePl));
+                        h->notifyPiece(piece);
                         h->notifyProgress();
                     } else {
                         h->picker.abandonPiece(piece);
