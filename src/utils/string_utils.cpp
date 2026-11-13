@@ -1,6 +1,9 @@
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
+#include <climits>
 #include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -230,76 +233,64 @@ string number(double value, int precision)
     return oss.str();
 }
 
+// These parsers deliberately avoid std::stoi/stoll/stof/stod: those throw on
+// empty or malformed input, and on Cygwin a C++ exception thrown inside a
+// ucontext coroutine occasionally escapes the SEH unwinder and kills the
+// whole process (exit status 0x20474343). Callers routinely probe optional
+// headers such as Content-Length, so the throwing path is not exceptional at
+// all. strto* reports the same failures through errno/endptr without throwing.
+
 int parseInt(const string &text, bool *ok)
 {
-    try {
-        size_t consumed = 0;
-        int value = stoi(text, &consumed);
-        bool parsed = consumed == text.size();
-        if (ok) {
-            *ok = parsed;
-        }
-        return parsed ? value : 0;
-    } catch (...) {
-        if (ok) {
-            *ok = false;
-        }
-        return 0;
+    const char *begin = text.c_str();
+    char *end = nullptr;
+    errno = 0;
+    const long value = std::strtol(begin, &end, 10);
+    const bool parsed = end != begin && *end == '\0' && errno != ERANGE
+                        && value >= INT_MIN && value <= INT_MAX;
+    if (ok) {
+        *ok = parsed;
     }
+    return parsed ? static_cast<int>(value) : 0;
 }
 
 long long parseLongLong(const string &text, bool *ok)
 {
-    try {
-        size_t consumed = 0;
-        long long value = stoll(text, &consumed);
-        bool parsed = consumed == text.size();
-        if (ok) {
-            *ok = parsed;
-        }
-        return parsed ? value : 0;
-    } catch (...) {
-        if (ok) {
-            *ok = false;
-        }
-        return 0;
+    const char *begin = text.c_str();
+    char *end = nullptr;
+    errno = 0;
+    const long long value = std::strtoll(begin, &end, 10);
+    const bool parsed = end != begin && *end == '\0' && errno != ERANGE;
+    if (ok) {
+        *ok = parsed;
     }
+    return parsed ? value : 0;
 }
 
 float parseFloat(const string &text, bool *ok)
 {
-    try {
-        size_t consumed = 0;
-        float value = stof(text, &consumed);
-        bool parsed = consumed == text.size();
-        if (ok) {
-            *ok = parsed;
-        }
-        return parsed ? value : 0.0f;
-    } catch (...) {
-        if (ok) {
-            *ok = false;
-        }
-        return 0.0f;
+    const char *begin = text.c_str();
+    char *end = nullptr;
+    errno = 0;
+    const float value = std::strtof(begin, &end);
+    const bool parsed = end != begin && *end == '\0' && errno != ERANGE;
+    if (ok) {
+        *ok = parsed;
     }
+    return parsed ? value : 0.0f;
 }
 
 double parseDouble(const string &text, bool *ok)
 {
-    try {
-        size_t consumed = 0;
-        double value = stod(text, &consumed);
-        bool parsed = consumed == text.size();
-        if (ok) {
-            *ok = parsed;
-        }
-        return parsed ? value : 0.0;
-    } catch (...) {
-        if (ok) {
-            *ok = false;
-        }
-        return 0.0;
+    const char *begin = text.c_str();
+    char *end = nullptr;
+    errno = 0;
+    const double value = std::strtod(begin, &end);
+    const bool parsed = end != begin && *end == '\0' && errno != ERANGE;
+    if (ok) {
+        *ok = parsed;
     }
+    return parsed ? value : 0.0;
 }
 
 string fromLatin1(const char *data, size_t size)
