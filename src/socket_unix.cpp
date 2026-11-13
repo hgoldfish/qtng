@@ -1595,9 +1595,6 @@ Socket *SocketPrivate::accept()
             case EOPNOTSUPP:
                 setError(Socket::UnsupportedSocketOperationError, InvalidSocketErrorString);
                 return nullptr;
-            case ECONNABORTED:
-                setError(Socket::NetworkError, RemoteHostClosedErrorString);
-                return nullptr;
             case EFAULT:
             case ENOTSOCK:
                 setError(Socket::SocketResourceError, NotSocketErrorString);
@@ -1625,6 +1622,13 @@ Socket *SocketPrivate::accept()
             case EWOULDBLOCK:
 #endif
             case EAGAIN:
+                break;
+            // A queued connection was torn down before accept() picked it up.
+            // Windows/Cygwin report this routinely when a client connects and
+            // resets immediately. It only costs one aborted connection, so
+            // retry: returning nullptr here would end serveForever() and stop
+            // the whole listener (the process then exits cleanly).
+            case ECONNABORTED:
                 break;
             }
         } else {
