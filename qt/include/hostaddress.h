@@ -74,7 +74,8 @@ public:
         if (address.protocol() == QAbstractSocket::IPv4Protocol) {
             setAddress(address.toIPv4Address());
         } else {
-            setAddress(address.toIPv6Address().data());
+            const QIPv6Address ip6 = address.toIPv6Address();
+            setAddress(ip6.c);
         }
     }
     HostAddress(QHostAddress::SpecialAddress address)
@@ -89,7 +90,15 @@ public:
     }
     operator QHostAddress() const
     {
-        return protocol() == IPv4Protocol ? QHostAddress(toIPv4Address()) : QHostAddress(toIPv6Address().data());
+        if (protocol() == IPv4Protocol) {
+            return QHostAddress(toIPv4Address());
+        }
+        QIPv6Address ip6;
+        const IPv6Address ours = toIPv6Address();
+        for (int i = 0; i < 16; ++i) {
+            ip6.c[i] = ours[i];
+        }
+        return QHostAddress(ip6);
     }
 #endif
     ~HostAddress();

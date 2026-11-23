@@ -15,6 +15,9 @@
 #  include <sys/mman.h>
 #  include <sys/stat.h>
 #  include <unistd.h>
+#  ifdef NG_OS_ANDROID
+#    include <android/sharedmem.h>
+#  endif
 #endif
 
 using namespace std;
@@ -322,7 +325,10 @@ private:
 
     int createBacking(size_t size)
     {
-#if defined(NG_OS_LINUX)
+#if defined(NG_OS_ANDROID)
+        return ASharedMemory_create("qtng-slice", size);
+#else
+#  if defined(NG_OS_LINUX)
         int lfd = memfd_create("slice-ring", 0);
         if (lfd >= 0 && ftruncate(lfd, static_cast<off_t>(size)) == 0) {
             return lfd;
@@ -330,10 +336,9 @@ private:
         if (lfd >= 0) {
             close(lfd);
         }
-#endif
-#if defined(NG_OS_LINUX) || defined(NG_OS_MACOS) || defined(NG_OS_FREEBSD) \
-        || defined(NG_OS_NETBSD) || defined(NG_OS_OPENBSD) || defined(NG_OS_ANDROID) \
-        || defined(NG_OS_IOS)
+#  endif
+#  if defined(NG_OS_LINUX) || defined(NG_OS_MACOS) || defined(NG_OS_FREEBSD) \
+        || defined(NG_OS_NETBSD) || defined(NG_OS_OPENBSD) || defined(NG_OS_IOS)
         // POSIX fallback: an anonymous shared-memory object, unlinked
         // immediately so it self-cleans on close/crash.
         static unsigned long counter = 0;
@@ -348,10 +353,11 @@ private:
             }
             close(sfd);
         }
-#else
+#  else
         (void)size;
-#endif
+#  endif
         return -1;
+#endif
     }
 
     size_t m_capacity = 0;
