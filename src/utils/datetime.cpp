@@ -166,7 +166,8 @@ struct ParsedFields
     int msec = 0;
 };
 
-// Strict counterpart of formatDateTimeTokens(): every literal must match and the whole input must be consumed.
+// Parse data strictly against a token format: literals must match exactly, every digit group must be that
+// wide, the whole input must be consumed, and yyyy/MM/dd must all be present.
 bool parseWithFormat(const char *data, size_t size, const string &format, ParsedFields *fields)
 {
     size_t pos = 0;
@@ -221,9 +222,8 @@ bool isValidTimeOfDay(int hour, int minute, int second, int msec)
 
 // Expand the supported components (yyyy/MM/dd/HH/mm/ss/zzz) of a Qt-style date format string.
 // Other characters are emitted verbatim; strftime's %X directive is passed through.
-string formatDateTimeTokens(const tm &local, const tm &utc, int msec, bool isLocal, const string &format)
+string formatDateTimeTokens(const tm &base, int msec, const string &format)
 {
-    const tm &base = isLocal ? local : utc;
     string out;
     out.reserve(format.size() + 8);
     for (size_t i = 0; i < format.size();) {
@@ -413,7 +413,7 @@ string Date::toString(const string &format) const
     utc.tm_year = year() - 1900;
     utc.tm_mon = month() - 1;
     utc.tm_mday = day();
-    return formatDateTimeTokens(utc, utc, 0, false, format.empty() ? "yyyy-MM-dd" : format);
+    return formatDateTimeTokens(utc, 0, format.empty() ? "yyyy-MM-dd" : format);
 }
 
 Date Date::addDays(int days) const
@@ -525,55 +525,22 @@ DateTime DateTime::fromString(const char *str, size_t size, const string &format
         return fromUtc(fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second,
                        fields.msec);
     }
+    // Tolerant ISO-8601: what "ISO but not exactly one format" really means is this fixed list of shapes.
     if (size > 0 && str[size - 1] == 'Z') {
         --size;
     }
-    ParsedFields fields;
-    size_t pos = 0;
-    fields.year = parseFixedDigits(str, size, &pos, 4);
-    if (fields.year < 0 || pos >= size || str[pos] != '-') {
-        return DateTime();
-    }
-    ++pos;
-    fields.month = parseFixedDigits(str, size, &pos, 2);
-    if (fields.month < 0 || pos >= size || str[pos] != '-') {
-        return DateTime();
-    }
-    ++pos;
-    fields.day = parseFixedDigits(str, size, &pos, 2);
-    if (fields.day < 0) {
-        return DateTime();
-    }
-    if (pos < size && (str[pos] == 'T' || str[pos] == ' ')) {
-        ++pos;
-        fields.hour = parseFixedDigits(str, size, &pos, 2);
-        if (fields.hour < 0 || pos >= size || str[pos] != ':') {
-            return DateTime();
-        }
-        ++pos;
-        fields.minute = parseFixedDigits(str, size, &pos, 2);
-        if (fields.minute < 0) {
-            return DateTime();
-        }
-        if (pos < size && str[pos] == ':') {
-            ++pos;
-            fields.second = parseFixedDigits(str, size, &pos, 2);
-            if (fields.second < 0) {
-                return DateTime();
-            }
-        }
-        if (pos < size && str[pos] == '.') {
-            ++pos;
-            fields.msec = parseFixedDigits(str, size, &pos, 3);
-            if (fields.msec < 0) {
-                return DateTime();
-            }
+    static const char *const kIsoFormats[] = {
+        "yyyy-MM-dd",          "yyyy-MM-ddTHH:mm",     "yyyy-MM-dd HH:mm",     "yyyy-MM-ddTHH:mm:ss",
+        "yyyy-MM-dd HH:mm:ss", "yyyy-MM-ddTHH:mm:ss.zzz", "yyyy-MM-dd HH:mm:ss.zzz",
+    };
+    for (const char *isoFormat : kIsoFormats) {
+        ParsedFields fields;
+        if (parseWithFormat(str, size, isoFormat, &fields)) {
+            return fromUtc(fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second,
+                           fields.msec);
         }
     }
-    if (pos != size) {
-        return DateTime();
-    }
-    return fromUtc(fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second, fields.msec);
+    return DateTime();
 }
 
 DateTime DateTime::addSecs(int64_t secs) const
@@ -674,16 +641,17 @@ string DateTime::toString(const string &format) const
         return string();
     }
     const time_t secs = static_cast<time_t>(toSecsSinceEpoch());
-    tm utc {};
-    tm localTm {};
-    gmtimeR(&secs, &utc);
-    localtimeR(&secs, &localTm);
-    const bool isLocal = local;
-    if (format.empty()) {
-        const string defaultFormat = isLocal ? "%Y-%m-%dT%H:%M:%S" : "%Y-%m-%dT%H:%M:%SZ";
-        return formatDateTimeTokens(localTm, utc, msecOf(tp), isLocal, defaultFormat);
+    tm base {};
+    if (local) {
+        localtimeR(&secs, &base);
+    } else {
+        gmtimeR(&secs, &base);
     }
-    return formatDateTimeTokens(localTm, utc, msecOf(tp), isLocal, format);
+    if (format.empty()) {
+        const string defaultFormat = local ? "%Y-%m-%dT%H:%M:%S" : "%Y-%m-%dT%H:%M:%SZ";
+        return formatDateTimeTokens(base, msecOf(tp), defaultFormat);
+    }
+    return formatDateTimeTokens(base, msecOf(tp), format);
 }
 
 string DateTime::toHttpDate() const

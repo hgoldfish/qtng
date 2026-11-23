@@ -74,8 +74,10 @@ public:
     static DateTime fromUtc(int year, int month, int day, int hour = 0, int minute = 0, int second = 0,
                             int msec = 0);
     // Parse an ISO-8601 / "yyyy-MM-dd" string. Without a timezone marker, treat it as UTC.
-    // A non-empty format switches to strict matching of that format, using the same tokens toString()
-    // understands; the whole input must be consumed.
+    // A non-empty format switches to strict matching of that format, using the yyyy/MM/dd/HH/mm/ss/zzz
+    // tokens toString() understands (strftime's %X directives are formatting-only); the whole input must
+    // be consumed. In either mode an unrepresentable input, such as a trailing timezone offset, is rejected
+    // rather than silently reinterpreted.
     static DateTime fromString(const char *str, std::size_t size, const std::string &format = std::string());
     inline static DateTime fromString(const std::string &str, const std::string &format = std::string())
     {
