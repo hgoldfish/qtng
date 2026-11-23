@@ -123,6 +123,104 @@ int parseFixedDigits(const char *str, size_t size, size_t *pos, size_t count)
     return value;
 }
 
+enum class Field { Year, Month, Day, Hour, Minute, Second, Millisecond };
+
+struct FormatToken
+{
+    const char *text;
+    size_t length;
+    Field field;
+    int digits;
+};
+
+const FormatToken kFormatTokens[] = {
+    {"yyyy", 4, Field::Year, 4},
+    {"zzz", 3, Field::Millisecond, 3},
+    {"MM", 2, Field::Month, 2},
+    {"dd", 2, Field::Day, 2},
+    {"HH", 2, Field::Hour, 2},
+    {"mm", 2, Field::Minute, 2},
+    {"ss", 2, Field::Second, 2},
+};
+
+const FormatToken *matchFormatToken(const string &format, size_t at)
+{
+    for (const FormatToken &token : kFormatTokens) {
+        if (format.compare(at, token.length, token.text) == 0) {
+            return &token;
+        }
+    }
+    return nullptr;
+}
+
+struct ParsedFields
+{
+    int year = -1;
+    int month = -1;
+    int day = -1;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    int msec = 0;
+};
+
+// Strict counterpart of formatDateTimeTokens(): every literal must match and the whole input must be consumed.
+bool parseWithFormat(const char *data, size_t size, const string &format, ParsedFields *fields)
+{
+    size_t pos = 0;
+    for (size_t i = 0; i < format.size();) {
+        const FormatToken *token = matchFormatToken(format, i);
+        if (!token) {
+            if (pos >= size || data[pos] != format[i]) {
+                return false;
+            }
+            ++pos;
+            ++i;
+            continue;
+        }
+        const int value = parseFixedDigits(data, size, &pos, static_cast<size_t>(token->digits));
+        if (value < 0) {
+            return false;
+        }
+        switch (token->field) {
+        case Field::Year:
+            fields->year = value;
+            break;
+        case Field::Month:
+            fields->month = value;
+            break;
+        case Field::Day:
+            fields->day = value;
+            break;
+        case Field::Hour:
+            fields->hour = value;
+            break;
+        case Field::Minute:
+            fields->minute = value;
+            break;
+        case Field::Second:
+            fields->second = value;
+            break;
+        case Field::Millisecond:
+            fields->msec = value;
+            break;
+        }
+        i += token->length;
+    }
+    return pos == size;
+}
+
+DateTime utcFromFields(const ParsedFields &fields)
+{
+    const Date date(fields.year, fields.month, fields.day);
+    if (!date.isValid()) {
+        return DateTime();
+    }
+    const DateTime dt = DateTime::fromUtc(fields.year, fields.month, fields.day, fields.hour, fields.minute,
+                                          fields.second, fields.msec);
+    return dt.isValid() ? dt : DateTime();
+}
+
 // Expand the supported components (yyyy/MM/dd/HH/mm/ss/zzz) of a Qt-style date format string.
 // Other characters are emitted verbatim; strftime's %X directive is passed through.
 string formatDateTimeTokens(const tm &local, const tm &utc, int msec, bool isLocal, const string &format)
@@ -140,57 +238,40 @@ string formatDateTimeTokens(const tm &local, const tm &utc, int msec, bool isLoc
             i += 2;
             continue;
         }
-        if (format.compare(i, 4, "yyyy") == 0) {
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "%04d", base.tm_year + 1900);
-            out += buffer;
-            i += 4;
+        const FormatToken *token = matchFormatToken(format, i);
+        if (!token) {
+            out += format[i];
+            ++i;
             continue;
         }
-        if (format.compare(i, 2, "MM") == 0) {
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "%02d", base.tm_mon + 1);
-            out += buffer;
-            i += 2;
-            continue;
+        int value = 0;
+        switch (token->field) {
+        case Field::Year:
+            value = base.tm_year + 1900;
+            break;
+        case Field::Month:
+            value = base.tm_mon + 1;
+            break;
+        case Field::Day:
+            value = base.tm_mday;
+            break;
+        case Field::Hour:
+            value = base.tm_hour;
+            break;
+        case Field::Minute:
+            value = base.tm_min;
+            break;
+        case Field::Second:
+            value = base.tm_sec;
+            break;
+        case Field::Millisecond:
+            value = msec;
+            break;
         }
-        if (format.compare(i, 2, "dd") == 0) {
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "%02d", base.tm_mday);
-            out += buffer;
-            i += 2;
-            continue;
-        }
-        if (format.compare(i, 2, "HH") == 0) {
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "%02d", base.tm_hour);
-            out += buffer;
-            i += 2;
-            continue;
-        }
-        if (format.compare(i, 2, "mm") == 0) {
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "%02d", base.tm_min);
-            out += buffer;
-            i += 2;
-            continue;
-        }
-        if (format.compare(i, 2, "ss") == 0) {
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "%02d", base.tm_sec);
-            out += buffer;
-            i += 2;
-            continue;
-        }
-        if (format.compare(i, 3, "zzz") == 0) {
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "%03d", msec);
-            out += buffer;
-            i += 3;
-            continue;
-        }
-        out += format[i];
-        ++i;
+        char buffer[16];
+        snprintf(buffer, sizeof(buffer), "%0*d", token->digits, value);
+        out += buffer;
+        i += token->length;
     }
     return out;
 }
@@ -221,28 +302,17 @@ Date Date::fromJulianDay(int64_t julianDay)
 
 Date Date::fromString(const char *str, size_t size, const string &format)
 {
-    if (!str) {
+    if (!str || format.empty()) {
         return Date();
     }
-    if (format == "yyyy-MM-dd") {
-        size_t pos = 0;
-        const int y = parseFixedDigits(str, size, &pos, 4);
-        if (y < 0 || pos >= size || str[pos] != '-') {
-            return Date();
-        }
-        ++pos;
-        const int m = parseFixedDigits(str, size, &pos, 2);
-        if (m < 0 || pos >= size || str[pos] != '-') {
-            return Date();
-        }
-        ++pos;
-        const int d = parseFixedDigits(str, size, &pos, 2);
-        if (d < 0) {
-            return Date();
-        }
-        return Date(y, m, d);
+    ParsedFields fields;
+    if (!parseWithFormat(str, size, format, &fields)) {
+        return Date();
     }
-    return Date();
+    if (fields.year < 0 || fields.month < 0 || fields.day < 0) {
+        return Date();
+    }
+    return Date(fields.year, fields.month, fields.day);
 }
 
 Date Date::currentDate()
@@ -442,64 +512,65 @@ DateTime DateTime::fromUtc(int year, int month, int day, int hour, int minute, i
     return DateTime(chrono::system_clock::time_point(chrono::seconds(secs) + chrono::milliseconds(msec)));
 }
 
-DateTime DateTime::fromString(const string &str)
+DateTime DateTime::fromString(const char *str, size_t size, const string &format)
 {
-    const char *data = str.data();
-    size_t size = str.size();
-    if (size > 0 && data[size - 1] == 'Z') {
+    if (!str) {
+        return DateTime();
+    }
+    if (!format.empty()) {
+        ParsedFields fields;
+        if (!parseWithFormat(str, size, format, &fields) || fields.year < 0 || fields.month < 0
+            || fields.day < 0) {
+            return DateTime();
+        }
+        return utcFromFields(fields);
+    }
+    if (size > 0 && str[size - 1] == 'Z') {
         --size;
     }
+    ParsedFields fields;
     size_t pos = 0;
-    const int y = parseFixedDigits(data, size, &pos, 4);
-    if (y < 0 || pos >= size || data[pos] != '-') {
+    fields.year = parseFixedDigits(str, size, &pos, 4);
+    if (fields.year < 0 || pos >= size || str[pos] != '-') {
         return DateTime();
     }
     ++pos;
-    const int m = parseFixedDigits(data, size, &pos, 2);
-    if (m < 0 || pos >= size || data[pos] != '-') {
+    fields.month = parseFixedDigits(str, size, &pos, 2);
+    if (fields.month < 0 || pos >= size || str[pos] != '-') {
         return DateTime();
     }
     ++pos;
-    const int d = parseFixedDigits(data, size, &pos, 2);
-    if (d < 0) {
+    fields.day = parseFixedDigits(str, size, &pos, 2);
+    if (fields.day < 0) {
         return DateTime();
     }
-    int hour = 0;
-    int minute = 0;
-    int second = 0;
-    int msec = 0;
-    if (pos < size && (data[pos] == 'T' || data[pos] == ' ')) {
+    if (pos < size && (str[pos] == 'T' || str[pos] == ' ')) {
         ++pos;
-        hour = parseFixedDigits(data, size, &pos, 2);
-        if (hour < 0 || pos >= size || data[pos] != ':') {
+        fields.hour = parseFixedDigits(str, size, &pos, 2);
+        if (fields.hour < 0 || pos >= size || str[pos] != ':') {
             return DateTime();
         }
         ++pos;
-        minute = parseFixedDigits(data, size, &pos, 2);
-        if (minute < 0) {
+        fields.minute = parseFixedDigits(str, size, &pos, 2);
+        if (fields.minute < 0) {
             return DateTime();
         }
-        if (pos < size && data[pos] == ':') {
+        if (pos < size && str[pos] == ':') {
             ++pos;
-            second = parseFixedDigits(data, size, &pos, 2);
-            if (second < 0) {
+            fields.second = parseFixedDigits(str, size, &pos, 2);
+            if (fields.second < 0) {
                 return DateTime();
             }
         }
-        if (pos < size && data[pos] == '.') {
+        if (pos < size && str[pos] == '.') {
             ++pos;
-            msec = parseFixedDigits(data, size, &pos, 3);
-            if (msec < 0) {
+            fields.msec = parseFixedDigits(str, size, &pos, 3);
+            if (fields.msec < 0) {
                 return DateTime();
             }
         }
     }
-    const Date date(y, m, d);
-    if (!date.isValid()) {
-        return DateTime();
-    }
-    DateTime dt = fromUtc(y, m, d, hour, minute, second, msec);
-    return dt.isValid() ? dt : DateTime();
+    return utcFromFields(fields);
 }
 
 DateTime DateTime::addSecs(int64_t secs) const

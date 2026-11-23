@@ -74,7 +74,13 @@ public:
     static DateTime fromUtc(int year, int month, int day, int hour = 0, int minute = 0, int second = 0,
                             int msec = 0);
     // Parse an ISO-8601 / "yyyy-MM-dd" string. Without a timezone marker, treat it as UTC.
-    static DateTime fromString(const std::string &str);
+    // A non-empty format switches to strict matching of that format, using the same tokens toString()
+    // understands; the whole input must be consumed.
+    static DateTime fromString(const char *str, std::size_t size, const std::string &format = std::string());
+    inline static DateTime fromString(const std::string &str, const std::string &format = std::string())
+    {
+        return fromString(str.data(), str.size(), format);
+    }
 
     std::int64_t toSecsSinceEpoch() const;
     DateTime addSecs(std::int64_t secs) const;
