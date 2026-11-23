@@ -365,6 +365,16 @@ private:
     U u;
 };
 
+inline std::size_t hashBytes(const char *p, std::uint32_t n) noexcept
+{
+    unsigned int h = 0;
+    const unsigned char *q = reinterpret_cast<const unsigned char *>(p);
+    while (n-- > 0) {
+        h ^= static_cast<unsigned int>(*q++) + 0x9e3779b9u + (h << 6) + (h >> 2);
+    }
+    return static_cast<std::size_t>(h);
+}
+
 // Layout assertions. C++11's static_assert requires a message.
 // The handle size is determined by the inl branch (32B): the heap branch is 16B, and any
 // attempt to grow past 32 would fail the sizeof(String) assertion below -- no extra

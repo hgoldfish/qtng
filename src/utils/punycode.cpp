@@ -183,7 +183,10 @@ bool punycodeDecode(const string &input, vector<uint32_t> &output)
         bias = adapt(i - oldi, outPlus1, oldi == 0);
         n += i / outPlus1;
         i %= outPlus1;
-        if (n > kMaxCodepoint) {
+        // The header promises "[0, 0x10FFFF]; surrogate code points are not allowed". Without
+        // the surrogate test, "xn--bb0c" decodes to U+D800 and every caller that stores the
+        // result as text (String::fromAce) ends up holding bytes that are not valid UTF-8.
+        if (n > kMaxCodepoint || (n >= 0xD800u && n <= 0xDFFFu)) {
             return false;
         }
         output.insert(output.begin() + static_cast<ptrdiff_t>(i), n);

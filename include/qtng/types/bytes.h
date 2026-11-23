@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -90,13 +91,68 @@ inline bool isValidParseBase(int base)
     return base == 0 || (base >= 2 && base <= 36);
 }
 
-// Rightmost occurrence of byte `c` at or before the inclusive index `limit` (which must be
-// < len), or nullptr when there is none. memrchr() is a GNU extension and is the SIMD kernel
-// that makes a backward search of a long buffer cheap; it is used only when the libc actually
-// declares it (glibc, and only with _GNU_SOURCE, which libstdc++ defines for every C++
-// translation unit). Everywhere else the portable backward loop is used. Both live here so
-// the feature test and the fallback are written once, and so no macro has to leak out of this
-// public header.
+
+inline std::uint32_t utf8DecodeStrict(const char *p, std::uint32_t remaining, std::uint32_t *cp)
+{
+    const unsigned char c = static_cast<unsigned char>(p[0]);
+    if (c <= 0x7F) {
+        *cp = c;
+        return 1;
+    }
+    std::uint32_t extra;
+    std::uint32_t value;
+    if ((c & 0xE0) == 0xC0) {
+        extra = 1;
+        value = c & 0x1F;
+    } else if ((c & 0xF0) == 0xE0) {
+        extra = 2;
+        value = c & 0x0F;
+    } else if ((c & 0xF8) == 0xF0) {
+        extra = 3;
+        value = c & 0x07;
+    } else {
+        return 0;  // continuation byte or invalid lead byte
+    }
+    if (extra >= remaining) {
+        return 0;  // truncated
+    }
+    for (std::uint32_t j = 1; j <= extra; ++j) {
+        const unsigned char cc = static_cast<unsigned char>(p[j]);
+        if ((cc & 0xC0) != 0x80) {
+            return 0;  // bad continuation byte
+        }
+        value = (value << 6) | (cc & 0x3F);
+    }
+    if (value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {
+        return 0;
+    }
+    if (extra == 1 && value < 0x80) {
+        return 0;  // overlong
+    }
+    if (extra == 2 && value < 0x800) {
+        return 0;
+    }
+    if (extra == 3 && value < 0x10000) {
+        return 0;
+    }
+    *cp = value;
+    return extra + 1;
+}
+
+inline bool isValidUtf8(const char *p, std::uint32_t n)
+{
+    std::uint32_t i = 0;
+    std::uint32_t cp = 0;
+    while (i < n) {
+        const std::uint32_t consumed = utf8DecodeStrict(p + i, n - i, &cp);
+        if (consumed == 0) {
+            return false;
+        }
+        i += consumed;
+    }
+    return true;
+}
+
 inline const char *rfindByte(const char *p, unsigned char c, std::uint32_t limit)
 {
 #if defined(__GLIBC__) && defined(_GNU_SOURCE)
@@ -238,6 +294,14 @@ public:
     ByteArray toUpper() const;
     // Strip leading/trailing ASCII whitespace (QByteArray::trimmed()).
     ByteArray trimmed() const;
+
+public:
+    // -- UTF-8 probe (byte layer) --
+    //
+    // Validation belongs here rather than on String: String is already text, and its UTF-8
+    // conversions (String::fromUtf8 / toUtf8) deliberately never validate. The only
+    // sensible question is "can these bytes be read as UTF-8?", asked before converting.
+    bool isValidUtf8() const { return detail::isValidUtf8(data(), size()); }
 
 public:
     // -- numeric conversion --
@@ -781,4 +845,16 @@ inline MsgPackStream &operator>>(MsgPackStream &s, ByteArray &bytes)
 }
 
 QTNG_NAMESPACE_END
+
+namespace std {
+template<>
+struct hash<QTNG_NAMESPACE::ByteArray>
+{
+    std::size_t operator()(const QTNG_NAMESPACE::ByteArray &key) const noexcept
+    {
+        return QTNG_NAMESPACE::detail::hashBytes(key.data(), key.size());
+    }
+};
+}  // namespace std
+
 #endif  // QTNG_TYPES_BYTES_H

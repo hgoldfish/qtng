@@ -394,6 +394,9 @@ string fromAce(const string &domain)
             result += label;
             continue;
         }
+        if (label.size() == 4) {
+            return string();  // "xn--" with an empty body is not an A-label
+        }
         vector<uint32_t> cps;
         if (!punycodeDecode(label.substr(4), cps)) {
             return string();  // invalid ACE

@@ -54,15 +54,18 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "qtng/msgpack.h"
 #include "qtng/types/bytes.h"
 #include "qtng/types/containers.h"
 #include "qtng/types/private/string_data.h"
 #include "qtng/types/text_codec.h"
+#include "qtng/utils/punycode.h"
 
 #include "qtng/config.h"
 QTNG_NAMESPACE_BEGIN
@@ -88,74 +91,15 @@ class StringList;
 
 namespace detail {
 
-// ---------------------------------------------------------------------------
-// UTF-8 primitives
-// ---------------------------------------------------------------------------
-//
-// These are deliberately tolerant instead of validating: a String may hold arbitrary
-// bytes, so a decoder that returned "error" would leave the caller with nowhere to go.
-// Malformed input is consumed one byte at a time (the byte itself becomes the code point),
-// which guarantees `1 <= consumed <= 4` and that the sum of consumed bytes equals the byte
-// length -- the invariant size() <= byteSize() depends on.
 
-// Decode the sequence starting at p (with `remaining` bytes available). Returns the number
-// of bytes consumed (>= 1) and writes the code point to *cp. Overlong forms, surrogate
-// code points, out-of-range values, bad continuation bytes and truncation all fall back to
-// "one byte, code point == that byte".
 inline std::uint32_t utf8Decode(const char *p, std::uint32_t remaining, std::uint32_t *cp)
 {
-    const unsigned char c0 = static_cast<unsigned char>(p[0]);
-    if (c0 < 0x80) {
-        *cp = c0;
-        return 1;
+    const std::uint32_t consumed = utf8DecodeStrict(p, remaining, cp);
+    if (consumed != 0) {
+        return consumed;
     }
-    std::uint32_t continuation;
-    std::uint32_t value;
-    if ((c0 & 0xE0) == 0xC0) {
-        continuation = 1;
-        value = c0 & 0x1F;
-    } else if ((c0 & 0xF0) == 0xE0) {
-        continuation = 2;
-        value = c0 & 0x0F;
-    } else if ((c0 & 0xF8) == 0xF0) {
-        continuation = 3;
-        value = c0 & 0x07;
-    } else {
-        *cp = c0;  // continuation byte or invalid lead byte
-        return 1;
-    }
-    if (continuation >= remaining) {
-        *cp = c0;  // truncated
-        return 1;
-    }
-    for (std::uint32_t i = 1; i <= continuation; ++i) {
-        const unsigned char cc = static_cast<unsigned char>(p[i]);
-        if ((cc & 0xC0) != 0x80) {
-            *cp = c0;  // bad continuation byte
-            return 1;
-        }
-        value = (value << 6) | (cc & 0x3F);
-    }
-    // Reject the same malformed forms the UTF-8 validator rejects, so a String that passed
-    // validation is counted exactly as it would be by a validating decoder.
-    if (value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {
-        *cp = c0;
-        return 1;
-    }
-    if (continuation == 1 && value < 0x80) {
-        *cp = c0;
-        return 1;
-    }
-    if (continuation == 2 && value < 0x800) {
-        *cp = c0;
-        return 1;
-    }
-    if (continuation == 3 && value < 0x10000) {
-        *cp = c0;
-        return 1;
-    }
-    *cp = value;
-    return continuation + 1;
+    *cp = static_cast<unsigned char>(p[0]);
+    return 1;
 }
 
 // Encode one code point as UTF-8, appending to `out`.
@@ -204,6 +148,49 @@ inline std::uint32_t utf8ByteOffset(const char *p, std::uint32_t bytes, std::uin
         ++index;
     }
     return i;
+}
+
+// Strict UTF-8 decode of a whole byte range into code points, using the validating decoder
+// from bytes.h (the tolerant utf8Decode() above is the wrong tool here). This is the IDNA
+// path's entry point: String::toAce() must not punycode-encode bytes that are not UTF-8.
+inline bool utf8DecodeAll(const char *p, std::uint32_t bytes, std::vector<std::uint32_t> *out)
+{
+    out->clear();
+    out->reserve(bytes);
+    std::uint32_t i = 0;
+    while (i < bytes) {
+        std::uint32_t cp = 0;
+        const std::uint32_t consumed = utf8DecodeStrict(p + i, bytes - i, &cp);
+        if (consumed == 0) {
+            return false;
+        }
+        out->push_back(cp);
+        i += consumed;
+    }
+    return true;
+}
+
+// True when the byte range is pure ASCII. A '.' separator or an "xn--" prefix is ASCII by
+// definition, so the IDNA label splitter tests this before paying for a decode.
+inline bool isAsciiBytes(const char *p, std::uint32_t bytes)
+{
+    for (std::uint32_t i = 0; i < bytes; ++i) {
+        if (static_cast<unsigned char>(p[i]) >= 0x80) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// True when the byte range starts with the ASCII ACE prefix "xn--" (compared case-folded,
+// as the IDNA spec does). The caller handles labels shorter than the prefix.
+inline bool hasAcePrefix(const char *p, std::uint32_t bytes)
+{
+    if (bytes < 4) {
+        return false;
+    }
+    return (p[0] == 'x' || p[0] == 'X') && (p[1] == 'n' || p[1] == 'N') && p[2] == '-'
+            && p[3] == '-';
 }
 
 // Whitespace as defined by QString::isSpace() for the common ranges (ASCII controls, NEL,
@@ -446,6 +433,10 @@ public:
     // Lexicographic comparison returning -1/0/1, like QString::compare(). With
     // CaseInsensitive, ASCII/Latin-1/Greek/Cyrillic letters are folded to lower case first.
     int compare(const String &other, CaseSensitivity cs = CaseSensitive) const;
+    bool equalsIgnoreCase(const String &other) const
+    {
+        return compare(other, CaseInsensitive) == 0;
+    }
 
 public:
     // -- transforms (each returns a new String) --
@@ -458,6 +449,17 @@ public:
     // This content repeated `times` times. A result longer than MaxLength yields empty
     // rather than wrapping and overrunning.
     String repeated(std::uint32_t times) const;
+
+public:
+    // Escape `& < > "` as HTML entities (QString::toHtmlEscaped()). Escapes at the byte
+    // level: every entity character is ASCII, and no byte of a multi-byte sequence can be.
+    String toHtmlEscaped() const;
+    // Minimal IDNA shell, like QUrl::toAce()/fromAce(): split on '.', pass ASCII labels
+    // through, punycode-encode/decode the rest behind an "xn--" prefix. No Nameprep (NFKC,
+    // case folding, Bidi/Joining checks), so callers normalize ASCII case themselves.
+    // Invalid UTF-8/ACE, or any empty label other than a single trailing dot, yields empty.
+    String toAce() const;
+    String fromAce() const;
 
 public:
     // -- split / join / numeric conversion --
@@ -608,6 +610,56 @@ public:
     StringList &replaceInStrings(const String &before, const String &after,
                                  CaseSensitivity cs = CaseSensitive);
 };
+
+// Percent expansion for text: the same %1..%9 / %% / %d / %s grammar as
+// utils::formatMessage (which stays the std::string entry point), but scanning this
+// String's UTF-8 bytes directly and appending the arguments' bytes as they are. Going
+// through utils would mean toUtf8String() on the pattern plus one on every argument, i.e.
+// a full copy of the whole message to gain nothing.
+//
+// The second parameter is a template constrained to StringList rather than a plain
+// `const StringList &` for a concrete reason: with a plain overload, the existing
+// formatMessage("...", {std::string, "literal"}) calls become ambiguous, because
+// examples/joker imports both namespaces and `const char *` converts to String and to
+// std::string equally well. The cost is that a braced String list cannot deduce Args
+// either, so callers write the argument out: StringList{...}.
+template<typename Args,
+         typename std::enable_if<std::is_same<Args, StringList>::value, int>::type = 0>
+inline String formatMessage(const String &pattern, const Args &args)
+{
+    std::string out;
+    out.reserve(pattern.byteSize());
+    const char *p = pattern.data();
+    const std::uint32_t bytes = pattern.byteSize();
+    std::uint32_t argIndex = 0;
+    for (std::uint32_t i = 0; i < bytes; ++i) {
+        if (p[i] != '%' || i + 1 >= bytes) {
+            out.push_back(p[i]);
+            continue;
+        }
+        const char marker = p[++i];
+        if (marker >= '1' && marker <= '9') {
+            const std::uint32_t index = static_cast<std::uint32_t>(marker - '1');
+            if (index < args.size()) {
+                const String &arg = args[static_cast<StringList::SizeType>(index)];
+                out.append(arg.data(), arg.byteSize());
+            }
+            continue;
+        }
+        if (marker == '%') {
+            out.push_back('%');
+            continue;
+        }
+        if ((marker == 'd' || marker == 's') && argIndex < args.size()) {
+            const String &arg = args[static_cast<StringList::SizeType>(argIndex++)];
+            out.append(arg.data(), arg.byteSize());
+            continue;
+        }
+        out.push_back('%');
+        out.push_back(marker);
+    }
+    return String(out);
+}
 
 // ---------------------------------------------------------------------------
 // Out-of-line implementations
@@ -912,6 +964,131 @@ inline String String::toUpper() const
             detail::utf8Encode(mapped, out);
         }
         i += adv;
+    }
+    return String(out);
+}
+
+inline String String::toHtmlEscaped() const
+{
+    const char *p = data();
+    const std::uint32_t bytes = byteSize();
+    std::string out;
+    out.reserve(bytes);
+    for (std::uint32_t i = 0; i < bytes; ++i) {
+        switch (p[i]) {
+        case '&':
+            out += "&amp;";
+            break;
+        case '<':
+            out += "&lt;";
+            break;
+        case '>':
+            out += "&gt;";
+            break;
+        case '"':
+            out += "&quot;";
+            break;
+        default:
+            out.push_back(p[i]);
+            break;
+        }
+    }
+    return String(out);
+}
+
+inline String String::toAce() const
+{
+    const char *p = data();
+    const std::uint32_t bytes = byteSize();
+    if (bytes == 0) {
+        return String();
+    }
+    std::string out;
+    out.reserve(bytes);
+    // Hoisted out of the loop: a multi-label domain would otherwise allocate a code point
+    // vector (and an encoding buffer) once per non-ASCII label. Both callees clear their
+    // output before filling it.
+    std::vector<std::uint32_t> cps;
+    std::string encoded;
+    std::uint32_t start = 0;
+    while (true) {
+        std::uint32_t end = start;
+        while (end < bytes && p[end] != '.') {
+            ++end;
+        }
+        const bool last = (end >= bytes);
+        const std::uint32_t len = end - start;
+        if (len == 0) {
+            if (!last) {
+                return String();  // "..example.org" and "example..org" are rejected
+            }
+            // A single trailing dot is tolerated: the separator was emitted after the
+            // previous label, so nothing is left to do.
+        } else if (detail::isAsciiBytes(p + start, len)) {
+            out.append(p + start, len);  // pass ASCII labels (including existing ACE) through
+        } else {
+            if (!detail::utf8DecodeAll(p + start, len, &cps)) {
+                return String();  // invalid UTF-8
+            }
+            if (!utils::punycodeEncode(cps, encoded)) {
+                return String();
+            }
+            out += "xn--";
+            out += encoded;
+        }
+        if (last) {
+            break;
+        }
+        out.push_back('.');
+        start = end + 1;
+    }
+    return String(out);
+}
+
+inline String String::fromAce() const
+{
+    const char *p = data();
+    const std::uint32_t bytes = byteSize();
+    if (bytes == 0) {
+        return String();
+    }
+    std::string out;
+    out.reserve(bytes);
+    // Hoisted for the same reason as in toAce(): one allocation for the whole domain.
+    std::vector<std::uint32_t> cps;
+    std::uint32_t start = 0;
+    while (true) {
+        std::uint32_t end = start;
+        while (end < bytes && p[end] != '.') {
+            ++end;
+        }
+        const bool last = (end >= bytes);
+        const std::uint32_t len = end - start;
+        if (len == 0) {
+            if (!last) {
+                return String();  // "..example.org" and "example..org" are rejected
+            }
+            // A single trailing dot is tolerated, exactly as in toAce().
+        } else if (!detail::hasAcePrefix(p + start, len)) {
+            out.append(p + start, len);
+        } else if (len == 4) {
+            // "xn--" with an empty body is not an A-label. Decoding it would yield no code
+            // points, i.e. an empty label in the output -- exactly what the check above
+            // refuses when it comes from the input.
+            return String();
+        } else {
+            if (!utils::punycodeDecode(std::string(p + start + 4, len - 4), cps)) {
+                return String();  // invalid ACE
+            }
+            for (std::uint32_t cp : cps) {
+                detail::utf8Encode(cp, out);
+            }
+        }
+        if (last) {
+            break;
+        }
+        out.push_back('.');
+        start = end + 1;
     }
     return String(out);
 }
@@ -1551,4 +1728,16 @@ inline MsgPackStream &operator>>(MsgPackStream &s, String &str)
 }
 
 QTNG_NAMESPACE_END
+
+namespace std {
+template<>
+struct hash<QTNG_NAMESPACE::String>
+{
+    std::size_t operator()(const QTNG_NAMESPACE::String &key) const noexcept
+    {
+        return QTNG_NAMESPACE::detail::hashBytes(key.data(), key.byteSize());
+    }
+};
+}  // namespace std
+
 #endif  // QTNG_TYPES_STRING_H
