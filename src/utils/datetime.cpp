@@ -106,7 +106,9 @@ void localtimeR(const time_t *timep, tm *result)
 
 int msecOf(const chrono::system_clock::time_point &tp)
 {
-    return static_cast<int>(chrono::duration_cast<chrono::milliseconds>(tp.time_since_epoch()).count() % 1000);
+    const int64_t msecs = chrono::duration_cast<chrono::milliseconds>(tp.time_since_epoch()).count();
+    const int64_t remainder = msecs % 1000;
+    return static_cast<int>(remainder < 0 ? remainder + 1000 : remainder);
 }
 
 int parseFixedDigits(const char *str, size_t size, size_t *pos, size_t count)
@@ -207,18 +209,14 @@ bool parseWithFormat(const char *data, size_t size, const string &format, Parsed
         }
         i += token->length;
     }
-    return pos == size;
+    // Both callers need a complete calendar date; a format without yyyy/MM/dd cannot produce one.
+    return pos == size && fields->year >= 0 && fields->month >= 0 && fields->day >= 0;
 }
 
-DateTime utcFromFields(const ParsedFields &fields)
+bool isValidTimeOfDay(int hour, int minute, int second, int msec)
 {
-    const Date date(fields.year, fields.month, fields.day);
-    if (!date.isValid()) {
-        return DateTime();
-    }
-    const DateTime dt = DateTime::fromUtc(fields.year, fields.month, fields.day, fields.hour, fields.minute,
-                                          fields.second, fields.msec);
-    return dt.isValid() ? dt : DateTime();
+    return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 && second >= 0 && second <= 59 && msec >= 0
+        && msec <= 999;
 }
 
 // Expand the supported components (yyyy/MM/dd/HH/mm/ss/zzz) of a Qt-style date format string.
@@ -285,7 +283,8 @@ Date::Date()
 
 Date::Date(int year, int month, int day)
 {
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
+    const int lastDayOfMonth = daysInMonth(year, month);
+    if (day < 1 || day > lastDayOfMonth) {
         jd = 0;
         return;
     }
@@ -307,9 +306,6 @@ Date Date::fromString(const char *str, size_t size, const string &format)
     }
     ParsedFields fields;
     if (!parseWithFormat(str, size, format, &fields)) {
-        return Date();
-    }
-    if (fields.year < 0 || fields.month < 0 || fields.day < 0) {
         return Date();
     }
     return Date(fields.year, fields.month, fields.day);
@@ -449,7 +445,7 @@ DateTime::DateTime(chrono::system_clock::time_point tp)
 
 DateTime::DateTime(const Date &localDate, int hour, int minute, int second, int msec)
 {
-    if (!localDate.isValid()) {
+    if (!localDate.isValid() || !isValidTimeOfDay(hour, minute, second, msec)) {
         tp = chrono::system_clock::time_point();
         valid = false;
         local = false;
@@ -497,6 +493,10 @@ DateTime DateTime::fromSecsSinceEpoch(int64_t secs)
 
 DateTime DateTime::fromUtc(int year, int month, int day, int hour, int minute, int second, int msec)
 {
+    // Reject impossible fields up front: timegm() would happily normalize them into another instant.
+    if (!Date(year, month, day).isValid() || !isValidTimeOfDay(hour, minute, second, msec)) {
+        return DateTime();
+    }
     tm utc {};
     utc.tm_year = year - 1900;
     utc.tm_mon = month - 1;
@@ -519,11 +519,11 @@ DateTime DateTime::fromString(const char *str, size_t size, const string &format
     }
     if (!format.empty()) {
         ParsedFields fields;
-        if (!parseWithFormat(str, size, format, &fields) || fields.year < 0 || fields.month < 0
-            || fields.day < 0) {
+        if (!parseWithFormat(str, size, format, &fields)) {
             return DateTime();
         }
-        return utcFromFields(fields);
+        return fromUtc(fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second,
+                       fields.msec);
     }
     if (size > 0 && str[size - 1] == 'Z') {
         --size;
@@ -570,7 +570,10 @@ DateTime DateTime::fromString(const char *str, size_t size, const string &format
             }
         }
     }
-    return utcFromFields(fields);
+    if (pos != size) {
+        return DateTime();
+    }
+    return fromUtc(fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second, fields.msec);
 }
 
 DateTime DateTime::addSecs(int64_t secs) const
@@ -611,10 +614,11 @@ DateTime DateTime::fromMSecsSinceEpoch(int64_t msecs)
 
 int64_t DateTime::toSecsSinceEpoch() const
 {
-    if (!valid) {
-        return 0;
-    }
-    return chrono::duration_cast<chrono::seconds>(tp.time_since_epoch()).count();
+    // Floor, not truncate: 1969-12-31T23:59:59.500 belongs to second -1, and both toString() and
+    // toMSecsSinceEpoch() must agree with it. Written without subtraction to stay clear of INT64_MIN.
+    const int64_t msecs = toMSecsSinceEpoch();
+    const int64_t secs = msecs / 1000;
+    return msecs % 1000 < 0 ? secs - 1 : secs;
 }
 
 int64_t DateTime::toMSecsSinceEpoch() const
