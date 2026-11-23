@@ -2,6 +2,7 @@
 #define QTNG_UTILS_DATETIME_H
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -20,7 +21,11 @@ public:
     Date(int year, int month, int day);
 
     static Date fromJulianDay(std::int64_t jd);
-    static Date fromString(const std::string &str, const std::string &format = "yyyy-MM-dd");
+    static Date fromString(const char *str, std::size_t size, const std::string &format = "yyyy-MM-dd");
+    inline static Date fromString(const std::string &str, const std::string &format = "yyyy-MM-dd")
+    {
+        return fromString(str.data(), str.size(), format);
+    }
     static Date currentDate();  // local calendar day
 
     bool isValid() const;

@@ -109,12 +109,12 @@ int msecOf(const chrono::system_clock::time_point &tp)
     return static_cast<int>(chrono::duration_cast<chrono::milliseconds>(tp.time_since_epoch()).count() % 1000);
 }
 
-int parseFixedDigits(const string &str, size_t *pos, size_t count)
+int parseFixedDigits(const char *str, size_t size, size_t *pos, size_t count)
 {
     int value = 0;
     for (size_t i = 0; i < count; ++i) {
         const size_t at = *pos + i;
-        if (at >= str.size() || str[at] < '0' || str[at] > '9') {
+        if (at >= size || str[at] < '0' || str[at] > '9') {
             return -1;
         }
         value = value * 10 + (str[at] - '0');
@@ -219,21 +219,24 @@ Date Date::fromJulianDay(int64_t julianDay)
     return d;
 }
 
-Date Date::fromString(const string &str, const string &format)
+Date Date::fromString(const char *str, size_t size, const string &format)
 {
+    if (!str) {
+        return Date();
+    }
     if (format == "yyyy-MM-dd") {
         size_t pos = 0;
-        const int y = parseFixedDigits(str, &pos, 4);
-        if (y < 0 || pos >= str.size() || str[pos] != '-') {
+        const int y = parseFixedDigits(str, size, &pos, 4);
+        if (y < 0 || pos >= size || str[pos] != '-') {
             return Date();
         }
         ++pos;
-        const int m = parseFixedDigits(str, &pos, 2);
-        if (m < 0 || pos >= str.size() || str[pos] != '-') {
+        const int m = parseFixedDigits(str, size, &pos, 2);
+        if (m < 0 || pos >= size || str[pos] != '-') {
             return Date();
         }
         ++pos;
-        const int d = parseFixedDigits(str, &pos, 2);
+        const int d = parseFixedDigits(str, size, &pos, 2);
         if (d < 0) {
             return Date();
         }
@@ -441,25 +444,23 @@ DateTime DateTime::fromUtc(int year, int month, int day, int hour, int minute, i
 
 DateTime DateTime::fromString(const string &str)
 {
-    if (str.empty()) {
-        return DateTime();
-    }
-    string body = str;
-    if (!body.empty() && body[body.size() - 1] == 'Z') {
-        body = body.substr(0, body.size() - 1);
+    const char *data = str.data();
+    size_t size = str.size();
+    if (size > 0 && data[size - 1] == 'Z') {
+        --size;
     }
     size_t pos = 0;
-    const int y = parseFixedDigits(body, &pos, 4);
-    if (y < 0 || pos >= body.size() || body[pos] != '-') {
+    const int y = parseFixedDigits(data, size, &pos, 4);
+    if (y < 0 || pos >= size || data[pos] != '-') {
         return DateTime();
     }
     ++pos;
-    const int m = parseFixedDigits(body, &pos, 2);
-    if (m < 0 || pos >= body.size() || body[pos] != '-') {
+    const int m = parseFixedDigits(data, size, &pos, 2);
+    if (m < 0 || pos >= size || data[pos] != '-') {
         return DateTime();
     }
     ++pos;
-    const int d = parseFixedDigits(body, &pos, 2);
+    const int d = parseFixedDigits(data, size, &pos, 2);
     if (d < 0) {
         return DateTime();
     }
@@ -467,31 +468,29 @@ DateTime DateTime::fromString(const string &str)
     int minute = 0;
     int second = 0;
     int msec = 0;
-    if (pos < body.size()) {
-        if (body[pos] == 'T' || body[pos] == ' ') {
+    if (pos < size && (data[pos] == 'T' || data[pos] == ' ')) {
+        ++pos;
+        hour = parseFixedDigits(data, size, &pos, 2);
+        if (hour < 0 || pos >= size || data[pos] != ':') {
+            return DateTime();
+        }
+        ++pos;
+        minute = parseFixedDigits(data, size, &pos, 2);
+        if (minute < 0) {
+            return DateTime();
+        }
+        if (pos < size && data[pos] == ':') {
             ++pos;
-            hour = parseFixedDigits(body, &pos, 2);
-            if (hour < 0 || pos >= body.size() || body[pos] != ':') {
+            second = parseFixedDigits(data, size, &pos, 2);
+            if (second < 0) {
                 return DateTime();
             }
+        }
+        if (pos < size && data[pos] == '.') {
             ++pos;
-            minute = parseFixedDigits(body, &pos, 2);
-            if (minute < 0) {
+            msec = parseFixedDigits(data, size, &pos, 3);
+            if (msec < 0) {
                 return DateTime();
-            }
-            if (pos < body.size() && body[pos] == ':') {
-                ++pos;
-                second = parseFixedDigits(body, &pos, 2);
-                if (second < 0) {
-                    return DateTime();
-                }
-            }
-            if (pos < body.size() && body[pos] == '.') {
-                ++pos;
-                msec = parseFixedDigits(body, &pos, 3);
-                if (msec < 0) {
-                    return DateTime();
-                }
             }
         }
     }
