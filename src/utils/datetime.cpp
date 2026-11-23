@@ -15,37 +15,6 @@ namespace utils {
 
 namespace {
 
-#if defined(NG_OS_WIN)
-// XP's msvcrt.dll does not export _mkgmtime / _mkgmtime32 / _mkgmtime64.
-// Use a portable UTC mktime instead of the MSVCRT helpers.
-time_t timegmUtc(tm *utc)
-{
-    static const int kDaysBeforeMonth[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
-    if (!utc || utc->tm_mon < 0 || utc->tm_mon > 11) {
-        return static_cast<time_t>(-1);
-    }
-    const int year = utc->tm_year + 1900;
-    int64_t days = 0;
-    if (year >= 1970) {
-        for (int y = 1970; y < year; ++y) {
-            days += Date::isLeapYear(y) ? 366 : 365;
-        }
-    } else {
-        for (int y = year; y < 1970; ++y) {
-            days -= Date::isLeapYear(y) ? 366 : 365;
-        }
-    }
-    days += kDaysBeforeMonth[utc->tm_mon];
-    if (utc->tm_mon > 1 && Date::isLeapYear(year)) {
-        days += 1;
-    }
-    days += utc->tm_mday - 1;
-    const int64_t secs = days * 86400LL + static_cast<int64_t>(utc->tm_hour) * 3600LL
-        + static_cast<int64_t>(utc->tm_min) * 60LL + static_cast<int64_t>(utc->tm_sec);
-    return static_cast<time_t>(secs);
-}
-#endif
-
 // Julian Day Number corresponding to 1970-01-01.
 const int64_t kJulianDayOfUnixEpoch = 2440588;
 
@@ -75,15 +44,6 @@ void civilFromDays(int64_t z, int *year, unsigned *month, unsigned *day)
     *year = static_cast<int>(y + (m <= 2));
     *month = m;
     *day = d;
-}
-
-time_t localTimegm(tm *utc)
-{
-#if defined(NG_OS_WIN)
-    return timegmUtc(utc);
-#else
-    return timegm(utc);
-#endif
 }
 
 void gmtimeR(const time_t *timep, tm *result)
@@ -459,12 +419,20 @@ DateTime::DateTime(const Date &localDate, int hour, int minute, int second, int 
     localTm.tm_min = minute;
     localTm.tm_sec = second;
     localTm.tm_isdst = -1;
-    time_t secs = mktime(&localTm);
+    const time_t secs = mktime(&localTm);
     if (secs == static_cast<time_t>(-1)) {
-        tp = chrono::system_clock::time_point();
-        valid = false;
-        local = false;
-        return;
+        // -1 is both mktime's error code and the legitimate local time 1969-12-31T23:59:59; a round trip
+        // through localtime_r() is the only way to tell them apart.
+        tm back {};
+        localtimeR(&secs, &back);
+        if (back.tm_year != localDate.year() - 1900 || back.tm_mon != localDate.month() - 1
+            || back.tm_mday != localDate.day() || back.tm_hour != hour || back.tm_min != minute
+            || back.tm_sec != second) {
+            tp = chrono::system_clock::time_point();
+            valid = false;
+            local = false;
+            return;
+        }
     }
     tp = chrono::system_clock::time_point(chrono::seconds(secs) + chrono::milliseconds(msec));
     valid = true;
@@ -493,22 +461,15 @@ DateTime DateTime::fromSecsSinceEpoch(int64_t secs)
 
 DateTime DateTime::fromUtc(int year, int month, int day, int hour, int minute, int second, int msec)
 {
-    // Reject impossible fields up front: timegm() would happily normalize them into another instant.
-    if (!Date(year, month, day).isValid() || !isValidTimeOfDay(hour, minute, second, msec)) {
+    const Date date(year, month, day);
+    if (!date.isValid() || !isValidTimeOfDay(hour, minute, second, msec)) {
         return DateTime();
     }
-    tm utc {};
-    utc.tm_year = year - 1900;
-    utc.tm_mon = month - 1;
-    utc.tm_mday = day;
-    utc.tm_hour = hour;
-    utc.tm_min = minute;
-    utc.tm_sec = second;
-    utc.tm_isdst = 0;
-    const time_t secs = localTimegm(&utc);
-    if (secs == static_cast<time_t>(-1)) {
-        return DateTime();
-    }
+    // Pure arithmetic on the Julian day the Date already holds. Going through timegm() here would be both
+    // normalizing and ambiguous: it reports failure with -1, which is also the legitimate instant
+    // 1969-12-31T23:59:59Z, and on 32-bit time_t it cannot represent dates past 2038 at all.
+    const int64_t secs = (date.toJulianDay() - kJulianDayOfUnixEpoch) * 86400 + hour * 3600 + minute * 60
+        + second;
     return DateTime(chrono::system_clock::time_point(chrono::seconds(secs) + chrono::milliseconds(msec)));
 }
 
