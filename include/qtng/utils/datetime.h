@@ -14,6 +14,8 @@ class DateTime;
 
 // Day-resolution calendar type with semantics aligned with QDate: internally stores a Julian Day Number,
 // with an invalid date represented by jd == 0. All operations are pure calendar arithmetic, timezone-free.
+// jd == 0 doubles as the lower bound, so the representable calendar starts at 4713-11-25 BC (jd 1); that
+// keeps isValid() monotone instead of leaving one unrepresentable day inside a continuous range.
 class Date
 {
 public:
@@ -29,6 +31,8 @@ public:
     static Date currentDate();  // local calendar day
 
     bool isValid() const;
+    // An invalid Date reports 0 for all three components, mirroring QDate, rather than leaking the
+    // decomposition of the jd == 0 sentinel.
     int year() const;
     int month() const;
     int day() const;

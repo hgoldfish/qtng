@@ -29,8 +29,15 @@ int64_t daysFromCivil(int y, unsigned m, unsigned d)
     return era * 146097 + static_cast<int64_t>(doe) - 719468;
 }
 
+struct CivilDate
+{
+    int year;
+    int month;
+    int day;
+};
+
 // Convert days since the epoch back to a civil date (Howard Hinnant's algorithm).
-void civilFromDays(int64_t z, int *year, unsigned *month, unsigned *day)
+CivilDate civilFromDays(int64_t z)
 {
     z += 719468;
     const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
@@ -41,9 +48,11 @@ void civilFromDays(int64_t z, int *year, unsigned *month, unsigned *day)
     const unsigned mp = (5 * doy + 2) / 153;
     const unsigned d = doy - (153 * mp + 2) / 5 + 1;
     const unsigned m = mp < 10 ? mp + 3 : mp - 9;
-    *year = static_cast<int>(y + (m <= 2));
-    *month = m;
-    *day = d;
+    CivilDate out {};
+    out.year = static_cast<int>(y + (m <= 2));
+    out.month = static_cast<int>(m);
+    out.day = static_cast<int>(d);
+    return out;
 }
 
 void gmtimeR(const time_t *timep, tm *result)
@@ -249,13 +258,17 @@ Date::Date(int year, int month, int day)
         return;
     }
     const int64_t days = daysFromCivil(year, static_cast<unsigned>(month), static_cast<unsigned>(day));
-    jd = days + kJulianDayOfUnixEpoch;
+    // jd == 0 is the invalid marker, so the representable calendar starts at jd 1 (-4713-11-25). Without this
+    // clamp that single day would be a hole in the middle of an otherwise continuous range, and addDays()
+    // stepping onto it would poison every following call.
+    const int64_t julianDay = days + kJulianDayOfUnixEpoch;
+    jd = julianDay >= 1 ? julianDay : 0;
 }
 
 Date Date::fromJulianDay(int64_t julianDay)
 {
     Date d;
-    d.jd = julianDay;
+    d.jd = julianDay >= 1 ? julianDay : 0;
     return d;
 }
 
@@ -286,29 +299,18 @@ bool Date::isValid() const
 
 int Date::year() const
 {
-    int y = 0;
-    unsigned m = 0;
-    unsigned d = 0;
-    civilFromDays(jd - kJulianDayOfUnixEpoch, &y, &m, &d);
-    return y;
+    // An invalid Date must not leak the decomposition of the jd == 0 sentinel as if it were a real date.
+    return isValid() ? civilFromDays(jd - kJulianDayOfUnixEpoch).year : 0;
 }
 
 int Date::month() const
 {
-    int y = 0;
-    unsigned m = 0;
-    unsigned d = 0;
-    civilFromDays(jd - kJulianDayOfUnixEpoch, &y, &m, &d);
-    return static_cast<int>(m);
+    return isValid() ? civilFromDays(jd - kJulianDayOfUnixEpoch).month : 0;
 }
 
 int Date::day() const
 {
-    int y = 0;
-    unsigned m = 0;
-    unsigned d = 0;
-    civilFromDays(jd - kJulianDayOfUnixEpoch, &y, &m, &d);
-    return static_cast<int>(d);
+    return isValid() ? civilFromDays(jd - kJulianDayOfUnixEpoch).day : 0;
 }
 
 int Date::dayOfWeek() const
@@ -386,6 +388,10 @@ Date Date::addDays(int days) const
 
 int64_t Date::daysTo(const Date &other) const
 {
+    // Same contract as DateTime::secsTo(): an invalid operand yields 0 instead of arithmetic on the sentinel.
+    if (!isValid() || !other.isValid()) {
+        return 0;
+    }
     return other.jd - jd;
 }
 
