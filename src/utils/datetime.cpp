@@ -351,14 +351,17 @@ int Date::weekNumber(int *yearNumber) const
     if (!isValid()) {
         return 0;
     }
-    // The ISO-8601 week number and year are determined by the Thursday of that week: use the year of the
-    // week's Thursday.
-    const Date thursday = addDays(4 - dayOfWeek());
+    // The ISO-8601 week number and year are determined by the Thursday of that week.
+    const int64_t thursday = jd + 4 - dayOfWeek();
+    const int isoYear = civilFromDays(thursday - kJulianDayOfUnixEpoch).year;
     if (yearNumber) {
-        *yearNumber = thursday.year();
+        *yearNumber = isoYear;
     }
-    const Date firstDay(thursday.year(), 1, 1);
-    return static_cast<int>(firstDay.daysTo(thursday) / 7 + 1);
+    // Stay in Julian days instead of building Date(isoYear, 1, 1): that date falls before the representable
+    // lower bound for the earliest weeks, and clamping it to invalid made daysTo() return 0, which reported
+    // every week of 4713 BC as week 1.
+    const int64_t jan1 = daysFromCivil(isoYear, 1, 1) + kJulianDayOfUnixEpoch;
+    return static_cast<int>((thursday - jan1) / 7 + 1);
 }
 
 int64_t Date::toJulianDay() const

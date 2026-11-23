@@ -46,10 +46,10 @@ public:
     // (which may differ from the calendar year at the start/end of the year). Mirrors QDate::weekNumber(int *yearNumber).
     int weekNumber(int *yearNumber = nullptr) const;
 
-    std::int64_t toJulianDay() const;
+    std::int64_t toJulianDay() const;  // 0 for an invalid date, mirroring QDate
     std::string toString(const std::string &format = "yyyy-MM-dd") const;
     Date addDays(int days) const;
-    std::int64_t daysTo(const Date &other) const;
+    std::int64_t daysTo(const Date &other) const;  // 0 if either side is invalid, like DateTime::secsTo()
 
     bool operator==(const Date &other) const { return jd == other.jd; }
     bool operator!=(const Date &other) const { return jd != other.jd; }
