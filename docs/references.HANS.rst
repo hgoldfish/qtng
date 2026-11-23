@@ -4805,6 +4805,21 @@ qtng 在网络代码中用到的两个字节缓冲区都位于命名空间 ``qtn
 两者都不保证 NUL 结尾,也没有 ``c_str()``;内容可以包含 ``'\0'``,只有
 ``size()``/``byteSize()`` 定义长度。
 
+所有值类型都支持 ``std::ostream`` 输出,因此可以直接交给 qtng 的日志辅助函数:
+
+.. code-block:: c++
+
+    qtng::String name = "qtng";
+    qtng::Vector<int> ids{2, 1};
+    ngDebug() << "name:" << name << "ids:" << ids;
+
+``String``、``ByteArray`` 与 ``StringBuilder`` 按原样写出字节(不加引号、不做转义,
+与 ``std::string`` 一致)。顺序容器输出为 ``[a, b]``,集合为 ``{a, b}``,映射为
+``{key: value, ...}``;每个元素都调用自身的 ``operator<<``,因此嵌套类型可用。
+``StringConcat``(``a + b`` 的类型)会先物化为 ``String`` 再输出;
+``CaseSensitivity`` / ``CodecError`` / ``CodecStatus`` 输出枚举名。这些运算符都定义在
+类型头里,包含对应类型即可使用。
+
 .. code-block:: c++
 
     qtng::String s = "héllo";                        // 5 个 code point,6 字节

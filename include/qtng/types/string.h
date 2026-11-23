@@ -55,6 +55,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -1725,6 +1726,16 @@ inline MsgPackStream &operator>>(MsgPackStream &s, String &str)
     // On failure readString() leaves tmp untouched and sets ReadCorruptData; leave the
     // caller's String alone rather than clobbering it with a half-read value.
     return s;
+}
+
+inline std::ostream &operator<<(std::ostream &os, const String &str)
+{
+    return os.write(str.data(), static_cast<std::streamsize>(str.byteSize()));
+}
+
+inline std::ostream &operator<<(std::ostream &os, CaseSensitivity cs)
+{
+    return os << (cs == CaseInsensitive ? "CaseInsensitive" : "CaseSensitive");
 }
 
 QTNG_NAMESPACE_END

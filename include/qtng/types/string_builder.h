@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <ostream>
 #include <string>
 #include <type_traits>
 
@@ -107,6 +108,11 @@ private:
     std::uint32_t len;
     std::uint32_t capacity;
 };
+
+inline std::ostream &operator<<(std::ostream &os, const StringBuilder &builder)
+{
+    return os.write(builder.data(), static_cast<std::streamsize>(builder.size()));
+}
 
 QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_STRING_BUILDER_H

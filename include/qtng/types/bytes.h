@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -814,6 +815,11 @@ inline double ByteArray::toDouble(bool *ok) const
 inline float ByteArray::toFloat(bool *ok) const
 {
     return static_cast<float>(toDouble(ok));
+}
+
+inline std::ostream &operator<<(std::ostream &os, const ByteArray &bytes)
+{
+    return os.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
 // ---------------------------------------------------------------------------

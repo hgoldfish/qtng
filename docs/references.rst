@@ -5289,6 +5289,24 @@ from a bare ``std::string``. The operators are declared in the type headers
 Neither guarantees NUL termination, and neither has ``c_str()``; the content may
 contain ``'\0'``, so only ``size()``/``byteSize()`` define the length.
 
+All value types also stream to ``std::ostream``, so the qtng logging helpers
+accept them directly:
+
+.. code-block:: c++
+
+    qtng::String name = "qtng";
+    qtng::Vector<int> ids{2, 1};
+    ngDebug() << "name:" << name << "ids:" << ids;
+
+``String``, ``ByteArray`` and ``StringBuilder`` write their bytes as-is (no
+quoting or escaping, like ``std::string``). The sequence containers print as
+``[a, b]``, sets as ``{a, b}`` and maps as ``{key: value, ...}``; each element
+is formatted with its own ``operator<<``, so nested values work. ``StringConcat``
+(the type of ``a + b``) materializes and prints as a ``String``, and
+``CaseSensitivity`` / ``CodecError`` / ``CodecStatus`` print their enumerator
+names. The operators are defined in the type headers, so including the type is
+all it takes.
+
 .. code-block:: c++
 
     qtng::String s = "héllo";                        // 5 code points, 6 bytes

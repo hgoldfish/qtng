@@ -60,6 +60,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <set>
 #include <type_traits>
 #include <unordered_map>
@@ -1323,6 +1324,82 @@ public:
 };
 
 #undef QTNG_COW_PLUMBING
+
+namespace detail {
+
+template<typename Container>
+inline std::ostream &streamSequence(std::ostream &os, const Container &container, char open, char close)
+{
+    os << open;
+    bool first = true;
+    for (typename Container::const_iterator it = container.begin(); it != container.end(); ++it) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+        os << *it;
+    }
+    return os << close;
+}
+
+template<typename Container>
+inline std::ostream &streamMap(std::ostream &os, const Container &container)
+{
+    os << '{';
+    bool first = true;
+    for (typename Container::const_iterator it = container.begin(); it != container.end(); ++it) {
+        if (!first) {
+            os << ", ";
+        }
+        first = false;
+        os << it->first << ": " << it->second;
+    }
+    return os << '}';
+}
+
+}  // namespace detail
+
+template<typename T, typename Alloc>
+inline std::ostream &operator<<(std::ostream &os, const Vector<T, Alloc> &v)
+{
+    return detail::streamSequence(os, v.get(), '[', ']');
+}
+
+template<typename T, typename Alloc>
+inline std::ostream &operator<<(std::ostream &os, const Deque<T, Alloc> &v)
+{
+    return detail::streamSequence(os, v.get(), '[', ']');
+}
+
+template<typename T, typename Alloc>
+inline std::ostream &operator<<(std::ostream &os, const List<T, Alloc> &v)
+{
+    return detail::streamSequence(os, v.get(), '[', ']');
+}
+
+template<typename K, typename V, typename Compare, typename Alloc>
+inline std::ostream &operator<<(std::ostream &os, const Map<K, V, Compare, Alloc> &m)
+{
+    return detail::streamMap(os, m.get());
+}
+
+template<typename K, typename Compare, typename Alloc>
+inline std::ostream &operator<<(std::ostream &os, const Set<K, Compare, Alloc> &s)
+{
+    return detail::streamSequence(os, s.get(), '{', '}');
+}
+
+template<typename K, typename V, typename Hash, typename Equal, typename Alloc>
+inline std::ostream &operator<<(std::ostream &os, const UnorderedMap<K, V, Hash, Equal, Alloc> &m)
+{
+    return detail::streamMap(os, m.get());
+}
+
+template<typename K, typename Hash, typename Equal, typename Alloc>
+inline std::ostream &operator<<(std::ostream &os, const UnorderedSet<K, Hash, Equal, Alloc> &s)
+{
+    return detail::streamSequence(os, s.get(), '{', '}');
+}
 
 QTNG_NAMESPACE_END
 #endif  // QTNG_TYPES_CONTAINERS_H
