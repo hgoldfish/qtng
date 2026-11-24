@@ -12,10 +12,10 @@ namespace QTNETWORKNG_NAMESPACE {
 class HttpProxyPrivate
 {
 public:
-    qtng_core::HttpProxy core;
+    QTNG_NAMESPACE::HttpProxy core;
 
-    static qtng_core::HttpProxy *coreOf(HttpProxy *proxy) { return proxy ? &proxy->d_ptr->core : nullptr; }
-    static const qtng_core::HttpProxy *coreOf(const HttpProxy *proxy) { return proxy ? &proxy->d_ptr->core : nullptr; }
+    static QTNG_NAMESPACE::HttpProxy *coreOf(HttpProxy *proxy) { return proxy ? &proxy->d_ptr->core : nullptr; }
+    static const QTNG_NAMESPACE::HttpProxy *coreOf(const HttpProxy *proxy) { return proxy ? &proxy->d_ptr->core : nullptr; }
 };
 
 HttpProxy::HttpProxy()
@@ -26,7 +26,7 @@ HttpProxy::HttpProxy()
 HttpProxy::HttpProxy(const QString &hostName, quint16 port, const QString &user, const QString &password)
     : d_ptr(new HttpProxyPrivate)
 {
-    d_ptr->core = qtng_core::HttpProxy(toStdString(hostName), port, toStdString(user), toStdString(password));
+    d_ptr->core = QTNG_NAMESPACE::HttpProxy(toStdString(hostName), port, toStdString(user), toStdString(password));
 }
 
 HttpProxy::HttpProxy(const HttpProxy &other)
@@ -140,12 +140,12 @@ QSharedPointer<HttpProxy> SimpleProxySwitcher::selectHttpProxy(const QUrl &url)
 
 namespace qtng_bridge {
 
-qtng_core::HttpProxy *httpProxyCoreOf(QTNETWORKNG_NAMESPACE::HttpProxy *proxy)
+QTNG_NAMESPACE::HttpProxy *httpProxyCoreOf(QTNETWORKNG_NAMESPACE::HttpProxy *proxy)
 {
     return QTNETWORKNG_NAMESPACE::HttpProxyPrivate::coreOf(proxy);
 }
 
-const qtng_core::HttpProxy *httpProxyCoreOf(const QTNETWORKNG_NAMESPACE::HttpProxy *proxy)
+const QTNG_NAMESPACE::HttpProxy *httpProxyCoreOf(const QTNETWORKNG_NAMESPACE::HttpProxy *proxy)
 {
     return QTNETWORKNG_NAMESPACE::HttpProxyPrivate::coreOf(proxy);
 }

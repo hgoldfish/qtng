@@ -13,7 +13,7 @@ namespace qtng_bridge {
 // Wrap a core WebSocketConnection (already handshaken by core::HttpSession::ws())
 // into a Qt binding WebSocketConnection. Returns null for a null core.
 QSharedPointer<QTNETWORKNG_NAMESPACE::WebSocketConnection>
-webSocketConnectionFromCore(std::shared_ptr<qtng_core::WebSocketConnection> core);
+webSocketConnectionFromCore(std::shared_ptr<QTNG_NAMESPACE::WebSocketConnection> core);
 
 }  // namespace qtng_bridge
 

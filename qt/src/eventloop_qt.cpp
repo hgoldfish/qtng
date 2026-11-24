@@ -22,7 +22,7 @@ using namespace qtng_bridge;
 // Ported from qtnetworkng 1.0 (eventloop_qt.cpp). This backend lets the core coroutine scheduler
 // run on the Qt event loop: io readiness is watched with QSocketNotifier and timers with
 // QObject::startTimer(), so QCoreApplication::exec() drives all spawned coroutines.
-namespace qtng_core {
+namespace QTNG_NAMESPACE {
 
 namespace {
 
@@ -359,17 +359,17 @@ QtEventLoopCoroutine::QtEventLoopCoroutine()
     setObjectName("qt_eventloop_coroutine");
 }
 
-}  // namespace qtng_core
+}  // namespace QTNG_NAMESPACE
 
 namespace {
 
-std::shared_ptr<qtng_core::EventLoopCoroutine> createQtCoreLoop()
+std::shared_ptr<QTNG_NAMESPACE::EventLoopCoroutine> createQtCoreLoop()
 {
     // The Qt backend needs a QCoreApplication and must run on the thread that owns it
     // (QSocketNotifier/QTimer are QObjects bound to the GUI thread).
     QCoreApplication *app = QCoreApplication::instance();
     if (app && app->thread() == QThread::currentThread()) {
-        return std::shared_ptr<qtng_core::EventLoopCoroutine>(new qtng_core::QtEventLoopCoroutine());
+        return std::shared_ptr<QTNG_NAMESPACE::EventLoopCoroutine>(new QTNG_NAMESPACE::QtEventLoopCoroutine());
     }
     return nullptr;
 }
@@ -380,9 +380,9 @@ struct QtLoopFactoryAutoRegister
     {
         // Default backend (no useEventloop() call): the GUI thread gets a Qt event loop
         // automatically, so coroutines are driven by QCoreApplication::exec() without extra setup.
-        qtng_core::setEventLoopFactory(createQtCoreLoop);
+        QTNG_NAMESPACE::setEventLoopFactory(createQtCoreLoop);
         // Explicit qtng::useEventloop(EventLoopQt) / qtng::useQtEventloop().
-        qtng_core::registerEventLoop(qtng_core::EventLoopType::Qt, createQtCoreLoop);
+        QTNG_NAMESPACE::registerEventLoop(QTNG_NAMESPACE::EventLoopType::Qt, createQtCoreLoop);
     }
 };
 
@@ -394,12 +394,12 @@ namespace QTNETWORKNG_NAMESPACE {
 
 void useQtEventloop()
 {
-    qtng_core::useEventloop(qtng_core::EventLoopType::Qt);
+    QTNG_NAMESPACE::useEventloop(QTNG_NAMESPACE::EventLoopType::Qt);
 }
 
 void useEventloop(EventLoopType type)
 {
-    qtng_core::useEventloop(static_cast<qtng_core::EventLoopType>(type));
+    QTNG_NAMESPACE::useEventloop(static_cast<QTNG_NAMESPACE::EventLoopType>(type));
 }
 
 int startQtLoop()
@@ -409,12 +409,12 @@ int startQtLoop()
     }
 
     // Run the coroutine scheduler on the Qt event loop: make sure the current core loop is the
-    // Qt-backed one (qtng_core::QtEventLoopCoroutine). Normally the factory registered below
+    // Qt-backed one (QTNG_NAMESPACE::QtEventLoopCoroutine). Normally the factory registered below
     // already created it on first use on the GUI thread; if a libev/Win loop was created
     // beforehand (e.g. qtng::useEventloop(Ev) or coroutines were first used on a non-GUI thread),
     // there is no Qt loop to run here.
-    qtng_core::EventLoopCoroutine *coreLoop = qtng_core::EventLoopCoroutine::get();
-    qtng_core::QtEventLoopCoroutine *qtLoop = dynamic_cast<qtng_core::QtEventLoopCoroutine *>(coreLoop);
+    QTNG_NAMESPACE::EventLoopCoroutine *coreLoop = QTNG_NAMESPACE::EventLoopCoroutine::get();
+    QTNG_NAMESPACE::QtEventLoopCoroutine *qtLoop = dynamic_cast<QTNG_NAMESPACE::QtEventLoopCoroutine *>(coreLoop);
     if (!qtLoop) {
         qWarning() << "startQtLoop: current event loop is not the Qt backend. "
                       "qtng::useEventloop(Ev) was called, coroutines were used before startQtLoop() "
@@ -422,8 +422,8 @@ int startQtLoop()
         return -1;
     }
 
-    qtng_core::QtEventLoopCoroutinePrivate *priv = qtng_core::QtEventLoopCoroutinePrivate::getPrivateHelper(qtLoop);
-    priv->loopCoroutine = qtng_core::BaseCoroutine::current();
+    QTNG_NAMESPACE::QtEventLoopCoroutinePrivate *priv = QTNG_NAMESPACE::QtEventLoopCoroutinePrivate::getPrivateHelper(qtLoop);
+    priv->loopCoroutine = QTNG_NAMESPACE::BaseCoroutine::current();
     const int result = QCoreApplication::instance()->exec();
     QCoreApplication::instance()->processEvents();
     priv->loopCoroutine = nullptr;

@@ -53,7 +53,7 @@ public:
     {
     }
 
-    qtng_core::CoroutineThread core;
+    QTNG_NAMESPACE::CoroutineThread core;
 };
 
 CoroutineThread::CoroutineThread(quint32 capacity)
@@ -84,8 +84,8 @@ bool qtEventLoopIsRunning()
     // The current thread's core loop is Qt-backed if and only if a Qt event loop (the one driven
     // by startQtLoop()) is scheduling coroutines here. Use the non-creating accessor: this
     // predicate must not allocate an event loop just to answer "is it running?".
-    const std::shared_ptr<qtng_core::EventLoopCoroutine> core = qtng_core::currentLoop()->get();
-    return core && dynamic_cast<qtng_core::QtEventLoopCoroutine *>(core.get()) != nullptr;
+    const std::shared_ptr<QTNG_NAMESPACE::EventLoopCoroutine> core = QTNG_NAMESPACE::currentLoop()->get();
+    return core && dynamic_cast<QTNG_NAMESPACE::QtEventLoopCoroutine *>(core.get()) != nullptr;
 }
 
 struct DisconnectGuard {
@@ -119,7 +119,7 @@ bool waitThread(QThread *thread)
         }
         return event->tryWait();
     }
-    return qtng_core::callInThread<bool>([thread]() { return thread->wait(); });
+    return QTNG_NAMESPACE::callInThread<bool>([thread]() { return thread->wait(); });
 }
 
 bool waitProcess(QProcess *process)
@@ -129,7 +129,7 @@ bool waitProcess(QProcess *process)
     }
     if (!qtEventLoopIsRunning()) {
         // QProcess does not observe child exit unless a Qt loop is pumping.
-        return qtng_core::waitProcessPid(process->processId());
+        return QTNG_NAMESPACE::waitProcessPid(process->processId());
     }
     if (process->state() == QProcess::NotRunning) {
         return true;

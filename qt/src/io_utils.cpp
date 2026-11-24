@@ -64,7 +64,7 @@ QSharedPointer<FileLike> FileLike::rawFile(QSharedPointer<QFile> f)
 
 QSharedPointer<FileLike> FileLike::open(const QString &filepath, const QString &mode)
 {
-    return toQtFileLike(qtng_core::FileLike::open(toStdString(filepath), toStdString(mode)));
+    return toQtFileLike(QTNG_NAMESPACE::FileLike::open(toStdString(filepath), toStdString(mode)));
 }
 
 QSharedPointer<FileLike> FileLike::bytes(const QByteArray &data)
@@ -292,7 +292,7 @@ QByteArray BytesIO::data()
 bool sendfile(QSharedPointer<FileLike> inputFile, QSharedPointer<FileLike> outputFile, qint64 bytesToCopy,
               int suitableBlockSize)
 {
-    return qtng_core::sendfile(toCoreFileLike(inputFile), toCoreFileLike(outputFile), bytesToCopy, suitableBlockSize);
+    return QTNG_NAMESPACE::sendfile(toCoreFileLike(inputFile), toCoreFileLike(outputFile), bytesToCopy, suitableBlockSize);
 }
 
 class PipePrivate
@@ -335,7 +335,7 @@ public:
     }
 public:
     Pipe * const q_ptr;
-    qtng_core::ThreadQueue<QByteArray> queue;
+    QTNG_NAMESPACE::ThreadQueue<QByteArray> queue;
     QAtomicInteger<bool> closed;
     const qint32 maxBufferSize;
     QAtomicInteger<qint8> debugLevel;
@@ -847,7 +847,7 @@ QSharedPointer<QIODevice> Pipe::deviceToWrite(bool connectSignals, bool takePipe
 class PosixPathPrivate : public QSharedData
 {
 public:
-    qtng_core::PosixPath core;
+    QTNG_NAMESPACE::PosixPath core;
 };
 
 PosixPath::PosixPath()
@@ -858,7 +858,7 @@ PosixPath::PosixPath()
 PosixPath::PosixPath(const QString &path)
     : d(new PosixPathPrivate)
 {
-    d->core = qtng_core::PosixPath(toStdString(path));
+    d->core = QTNG_NAMESPACE::PosixPath(toStdString(path));
 }
 
 PosixPath::PosixPath(const PosixPath &other)
@@ -900,7 +900,7 @@ PosixPath PosixPath::operator/(const QString &path) const
 {
     PosixPath result;
     result.d = new PosixPathPrivate;
-    result.d->core = d ? d->core / toStdString(path) : qtng_core::PosixPath();
+    result.d->core = d ? d->core / toStdString(path) : QTNG_NAMESPACE::PosixPath();
     return result;
 }
 
@@ -949,7 +949,7 @@ PosixPath PosixPath::parentPath() const
 {
     PosixPath result;
     result.d = new PosixPathPrivate;
-    result.d->core = isNull() ? qtng_core::PosixPath() : d->core.parentPath();
+    result.d->core = isNull() ? QTNG_NAMESPACE::PosixPath() : d->core.parentPath();
     return result;
 }
 
@@ -999,29 +999,29 @@ QString PosixPath::relativePath(const PosixPath &other) const
 bool PosixPath::isChildOf(const PosixPath &other) const
 {
     // qtnetworkng semantics: a path is a child of itself and of a null path.
-    return !isNull() && d->core.isChildOf(other.isNull() ? qtng_core::PosixPath() : other.d->core);
+    return !isNull() && d->core.isChildOf(other.isNull() ? QTNG_NAMESPACE::PosixPath() : other.d->core);
 }
 
 bool PosixPath::hasChildOf(const PosixPath &other) const
 {
-    return !isNull() && d->core.hasChildOf(other.isNull() ? qtng_core::PosixPath() : other.d->core);
+    return !isNull() && d->core.hasChildOf(other.isNull() ? QTNG_NAMESPACE::PosixPath() : other.d->core);
 }
 
 QDateTime PosixPath::created() const
 {
-    return isNull() ? QDateTime() : toQDateTime(qtng_core::utils::DateTime::fromMSecsSinceEpoch(d->core.createdMsecsSinceEpoch()));
+    return isNull() ? QDateTime() : toQDateTime(QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(d->core.createdMsecsSinceEpoch()));
 }
 
 QDateTime PosixPath::lastModified() const
 {
     return isNull() ? QDateTime()
-                    : toQDateTime(qtng_core::utils::DateTime::fromMSecsSinceEpoch(d->core.lastModifiedMsecsSinceEpoch()));
+                    : toQDateTime(QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(d->core.lastModifiedMsecsSinceEpoch()));
 }
 
 QDateTime PosixPath::lastRead() const
 {
     return isNull() ? QDateTime()
-                    : toQDateTime(qtng_core::utils::DateTime::fromMSecsSinceEpoch(d->core.lastReadMsecsSinceEpoch()));
+                    : toQDateTime(QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(d->core.lastReadMsecsSinceEpoch()));
 }
 
 QStringList PosixPath::listdir() const
@@ -1043,7 +1043,7 @@ QList<PosixPath> PosixPath::children() const
     if (isNull()) {
         return result;
     }
-    for (const qtng_core::PosixPath &child : d->core.children()) {
+    for (const QTNG_NAMESPACE::PosixPath &child : d->core.children()) {
         PosixPath item;
         item.d = new PosixPathPrivate;
         item.d->core = child;
@@ -1090,13 +1090,13 @@ PosixPath PosixPath::cwd()
 {
     PosixPath result;
     result.d = new PosixPathPrivate;
-    result.d->core = qtng_core::PosixPath::cwd();
+    result.d->core = QTNG_NAMESPACE::PosixPath::cwd();
     return result;
 }
 
-QChar PosixPath::point = QChar::fromLatin1(qtng_core::PosixPath::point);
-QString PosixPath::pointpoint = QString::fromLatin1(qtng_core::PosixPath::pointpoint);
-QChar PosixPath::seperator = QChar::fromLatin1(qtng_core::PosixPath::seperator);
+QChar PosixPath::point = QChar::fromLatin1(QTNG_NAMESPACE::PosixPath::point);
+QString PosixPath::pointpoint = QString::fromLatin1(QTNG_NAMESPACE::PosixPath::pointpoint);
+QChar PosixPath::seperator = QChar::fromLatin1(QTNG_NAMESPACE::PosixPath::seperator);
 
 QDebug &operator<<(QDebug &debug, const PosixPath &path)
 {
@@ -1113,7 +1113,7 @@ uint qHash(const PosixPath &path, uint seed)
 QPair<QString, QString> safeJoinPath(const QString &parentDir, const QString &subPath)
 {
     const pair<string, string> joined =
-            qtng_core::safeJoinPath(toStdString(parentDir), toStdString(subPath));
+            QTNG_NAMESPACE::safeJoinPath(toStdString(parentDir), toStdString(subPath));
     return qMakePair(toQString(joined.first), toQString(joined.second));
 }
 

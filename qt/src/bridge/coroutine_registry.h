@@ -3,7 +3,7 @@
 
 #include "config.h"
 
-namespace qtng_core {
+namespace QTNG_NAMESPACE {
 class BaseCoroutine;
 }
 
@@ -13,10 +13,10 @@ QTNETWORKNG_NAMESPACE_END
 
 namespace qtng_bridge {
 
-void registerQtWrapper(qtng_core::BaseCoroutine *core, QTNETWORKNG_NAMESPACE::BaseCoroutine *wrapper);
-void unregisterQtWrapper(qtng_core::BaseCoroutine *core);
-QTNETWORKNG_NAMESPACE::BaseCoroutine *qtWrapperFor(qtng_core::BaseCoroutine *core);
-qtng_core::BaseCoroutine *coreFor(QTNETWORKNG_NAMESPACE::BaseCoroutine *wrapper);
+void registerQtWrapper(QTNG_NAMESPACE::BaseCoroutine *core, QTNETWORKNG_NAMESPACE::BaseCoroutine *wrapper);
+void unregisterQtWrapper(QTNG_NAMESPACE::BaseCoroutine *core);
+QTNETWORKNG_NAMESPACE::BaseCoroutine *qtWrapperFor(QTNG_NAMESPACE::BaseCoroutine *core);
+QTNG_NAMESPACE::BaseCoroutine *coreFor(QTNETWORKNG_NAMESPACE::BaseCoroutine *wrapper);
 
 }  // namespace qtng_bridge
 

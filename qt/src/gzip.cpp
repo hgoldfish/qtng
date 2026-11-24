@@ -11,15 +11,15 @@ namespace QTNETWORKNG_NAMESPACE {
 class GzipFilePrivate
 {
 public:
-    shared_ptr<qtng_core::GzipFile> core;
+    shared_ptr<QTNG_NAMESPACE::GzipFile> core;
 };
 
 GzipFile::GzipFile(QSharedPointer<FileLike> backend, IOMode mode, int level)
     : d_ptr(new GzipFilePrivate)
 {
     Q_D(GzipFile);
-    d->core = make_shared<qtng_core::GzipFile>(toCoreFileLike(backend),
-                                               static_cast<qtng_core::GzipFile::IOMode>(mode), level);
+    d->core = make_shared<QTNG_NAMESPACE::GzipFile>(toCoreFileLike(backend),
+                                               static_cast<QTNG_NAMESPACE::GzipFile::IOMode>(mode), level);
 }
 
 GzipFile::~GzipFile()
@@ -59,12 +59,12 @@ qint64 GzipFile::processedBytes() const
 
 bool qGzipCompress(QSharedPointer<FileLike> input, QSharedPointer<FileLike> output, int level, int blockSize)
 {
-    return qtng_core::qGzipCompress(toCoreFileLike(input), toCoreFileLike(output), level, blockSize);
+    return QTNG_NAMESPACE::qGzipCompress(toCoreFileLike(input), toCoreFileLike(output), level, blockSize);
 }
 
 bool qGzipDecompress(QSharedPointer<FileLike> input, QSharedPointer<FileLike> output, int blockSize)
 {
-    return qtng_core::qGzipDecompress(toCoreFileLike(input), toCoreFileLike(output), blockSize);
+    return QTNG_NAMESPACE::qGzipDecompress(toCoreFileLike(input), toCoreFileLike(output), blockSize);
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

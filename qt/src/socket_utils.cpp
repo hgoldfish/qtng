@@ -128,7 +128,7 @@ Exchanger::~Exchanger()
 void Exchanger::exchange()
 {
     Q_D(Exchanger);
-    qtng_core::Exchanger exch(toCoreSocketLike(d->request), toCoreSocketLike(d->forward), d->suitableBlockSize);
+    QTNG_NAMESPACE::Exchanger exch(toCoreSocketLike(d->request), toCoreSocketLike(d->forward), d->suitableBlockSize);
     exch.exchange();
 }
 
@@ -145,7 +145,7 @@ QSharedPointer<Socket> convertSocketLikeToSocket(QSharedPointer<SocketLike> sock
     if (QSharedPointer<QtSocketLikeImpl> impl = socket.dynamicCast<QtSocketLikeImpl>()) {
         return impl->socket();
     }
-    shared_ptr<qtng_core::Socket> coreSocket = qtng_core::convertSocketLikeToSocket(toCoreSocketLike(socket));
+    shared_ptr<QTNG_NAMESPACE::Socket> coreSocket = QTNG_NAMESPACE::convertSocketLikeToSocket(toCoreSocketLike(socket));
     if (!coreSocket) {
         return QSharedPointer<Socket>();
     }

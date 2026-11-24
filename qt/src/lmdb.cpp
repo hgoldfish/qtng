@@ -12,19 +12,19 @@ namespace QTNETWORKNG_NAMESPACE {
 class LmdbPrivate
 {
 public:
-    shared_ptr<qtng_core::Lmdb> core;
+    shared_ptr<QTNG_NAMESPACE::Lmdb> core;
 };
 
 class DatabasePrivate
 {
 public:
-    std::shared_ptr<qtng_core::Database> core;
+    std::shared_ptr<QTNG_NAMESPACE::Database> core;
 };
 
 class TransactionPrivate
 {
 public:
-    shared_ptr<qtng_core::Transaction> core;
+    shared_ptr<QTNG_NAMESPACE::Transaction> core;
     mutable QHash<QString, std::shared_ptr<Database>> dbCache;
 
     std::shared_ptr<Database> database(const QString &name);
@@ -34,20 +34,20 @@ public:
 class LmdbIteratorPrivate
 {
 public:
-    explicit LmdbIteratorPrivate(qtng_core::LmdbIterator &&itor)
-        : core(new qtng_core::LmdbIterator(std::move(itor)))
+    explicit LmdbIteratorPrivate(QTNG_NAMESPACE::LmdbIterator &&itor)
+        : core(new QTNG_NAMESPACE::LmdbIterator(std::move(itor)))
     {
     }
-    explicit LmdbIteratorPrivate(qtng_core::ConstLmdbIterator &&itor)
-        : constCore(new qtng_core::ConstLmdbIterator(std::move(itor)))
+    explicit LmdbIteratorPrivate(QTNG_NAMESPACE::ConstLmdbIterator &&itor)
+        : constCore(new QTNG_NAMESPACE::ConstLmdbIterator(std::move(itor)))
     {
     }
 public:
-    qtng_core::LmdbIterator &iter() { return *core; }
-    qtng_core::ConstLmdbIterator &citer() { return *constCore; }
+    QTNG_NAMESPACE::LmdbIterator &iter() { return *core; }
+    QTNG_NAMESPACE::ConstLmdbIterator &citer() { return *constCore; }
 private:
-    unique_ptr<qtng_core::LmdbIterator> core;
-    unique_ptr<qtng_core::ConstLmdbIterator> constCore;
+    unique_ptr<QTNG_NAMESPACE::LmdbIterator> core;
+    unique_ptr<QTNG_NAMESPACE::ConstLmdbIterator> constCore;
 };
 
 LmdbBuilder::LmdbBuilder(const QString &dirPath)
@@ -99,11 +99,11 @@ LmdbBuilder &LmdbBuilder::readOnly(bool readOnly)
 
 QSharedPointer<Lmdb> LmdbBuilder::create()
 {
-    qtng_core::Lmdb::Builder builder(toStdString(m_dirPath));
+    QTNG_NAMESPACE::Lmdb::Builder builder(toStdString(m_dirPath));
     builder.maxMapSize(m_maxMapSize).maxReaders(m_maxReaders).maxDbs(m_maxDbs).noSync(m_noSync).noSubDir(m_noSubDir)
             .writeMap(m_writeMap)
             .readOnly(m_readOnly);
-    shared_ptr<qtng_core::Lmdb> core = builder.create();
+    shared_ptr<QTNG_NAMESPACE::Lmdb> core = builder.create();
     if (!core) {
         return QSharedPointer<Lmdb>();
     }
@@ -122,7 +122,7 @@ std::shared_ptr<Database> TransactionPrivate::database(const QString &name)
     if (std::shared_ptr<Database> cached = dbCache.value(name)) {
         return cached;
     }
-    std::shared_ptr<qtng_core::Database> coreDb = core->db(toStdString(name));
+    std::shared_ptr<QTNG_NAMESPACE::Database> coreDb = core->db(toStdString(name));
     if (!coreDb) {
         return std::shared_ptr<Database>();
     }
@@ -141,16 +141,16 @@ std::shared_ptr<const Database> TransactionPrivate::database(const QString &name
 QSharedPointer<const Transaction> Lmdb::toRead()
 {
     Q_D(Lmdb);
-    shared_ptr<const qtng_core::Transaction> tx = d->core->toRead();
+    shared_ptr<const QTNG_NAMESPACE::Transaction> tx = d->core->toRead();
     TransactionPrivate *priv = new TransactionPrivate;
-    priv->core = std::const_pointer_cast<qtng_core::Transaction>(tx);
+    priv->core = std::const_pointer_cast<QTNG_NAMESPACE::Transaction>(tx);
     return QSharedPointer<const Transaction>(new Transaction(priv));
 }
 
 QSharedPointer<Transaction> Lmdb::toWrite()
 {
     Q_D(Lmdb);
-    shared_ptr<qtng_core::Transaction> tx = d->core->toWrite();
+    shared_ptr<QTNG_NAMESPACE::Transaction> tx = d->core->toWrite();
     TransactionPrivate *priv = new TransactionPrivate;
     priv->core = tx;
     return QSharedPointer<Transaction>(new Transaction(priv));
@@ -194,7 +194,7 @@ std::shared_ptr<Database> Transaction::db(const QString &name)
 QSharedPointer<Transaction> Transaction::sub()
 {
     Q_D(Transaction);
-    shared_ptr<qtng_core::Transaction> coreTx = d->core->sub();
+    shared_ptr<QTNG_NAMESPACE::Transaction> coreTx = d->core->sub();
     if (!coreTx) {
         return QSharedPointer<Transaction>();
     }
@@ -498,7 +498,7 @@ Database::const_iterator Database::constFind(const QByteArray &key) const
 Database::const_iterator Database::lowerBound(const QByteArray &key) const
 {
     Q_D(const Database);
-    const qtng_core::Database *cdb = d->core.get();
+    const QTNG_NAMESPACE::Database *cdb = d->core.get();
     return ConstLmdbIterator(new LmdbIteratorPrivate(cdb->lowerBound(toStdString(key))));
 }
 
@@ -511,7 +511,7 @@ Database::iterator Database::lowerBound(const QByteArray &key)
 Database::const_iterator Database::upperBound(const QByteArray &key) const
 {
     Q_D(const Database);
-    const qtng_core::Database *cdb = d->core.get();
+    const QTNG_NAMESPACE::Database *cdb = d->core.get();
     return ConstLmdbIterator(new LmdbIteratorPrivate(cdb->upperBound(toStdString(key))));
 }
 

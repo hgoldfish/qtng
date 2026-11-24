@@ -18,9 +18,9 @@ namespace QTNETWORKNG_NAMESPACE {
 class SslCipherPrivate
 {
 public:
-    qtng_core::SslCipher core;
+    QTNG_NAMESPACE::SslCipher core;
 
-    static SslCipher fromCore(const qtng_core::SslCipher &cipher)
+    static SslCipher fromCore(const QTNG_NAMESPACE::SslCipher &cipher)
     {
         SslCipher result;
         result.d->core = cipher;
@@ -36,13 +36,13 @@ SslCipher::SslCipher()
 SslCipher::SslCipher(const QString &name)
     : d(new SslCipherPrivate)
 {
-    d->core = qtng_core::SslCipher(toStdString(name));
+    d->core = QTNG_NAMESPACE::SslCipher(toStdString(name));
 }
 
 SslCipher::SslCipher(const QString &name, Ssl::SslProtocol protocol)
     : d(new SslCipherPrivate)
 {
-    d->core = qtng_core::SslCipher(toStdString(name), static_cast<qtng_core::Ssl::SslProtocol>(protocol));
+    d->core = QTNG_NAMESPACE::SslCipher(toStdString(name), static_cast<QTNG_NAMESPACE::Ssl::SslProtocol>(protocol));
 }
 
 SslCipher::SslCipher(const SslCipher &other)
@@ -68,44 +68,44 @@ bool SslCipher::operator==(const SslCipher &other) const { return d->core == oth
 class SslConfigurationPrivate : public QSharedData
 {
 public:
-    std::shared_ptr<qtng_core::SslConfiguration> core = std::make_shared<qtng_core::SslConfiguration>();
+    std::shared_ptr<QTNG_NAMESPACE::SslConfiguration> core = std::make_shared<QTNG_NAMESPACE::SslConfiguration>();
 
-    qtng_core::SslConfiguration &config() { return *core; }
-    const qtng_core::SslConfiguration &config() const { return *core; }
+    QTNG_NAMESPACE::SslConfiguration &config() { return *core; }
+    const QTNG_NAMESPACE::SslConfiguration &config() const { return *core; }
 
-    static void bindCore(SslConfiguration *config, std::shared_ptr<qtng_core::SslConfiguration> core)
+    static void bindCore(SslConfiguration *config, std::shared_ptr<QTNG_NAMESPACE::SslConfiguration> core)
     {
         if (config) {
             config->d->core = std::move(core);
         }
     }
 
-    static qtng_core::SslConfiguration &coreOf(SslConfiguration &config)
+    static QTNG_NAMESPACE::SslConfiguration &coreOf(SslConfiguration &config)
     {
         return config.d->config();
     }
 
-    static const qtng_core::SslConfiguration &coreOf(const SslConfiguration &config)
+    static const QTNG_NAMESPACE::SslConfiguration &coreOf(const SslConfiguration &config)
     {
         return config.d->config();
     }
 
-    static std::shared_ptr<qtng_core::SslConfiguration> sharedCoreOf(const SslConfiguration &config)
+    static std::shared_ptr<QTNG_NAMESPACE::SslConfiguration> sharedCoreOf(const SslConfiguration &config)
     {
         return config.d->core;
     }
 
-    static SslConfiguration fromCore(const qtng_core::SslConfiguration &config)
+    static SslConfiguration fromCore(const QTNG_NAMESPACE::SslConfiguration &config)
     {
         SslConfiguration result;
-        result.d->core = std::make_shared<qtng_core::SslConfiguration>(config);
+        result.d->core = std::make_shared<QTNG_NAMESPACE::SslConfiguration>(config);
         return result;
     }
 };
 
 namespace {
 
-class QtChooseTlsExtNameCallbackAdapter : public qtng_core::ChooseTlsExtNameCallback
+class QtChooseTlsExtNameCallbackAdapter : public QTNG_NAMESPACE::ChooseTlsExtNameCallback
 {
 public:
     explicit QtChooseTlsExtNameCallbackAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::ChooseTlsExtNameCallback> callback)
@@ -160,7 +160,7 @@ bool SslConfiguration::operator==(const SslConfiguration &other) const
 QList<SslCipher> SslConfiguration::supportedCiphers()
 {
     QList<SslCipher> result;
-    for (const qtng_core::SslCipher &c : qtng_core::SslConfiguration::supportedCiphers()) {
+    for (const QTNG_NAMESPACE::SslCipher &c : QTNG_NAMESPACE::SslConfiguration::supportedCiphers()) {
         result.append(SslCipherPrivate::fromCore(c));
     }
     return result;
@@ -170,7 +170,7 @@ SslConfiguration SslConfiguration::testPurpose(const QString &commonName, const 
                                                const QString &organization)
 {
     SslConfiguration config;
-    SslConfigurationPrivate::coreOf(config) = qtng_core::SslConfiguration::testPurpose(toStdString(commonName), toStdString(countryCode),
+    SslConfigurationPrivate::coreOf(config) = QTNG_NAMESPACE::SslConfiguration::testPurpose(toStdString(commonName), toStdString(countryCode),
                                                               toStdString(organization));
     return config;
 }
@@ -196,7 +196,7 @@ void SslConfiguration::setAllowedNextProtocols(const QList<QByteArray> &protocol
 QList<Certificate> SslConfiguration::caCertificates() const
 {
     QList<Certificate> result;
-    for (const qtng_core::Certificate &c : d->config().caCertificates()) {
+    for (const QTNG_NAMESPACE::Certificate &c : d->config().caCertificates()) {
         result.append(toQtCertificate(c));
     }
     return result;
@@ -205,7 +205,7 @@ QList<Certificate> SslConfiguration::caCertificates() const
 QList<SslCipher> SslConfiguration::ciphers() const
 {
     QList<SslCipher> result;
-    for (const qtng_core::SslCipher &c : d->config().ciphers()) {
+    for (const QTNG_NAMESPACE::SslCipher &c : d->config().ciphers()) {
         result.append(SslCipherPrivate::fromCore(c));
     }
     return result;
@@ -253,7 +253,7 @@ bool SslConfiguration::sendTlsExtHostName() const
 
 QSharedPointer<ChooseTlsExtNameCallback> SslConfiguration::tlsExtHostNameCallback() const
 {
-    const std::shared_ptr<qtng_core::ChooseTlsExtNameCallback> core = d->config().tlsExtHostNameCallback();
+    const std::shared_ptr<QTNG_NAMESPACE::ChooseTlsExtNameCallback> core = d->config().tlsExtHostNameCallback();
     if (std::shared_ptr<QtChooseTlsExtNameCallbackAdapter> adapter =
             std::dynamic_pointer_cast<QtChooseTlsExtNameCallbackAdapter>(core)) {
         return adapter->qtCallback();
@@ -268,7 +268,7 @@ void SslConfiguration::addCaCertificate(const Certificate &certificate)
 
 void SslConfiguration::addCaCertificates(const QList<Certificate> &certificates)
 {
-    vector<qtng_core::Certificate> core;
+    vector<QTNG_NAMESPACE::Certificate> core;
     core.reserve(static_cast<size_t>(certificates.size()));
     for (const Certificate &c : certificates) {
         core.push_back(certificateCoreOf(c));
@@ -283,7 +283,7 @@ void SslConfiguration::setLocalCertificate(const Certificate &certificate)
 
 bool SslConfiguration::setLocalCertificate(const QString &path, Ssl::EncodingFormat format)
 {
-    return d->config().setLocalCertificate(toStdString(path), static_cast<qtng_core::Ssl::EncodingFormat>(format));
+    return d->config().setLocalCertificate(toStdString(path), static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format));
 }
 
 void SslConfiguration::setPeerVerifyDepth(int depth)
@@ -293,7 +293,7 @@ void SslConfiguration::setPeerVerifyDepth(int depth)
 
 void SslConfiguration::setPeerVerifyMode(Ssl::PeerVerifyMode mode)
 {
-    d->config().setPeerVerifyMode(static_cast<qtng_core::Ssl::PeerVerifyMode>(mode));
+    d->config().setPeerVerifyMode(static_cast<QTNG_NAMESPACE::Ssl::PeerVerifyMode>(mode));
 }
 
 void SslConfiguration::setPrivateKey(const PrivateKey &key)
@@ -303,7 +303,7 @@ void SslConfiguration::setPrivateKey(const PrivateKey &key)
 
 bool SslConfiguration::setPrivateKey(const QString &fileName, Ssl::EncodingFormat format, const QByteArray &passPhrase)
 {
-    return d->config().setPrivateKey(toStdString(fileName), static_cast<qtng_core::Ssl::EncodingFormat>(format),
+    return d->config().setPrivateKey(toStdString(fileName), static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format),
                                      toStdString(passPhrase));
 }
 
@@ -330,25 +330,25 @@ void SslConfiguration::setTlsExtHostNameCallback(QSharedPointer<ChooseTlsExtName
 class SslErrorPrivate
 {
 public:
-    qtng_core::SslError core;
+    QTNG_NAMESPACE::SslError core;
 };
 
 SslError::SslError()
     : d(new SslErrorPrivate)
 {
-    d->core = qtng_core::SslError(qtng_core::SslError::NoError);
+    d->core = QTNG_NAMESPACE::SslError(QTNG_NAMESPACE::SslError::NoError);
 }
 
 SslError::SslError(Error error)
     : d(new SslErrorPrivate)
 {
-    d->core = qtng_core::SslError(static_cast<qtng_core::SslError::Error>(error));
+    d->core = QTNG_NAMESPACE::SslError(static_cast<QTNG_NAMESPACE::SslError::Error>(error));
 }
 
 SslError::SslError(Error error, const Certificate &certificate)
     : d(new SslErrorPrivate)
 {
-    d->core = qtng_core::SslError(static_cast<qtng_core::SslError::Error>(error), certificateCoreOf(certificate));
+    d->core = QTNG_NAMESPACE::SslError(static_cast<QTNG_NAMESPACE::SslError::Error>(error), certificateCoreOf(certificate));
 }
 
 SslError::SslError(const SslError &other)
@@ -401,19 +401,19 @@ QDebug &operator<<(QDebug &debug, const SslError &error)
 
 QDebug &operator<<(QDebug &debug, const SslError::Error &error)
 {
-    debug << toQString(qtng_core::SslError(static_cast<qtng_core::SslError::Error>(error)).errorString());
+    debug << toQString(QTNG_NAMESPACE::SslError(static_cast<QTNG_NAMESPACE::SslError::Error>(error)).errorString());
     return debug;
 }
 
 class SslSocketPrivate
 {
 public:
-    static std::shared_ptr<qtng_core::SslSocket> &coreOf(SslSocket *socket)
+    static std::shared_ptr<QTNG_NAMESPACE::SslSocket> &coreOf(SslSocket *socket)
     {
         return socket->d_ptr->core;
     }
 
-    std::shared_ptr<qtng_core::SslSocket> core;
+    std::shared_ptr<QTNG_NAMESPACE::SslSocket> core;
 };
 
 QByteArray SslSocket::nextNegotiatedProtocol() const
@@ -433,7 +433,7 @@ SslSocket::SslSocket(HostAddress::NetworkLayerProtocol protocol, const SslConfig
     : d_ptr(new SslSocketPrivate)
 {
     Q_D(SslSocket);
-    d->core = make_shared<qtng_core::SslSocket>(static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(protocol),
+    d->core = make_shared<QTNG_NAMESPACE::SslSocket>(static_cast<QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol>(protocol),
                                                 SslConfigurationPrivate::coreOf(config));
 }
 
@@ -441,7 +441,7 @@ SslSocket::SslSocket(qintptr socketDescriptor, const SslConfiguration &config)
     : d_ptr(new SslSocketPrivate)
 {
     Q_D(SslSocket);
-    d->core = make_shared<qtng_core::SslSocket>(static_cast<intptr_t>(socketDescriptor),
+    d->core = make_shared<QTNG_NAMESPACE::SslSocket>(static_cast<intptr_t>(socketDescriptor),
                                                 SslConfigurationPrivate::coreOf(config));
 }
 
@@ -449,14 +449,14 @@ SslSocket::SslSocket(QSharedPointer<Socket> rawSocket, const SslConfiguration &c
     : d_ptr(new SslSocketPrivate)
 {
     Q_D(SslSocket);
-    d->core = make_shared<qtng_core::SslSocket>(socketCoreOf(rawSocket.data()), SslConfigurationPrivate::coreOf(config));
+    d->core = make_shared<QTNG_NAMESPACE::SslSocket>(socketCoreOf(rawSocket.data()), SslConfigurationPrivate::coreOf(config));
 }
 
 SslSocket::SslSocket(QSharedPointer<SocketLike> rawSocket, const SslConfiguration &config)
     : d_ptr(new SslSocketPrivate)
 {
     Q_D(SslSocket);
-    d->core = make_shared<qtng_core::SslSocket>(toCoreSocketLike(rawSocket), SslConfigurationPrivate::coreOf(config));
+    d->core = make_shared<QTNG_NAMESPACE::SslSocket>(toCoreSocketLike(rawSocket), SslConfigurationPrivate::coreOf(config));
 }
 
 SslSocket::~SslSocket()
@@ -498,7 +498,7 @@ QList<Certificate> SslSocket::localCertificateChain() const
 {
     Q_D(const SslSocket);
     QList<Certificate> result;
-    for (const qtng_core::Certificate &c : d->core->localCertificateChain()) {
+    for (const QTNG_NAMESPACE::Certificate &c : d->core->localCertificateChain()) {
         result.append(toQtCertificate(c));
     }
     return result;
@@ -520,7 +520,7 @@ QList<Certificate> SslSocket::peerCertificateChain() const
 {
     Q_D(const SslSocket);
     QList<Certificate> result;
-    for (const qtng_core::Certificate &c : d->core->peerCertificateChain()) {
+    for (const QTNG_NAMESPACE::Certificate &c : d->core->peerCertificateChain()) {
         result.append(toQtCertificate(c));
     }
     return result;
@@ -572,7 +572,7 @@ QList<SslError> SslSocket::sslErrors() const
 {
     Q_D(const SslSocket);
     QList<SslError> result;
-    for (const qtng_core::SslError &e : d->core->sslErrors()) {
+    for (const QTNG_NAMESPACE::SslError &e : d->core->sslErrors()) {
         result.append(SslError(static_cast<SslError::Error>(e.error()), toQtCertificate(e.certificate())));
     }
     return result;
@@ -683,7 +683,7 @@ QString SslSocket::peerAddressURI() const
 SslSocket *SslSocket::accept()
 {
     Q_D(SslSocket);
-    qtng_core::SslSocket *core = d->core->accept();
+    QTNG_NAMESPACE::SslSocket *core = d->core->accept();
     if (!core) {
         return nullptr;
     }
@@ -695,25 +695,25 @@ SslSocket *SslSocket::accept()
 Socket *SslSocket::acceptRaw()
 {
     Q_D(SslSocket);
-    qtng_core::Socket *core = d->core->acceptRaw();
+    QTNG_NAMESPACE::Socket *core = d->core->acceptRaw();
     if (!core) {
         return nullptr;
     }
     Socket *result = new Socket(HostAddress::IPv4Protocol, Socket::TcpSocket);
-    assignSocketCore(result, std::shared_ptr<qtng_core::Socket>(core));
+    assignSocketCore(result, std::shared_ptr<QTNG_NAMESPACE::Socket>(core));
     return result;
 }
 
 bool SslSocket::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
 {
     Q_D(SslSocket);
-    return d->core->bind(toCoreAddress(address), port, static_cast<qtng_core::Socket::BindMode>(mode));
+    return d->core->bind(toCoreAddress(address), port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(mode));
 }
 
 bool SslSocket::bind(quint16 port, Socket::BindMode mode)
 {
     Q_D(SslSocket);
-    return d->core->bind(port, static_cast<qtng_core::Socket::BindMode>(mode));
+    return d->core->bind(port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(mode));
 }
 
 bool SslSocket::connect(const HostAddress &addr, quint16 port)
@@ -737,13 +737,13 @@ bool SslSocket::listen(int backlog)
 bool SslSocket::setOption(Socket::SocketOption option, const QVariant &value)
 {
     Q_D(SslSocket);
-    return d->core->setOption(static_cast<qtng_core::Socket::SocketOption>(option), value.toInt());
+    return d->core->setOption(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option), value.toInt());
 }
 
 QVariant SslSocket::option(Socket::SocketOption option) const
 {
     Q_D(const SslSocket);
-    return d->core->option(static_cast<qtng_core::Socket::SocketOption>(option));
+    return d->core->option(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option));
 }
 
 qint32 SslSocket::peek(char *data, qint32 size)
@@ -809,8 +809,8 @@ qint32 SslSocket::sendall(const QByteArray &data)
 SslSocket *SslSocket::createConnection(const HostAddress &host, quint16 port, const SslConfiguration &config,
                                        Socket::SocketError *error, int allowProtocol)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::UnknownSocketError;
-    qtng_core::SslSocket *core = qtng_core::SslSocket::createConnection(
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::UnknownSocketError;
+    QTNG_NAMESPACE::SslSocket *core = QTNG_NAMESPACE::SslSocket::createConnection(
             toCoreAddress(host), port, SslConfigurationPrivate::coreOf(config), error ? &coreError : nullptr,
             allowProtocol);
     if (error) {
@@ -828,8 +828,8 @@ SslSocket *SslSocket::createConnection(const QString &hostName, quint16 port, co
                                        Socket::SocketError *error, QSharedPointer<SocketDnsCache> dnsCache,
                                        int allowProtocol)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::UnknownSocketError;
-    qtng_core::SslSocket *core = qtng_core::SslSocket::createConnection(
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::UnknownSocketError;
+    QTNG_NAMESPACE::SslSocket *core = QTNG_NAMESPACE::SslSocket::createConnection(
             toStdString(hostName), port, SslConfigurationPrivate::coreOf(config), error ? &coreError : nullptr,
             dnsCacheCoreOf(dnsCache.data()), allowProtocol);
     if (error) {
@@ -845,7 +845,7 @@ SslSocket *SslSocket::createConnection(const QString &hostName, quint16 port, co
 
 SslSocket *SslSocket::createServer(const HostAddress &host, quint16 port, const SslConfiguration &config, int backlog)
 {
-    qtng_core::SslSocket *core = qtng_core::SslSocket::createServer(
+    QTNG_NAMESPACE::SslSocket *core = QTNG_NAMESPACE::SslSocket::createServer(
             toCoreAddress(host), port, SslConfigurationPrivate::coreOf(config), backlog);
     if (!core) {
         return nullptr;
@@ -860,7 +860,7 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<SslSocket> s)
     if (!s) {
         return QSharedPointer<SocketLike>();
     }
-    return ::qtng_bridge::toQtSocketLike(qtng_core::asSocketLike(SslSocketPrivate::coreOf(s.data())));
+    return ::qtng_bridge::toQtSocketLike(QTNG_NAMESPACE::asSocketLike(SslSocketPrivate::coreOf(s.data())));
 }
 
 QSharedPointer<SslSocket> convertSocketLikeToSslSocket(QSharedPointer<SocketLike> socket)
@@ -868,7 +868,7 @@ QSharedPointer<SslSocket> convertSocketLikeToSslSocket(QSharedPointer<SocketLike
     if (socket.isNull()) {
         return QSharedPointer<SslSocket>();
     }
-    std::shared_ptr<qtng_core::SslSocket> core = qtng_core::convertSocketLikeToSslSocket(toCoreSocketLike(socket));
+    std::shared_ptr<QTNG_NAMESPACE::SslSocket> core = QTNG_NAMESPACE::convertSocketLikeToSslSocket(toCoreSocketLike(socket));
     if (!core) {
         return QSharedPointer<SslSocket>();
     }
@@ -883,16 +883,16 @@ QSharedPointer<SslSocket> convertSocketLikeToSslSocket(QSharedPointer<SocketLike
 
 namespace qtng_bridge {
 
-std::shared_ptr<qtng_core::SslSocket> sslSocketCoreOf(QTNETWORKNG_NAMESPACE::SslSocket *socket)
+std::shared_ptr<QTNG_NAMESPACE::SslSocket> sslSocketCoreOf(QTNETWORKNG_NAMESPACE::SslSocket *socket)
 {
     if (!socket) {
-        return std::shared_ptr<qtng_core::SslSocket>();
+        return std::shared_ptr<QTNG_NAMESPACE::SslSocket>();
     }
     return QTNETWORKNG_NAMESPACE::SslSocketPrivate::coreOf(socket);
 }
 
 std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration>
-sslConfigurationFromCore(std::shared_ptr<qtng_core::SslConfiguration> core)
+sslConfigurationFromCore(std::shared_ptr<QTNG_NAMESPACE::SslConfiguration> core)
 {
     std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration> config =
             std::make_shared<QTNETWORKNG_NAMESPACE::SslConfiguration>();
@@ -900,11 +900,11 @@ sslConfigurationFromCore(std::shared_ptr<qtng_core::SslConfiguration> core)
     return config;
 }
 
-std::shared_ptr<qtng_core::SslConfiguration>
+std::shared_ptr<QTNG_NAMESPACE::SslConfiguration>
 sslConfigurationToCore(const std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration> &config)
 {
     if (!config) {
-        return std::shared_ptr<qtng_core::SslConfiguration>();
+        return std::shared_ptr<QTNG_NAMESPACE::SslConfiguration>();
     }
     return QTNETWORKNG_NAMESPACE::SslConfigurationPrivate::sharedCoreOf(*config);
 }

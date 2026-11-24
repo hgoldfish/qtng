@@ -11,46 +11,46 @@ namespace QTNETWORKNG_NAMESPACE {
 class PublicKeyPrivate
 {
 public:
-    shared_ptr<qtng_core::PublicKey> core;
+    shared_ptr<QTNG_NAMESPACE::PublicKey> core;
 
-    static PublicKey fromCore(shared_ptr<qtng_core::PublicKey> key)
+    static PublicKey fromCore(shared_ptr<QTNG_NAMESPACE::PublicKey> key)
     {
         PublicKey result;
         result.d_ptr->core = std::move(key);
         return result;
     }
 
-    static PrivateKey privateFromCore(shared_ptr<qtng_core::PrivateKey> key)
+    static PrivateKey privateFromCore(shared_ptr<QTNG_NAMESPACE::PrivateKey> key)
     {
         PrivateKey result;
         result.d_ptr->core = std::move(key);
         return result;
     }
 
-    static qtng_core::PublicKey &coreOf(PublicKey &key)
+    static QTNG_NAMESPACE::PublicKey &coreOf(PublicKey &key)
     {
         return *key.d_ptr->core;
     }
 
-    static const qtng_core::PublicKey &coreOf(const PublicKey &key)
+    static const QTNG_NAMESPACE::PublicKey &coreOf(const PublicKey &key)
     {
         return *key.d_ptr->core;
     }
 
-    static qtng_core::PrivateKey &privateCoreOf(PrivateKey &key)
+    static QTNG_NAMESPACE::PrivateKey &privateCoreOf(PrivateKey &key)
     {
-        return static_cast<qtng_core::PrivateKey &>(*key.d_ptr->core);
+        return static_cast<QTNG_NAMESPACE::PrivateKey &>(*key.d_ptr->core);
     }
 
-    static const qtng_core::PrivateKey &privateCoreOf(const PrivateKey &key)
+    static const QTNG_NAMESPACE::PrivateKey &privateCoreOf(const PrivateKey &key)
     {
-        return static_cast<const qtng_core::PrivateKey &>(*key.d_ptr->core);
+        return static_cast<const QTNG_NAMESPACE::PrivateKey &>(*key.d_ptr->core);
     }
 };
 
 PublicKey::PublicKey() : d_ptr(new PublicKeyPrivate)
 {
-    d_ptr->core = make_shared<qtng_core::PublicKey>();
+    d_ptr->core = make_shared<QTNG_NAMESPACE::PublicKey>();
 }
 
 PublicKey::~PublicKey() { delete d_ptr; }
@@ -58,12 +58,12 @@ PublicKey::~PublicKey() { delete d_ptr; }
 PublicKey::PublicKey(const PublicKey &other)
     : d_ptr(new PublicKeyPrivate)
 {
-    d_ptr->core = make_shared<qtng_core::PublicKey>(*other.d_ptr->core);
+    d_ptr->core = make_shared<QTNG_NAMESPACE::PublicKey>(*other.d_ptr->core);
 }
 
 PublicKey &PublicKey::operator=(const PublicKey &other)
 {
-    d_ptr->core = make_shared<qtng_core::PublicKey>(*other.d_ptr->core);
+    d_ptr->core = make_shared<QTNG_NAMESPACE::PublicKey>(*other.d_ptr->core);
     return *this;
 }
 
@@ -74,70 +74,70 @@ PublicKey::Algorithm PublicKey::algorithm() const { return static_cast<Algorithm
 int PublicKey::bits() const { return d_ptr->core->bits(); }
 bool PublicKey::verify(const QByteArray &data, const QByteArray &hash, MessageDigest::Algorithm hashAlgo)
 {
-    return d_ptr->core->verify(toStdString(data), toStdString(hash), static_cast<qtng_core::MessageDigest::Algorithm>(hashAlgo));
+    return d_ptr->core->verify(toStdString(data), toStdString(hash), static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(hashAlgo));
 }
 QByteArray PublicKey::encrypt(const QByteArray &data) const { return toQByteArray(d_ptr->core->encrypt(toStdString(data))); }
 QByteArray PublicKey::digest(MessageDigest::Algorithm algorithm) const
 {
-    return toQByteArray(d_ptr->core->digest(static_cast<qtng_core::MessageDigest::Algorithm>(algorithm)));
+    return toQByteArray(d_ptr->core->digest(static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(algorithm)));
 }
 QByteArray PublicKey::rsaPublicEncrypt(const QByteArray &data, RsaPadding padding) const
 {
-    return toQByteArray(d_ptr->core->rsaPublicEncrypt(toStdString(data), static_cast<qtng_core::PublicKey::RsaPadding>(padding)));
+    return toQByteArray(d_ptr->core->rsaPublicEncrypt(toStdString(data), static_cast<QTNG_NAMESPACE::PublicKey::RsaPadding>(padding)));
 }
 QByteArray PublicKey::rsaPublicDecrypt(const QByteArray &data, RsaPadding padding) const
 {
-    return toQByteArray(d_ptr->core->rsaPublicDecrypt(toStdString(data), static_cast<qtng_core::PublicKey::RsaPadding>(padding)));
+    return toQByteArray(d_ptr->core->rsaPublicDecrypt(toStdString(data), static_cast<QTNG_NAMESPACE::PublicKey::RsaPadding>(padding)));
 }
 PublicKey PublicKey::load(const QByteArray &data, Ssl::EncodingFormat format)
 {
-    return PublicKeyPrivate::fromCore(make_shared<qtng_core::PublicKey>(
-            qtng_core::PublicKey::load(toStdString(data), static_cast<qtng_core::Ssl::EncodingFormat>(format))));
+    return PublicKeyPrivate::fromCore(make_shared<QTNG_NAMESPACE::PublicKey>(
+            QTNG_NAMESPACE::PublicKey::load(toStdString(data), static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format))));
 }
 QByteArray PublicKey::save(Ssl::EncodingFormat format) const
 {
-    return toQByteArray(d_ptr->core->save(static_cast<qtng_core::Ssl::EncodingFormat>(format)));
+    return toQByteArray(d_ptr->core->save(static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format)));
 }
 bool PublicKey::operator==(const PublicKey &other) const { return *d_ptr->core == *other.d_ptr->core; }
 
 bool PrivateKey::operator==(const PrivateKey &other) const { return PublicKeyPrivate::privateCoreOf(*this) == PublicKeyPrivate::privateCoreOf(other); }
 PublicKey PrivateKey::publicKey() const
 {
-    return PublicKeyPrivate::fromCore(make_shared<qtng_core::PublicKey>(PublicKeyPrivate::privateCoreOf(*this).publicKey()));
+    return PublicKeyPrivate::fromCore(make_shared<QTNG_NAMESPACE::PublicKey>(PublicKeyPrivate::privateCoreOf(*this).publicKey()));
 }
 QByteArray PrivateKey::sign(const QByteArray &data, MessageDigest::Algorithm hashAlgo)
 {
     return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).sign(toStdString(data),
-                                                                  static_cast<qtng_core::MessageDigest::Algorithm>(hashAlgo)));
+                                                                  static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(hashAlgo)));
 }
 QByteArray PrivateKey::decrypt(const QByteArray &data) const { return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).decrypt(toStdString(data))); }
 QByteArray PrivateKey::rsaPrivateEncrypt(const QByteArray &data, RsaPadding padding) const
 {
     return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).rsaPrivateEncrypt(toStdString(data),
-                                                                                 static_cast<qtng_core::PublicKey::RsaPadding>(padding)));
+                                                                                 static_cast<QTNG_NAMESPACE::PublicKey::RsaPadding>(padding)));
 }
 QByteArray PrivateKey::rsaPrivateDecrypt(const QByteArray &data, RsaPadding padding) const
 {
     return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).rsaPrivateDecrypt(toStdString(data),
-                                                                                 static_cast<qtng_core::PublicKey::RsaPadding>(padding)));
+                                                                                 static_cast<QTNG_NAMESPACE::PublicKey::RsaPadding>(padding)));
 }
 PrivateKey PrivateKey::generate(Algorithm algo, int bits)
 {
-    return PublicKeyPrivate::privateFromCore(make_shared<qtng_core::PrivateKey>(
-            qtng_core::PrivateKey::generate(static_cast<qtng_core::PublicKey::Algorithm>(algo), bits)));
+    return PublicKeyPrivate::privateFromCore(make_shared<QTNG_NAMESPACE::PrivateKey>(
+            QTNG_NAMESPACE::PrivateKey::generate(static_cast<QTNG_NAMESPACE::PublicKey::Algorithm>(algo), bits)));
 }
 PrivateKey PrivateKey::load(const QByteArray &data, Ssl::EncodingFormat format, const QByteArray &password)
 {
-    return PublicKeyPrivate::privateFromCore(make_shared<qtng_core::PrivateKey>(qtng_core::PrivateKey::load(
-            toStdString(data), static_cast<qtng_core::Ssl::EncodingFormat>(format), toStdString(password))));
+    return PublicKeyPrivate::privateFromCore(make_shared<QTNG_NAMESPACE::PrivateKey>(QTNG_NAMESPACE::PrivateKey::load(
+            toStdString(data), static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format), toStdString(password))));
 }
 QByteArray PrivateKey::save(Ssl::EncodingFormat format, const QByteArray &password) const
 {
-    return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).save(static_cast<qtng_core::Ssl::EncodingFormat>(format),
+    return toQByteArray(PublicKeyPrivate::privateCoreOf(*this).save(static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format),
                                                                     toStdString(password)));
 }
 
-class QtPasswordCallbackAdapter : public qtng_core::PasswordCallback
+class QtPasswordCallbackAdapter : public QTNG_NAMESPACE::PasswordCallback
 {
 public:
     explicit QtPasswordCallbackAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::PasswordCallback> callback)
@@ -153,23 +153,23 @@ private:
 class PrivateKeyWriterPrivate
 {
 public:
-    explicit PrivateKeyWriterPrivate(shared_ptr<qtng_core::PrivateKeyWriter> writer)
+    explicit PrivateKeyWriterPrivate(shared_ptr<QTNG_NAMESPACE::PrivateKeyWriter> writer)
         : core(std::move(writer))
     {
     }
 
-    shared_ptr<qtng_core::PrivateKeyWriter> core;
+    shared_ptr<QTNG_NAMESPACE::PrivateKeyWriter> core;
 };
 
 PrivateKeyWriter::PrivateKeyWriter(const PrivateKey &key)
     : d_ptr(new PrivateKeyWriterPrivate(
-            make_shared<qtng_core::PrivateKeyWriter>(PublicKeyPrivate::privateCoreOf(const_cast<PrivateKey &>(key)))))
+            make_shared<QTNG_NAMESPACE::PrivateKeyWriter>(PublicKeyPrivate::privateCoreOf(const_cast<PrivateKey &>(key)))))
 {
 }
 
 PrivateKeyWriter::PrivateKeyWriter(const PublicKey &key)
     : d_ptr(new PrivateKeyWriterPrivate(
-            make_shared<qtng_core::PrivateKeyWriter>(PublicKeyPrivate::coreOf(const_cast<PublicKey &>(key)))))
+            make_shared<QTNG_NAMESPACE::PrivateKeyWriter>(PublicKeyPrivate::coreOf(const_cast<PublicKey &>(key)))))
 {
 }
 
@@ -177,7 +177,7 @@ PrivateKeyWriter::~PrivateKeyWriter() { delete d_ptr; }
 PrivateKeyWriter &PrivateKeyWriter::setCipher(Cipher::Algorithm algo, Cipher::Mode mode)
 {
     Q_D(PrivateKeyWriter);
-    d->core->setCipher(static_cast<qtng_core::Cipher::Algorithm>(algo), static_cast<qtng_core::Cipher::Mode>(mode));
+    d->core->setCipher(static_cast<QTNG_NAMESPACE::Cipher::Algorithm>(algo), static_cast<QTNG_NAMESPACE::Cipher::Mode>(mode));
     return *this;
 }
 PrivateKeyWriter &PrivateKeyWriter::setPassword(const QByteArray &password)
@@ -217,7 +217,7 @@ bool PrivateKeyWriter::save(const QString &filePath)
 class PrivateKeyReaderPrivate
 {
 public:
-    qtng_core::PrivateKeyReader core;
+    QTNG_NAMESPACE::PrivateKeyReader core;
 };
 
 PrivateKeyReader::PrivateKeyReader()
@@ -241,28 +241,28 @@ PrivateKeyReader &PrivateKeyReader::setPassword(QSharedPointer<PasswordCallback>
 PrivateKeyReader &PrivateKeyReader::setFormat(Ssl::EncodingFormat format)
 {
     Q_D(PrivateKeyReader);
-    d->core.setFormat(static_cast<qtng_core::Ssl::EncodingFormat>(format));
+    d->core.setFormat(static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format));
     return *this;
 }
 PrivateKey PrivateKeyReader::read(const QByteArray &data)
 {
     Q_D(PrivateKeyReader);
-    return PublicKeyPrivate::privateFromCore(make_shared<qtng_core::PrivateKey>(d->core.read(toStdString(data))));
+    return PublicKeyPrivate::privateFromCore(make_shared<QTNG_NAMESPACE::PrivateKey>(d->core.read(toStdString(data))));
 }
 PublicKey PrivateKeyReader::readPublic(const QByteArray &data)
 {
     Q_D(PrivateKeyReader);
-    return PublicKeyPrivate::fromCore(make_shared<qtng_core::PublicKey>(d->core.readPublic(toStdString(data))));
+    return PublicKeyPrivate::fromCore(make_shared<QTNG_NAMESPACE::PublicKey>(d->core.readPublic(toStdString(data))));
 }
 PrivateKey PrivateKeyReader::read(const QString &filePath)
 {
     Q_D(PrivateKeyReader);
-    return PublicKeyPrivate::privateFromCore(make_shared<qtng_core::PrivateKey>(d->core.readFile(toStdString(filePath))));
+    return PublicKeyPrivate::privateFromCore(make_shared<QTNG_NAMESPACE::PrivateKey>(d->core.readFile(toStdString(filePath))));
 }
 PublicKey PrivateKeyReader::readPublic(const QString &filePath)
 {
     Q_D(PrivateKeyReader);
-    return PublicKeyPrivate::fromCore(make_shared<qtng_core::PublicKey>(d->core.readPublicFile(toStdString(filePath))));
+    return PublicKeyPrivate::fromCore(make_shared<QTNG_NAMESPACE::PublicKey>(d->core.readPublicFile(toStdString(filePath))));
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE
@@ -271,12 +271,12 @@ PublicKey PrivateKeyReader::readPublic(const QString &filePath)
 
 namespace qtng_bridge {
 
-QTNETWORKNG_NAMESPACE::PrivateKey toQtPrivateKey(const qtng_core::PrivateKey &key)
+QTNETWORKNG_NAMESPACE::PrivateKey toQtPrivateKey(const QTNG_NAMESPACE::PrivateKey &key)
 {
-    return QTNETWORKNG_NAMESPACE::PublicKeyPrivate::privateFromCore(make_shared<qtng_core::PrivateKey>(key));
+    return QTNETWORKNG_NAMESPACE::PublicKeyPrivate::privateFromCore(make_shared<QTNG_NAMESPACE::PrivateKey>(key));
 }
 
-const qtng_core::PrivateKey &privateKeyCoreOf(const QTNETWORKNG_NAMESPACE::PrivateKey &key)
+const QTNG_NAMESPACE::PrivateKey &privateKeyCoreOf(const QTNETWORKNG_NAMESPACE::PrivateKey &key)
 {
     return QTNETWORKNG_NAMESPACE::PublicKeyPrivate::privateCoreOf(key);
 }

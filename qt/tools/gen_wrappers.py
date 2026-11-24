@@ -8,8 +8,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "src")
 
 MODULES = [
-    ("hostaddress", "HostAddress", "::qtng::HostAddress", "d->core"),
-    ("network_interface", "NetworkInterface", "::qtng::NetworkInterface", "d->core"),
+    ("hostaddress", "HostAddress", "QTNG_NAMESPACE::HostAddress", "d->core"),
+    ("network_interface", "NetworkInterface", "QTNG_NAMESPACE::NetworkInterface", "d->core"),
     ("random", None, None, None),
     ("gzip", None, None, None),
 ]
@@ -45,7 +45,7 @@ def gen_hostaddress():
         """\
         class HostAddressPrivate {
         public:
-            ::qtng::HostAddress core;
+            QTNG_NAMESPACE::HostAddress core;
         };
 
         HostAddress::HostAddress()
@@ -61,7 +61,7 @@ def gen_hostaddress():
         HostAddress::HostAddress(SpecialAddress address)
             : d(new HostAddressPrivate)
         {
-            d->core.setAddress(static_cast<::qtng::HostAddress::SpecialAddress>(address));
+            d->core.setAddress(static_cast<QTNG_NAMESPACE::HostAddress::SpecialAddress>(address));
         }
 
         HostAddress::HostAddress(const QString &address)
@@ -97,7 +97,7 @@ def gen_hostaddress():
         HostAddress::HostAddress(const sockaddr *sockaddr)
             : d(new HostAddressPrivate)
         {
-            d->core = ::qtng::HostAddress(sockaddr);
+            d->core = QTNG_NAMESPACE::HostAddress(sockaddr);
         }
 
         HostAddress::~HostAddress() = default;
@@ -110,13 +110,13 @@ def gen_hostaddress():
 
         HostAddress &HostAddress::operator=(SpecialAddress address)
         {
-            d->core.setAddress(static_cast<::qtng::HostAddress::SpecialAddress>(address));
+            d->core.setAddress(static_cast<QTNG_NAMESPACE::HostAddress::SpecialAddress>(address));
             return *this;
         }
 
         bool HostAddress::isEqual(const HostAddress &address, ConversionMode mode) const
         {
-            return d->core.isEqual(address.d->core, static_cast<::qtng::HostAddress::ConversionModeFlag>(mode));
+            return d->core.isEqual(address.d->core, static_cast<QTNG_NAMESPACE::HostAddress::ConversionModeFlag>(mode));
         }
 
         bool HostAddress::operator==(const HostAddress &address) const
@@ -126,7 +126,7 @@ def gen_hostaddress():
 
         bool HostAddress::operator==(SpecialAddress address) const
         {
-            return d->core == static_cast<::qtng::HostAddress::SpecialAddress>(address);
+            return d->core == static_cast<QTNG_NAMESPACE::HostAddress::SpecialAddress>(address);
         }
 
         void HostAddress::swap(HostAddress &other) noexcept
@@ -161,7 +161,7 @@ def gen_hostaddress():
 
         void HostAddress::setAddress(SpecialAddress address)
         {
-            d->core.setAddress(static_cast<::qtng::HostAddress::SpecialAddress>(address));
+            d->core.setAddress(static_cast<QTNG_NAMESPACE::HostAddress::SpecialAddress>(address));
         }
 
         bool HostAddress::isNull() const
@@ -181,7 +181,7 @@ def gen_hostaddress():
 
         HostAddress::IPv6Address HostAddress::toIPv6Address() const
         {
-            const ::qtng::IPv6Address v6 = d->core.toIPv6Address();
+            const QTNG_NAMESPACE::IPv6Address v6 = d->core.toIPv6Address();
             IPv6Address result;
             for (int i = 0; i < 16; ++i) {
                 result.data()[i] = v6.data()[i];
@@ -201,7 +201,7 @@ def gen_hostaddress():
 
         QPair<HostAddress, int> HostAddress::parseSubnet(const QString &subnet)
         {
-            const auto parsed = ::qtng::HostAddress::parseSubnet(toStdString(subnet));
+            const auto parsed = QTNG_NAMESPACE::HostAddress::parseSubnet(toStdString(subnet));
             return qMakePair(HostAddress(toQString(parsed.first.toString())), parsed.second);
         }
 
@@ -231,9 +231,9 @@ def gen_hostaddress():
 
         QList<HostAddress> HostAddress::getHostAddressByName(const QString &hostName)
         {
-            const vector<::qtng::HostAddress> addrs = ::qtng::HostAddress::getHostAddressByName(toStdString(hostName));
+            const vector<QTNG_NAMESPACE::HostAddress> addrs = QTNG_NAMESPACE::HostAddress::getHostAddressByName(toStdString(hostName));
             QList<HostAddress> result;
-            for (const ::qtng::HostAddress &addr : addrs) {
+            for (const QTNG_NAMESPACE::HostAddress &addr : addrs) {
                 HostAddress ha;
                 ha.d->core = addr;
                 result.append(ha);
@@ -243,12 +243,12 @@ def gen_hostaddress():
 
         uint qHash(const HostAddress &key, uint seed) noexcept
         {
-            return ::qtng::qHash(key.d->core, seed);
+            return QTNG_NAMESPACE::qHash(key.d->core, seed);
         }
 
         #ifdef Q_OS_WIN
-        void initWinSock() { ::qtng::initWinSock(); }
-        void freeWinSock() { ::qtng::freeWinSock(); }
+        void initWinSock() { QTNG_NAMESPACE::initWinSock(); }
+        void freeWinSock() { QTNG_NAMESPACE::freeWinSock(); }
         #endif
         """
     )

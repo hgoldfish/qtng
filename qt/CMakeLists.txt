@@ -7,16 +7,36 @@ cmake_minimum_required(VERSION 3.14)
 set(QTNG_QT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(QTNG_ROOT "${QTNG_QT_DIR}/..")
 
-# Core is only linked privately by qtnetworkng; bridge TUs hardcode qtng_core:: and
-# must see the same mangled symbols. FORCE the CACHE before add_subdirectory so a
-# fresh qtng is built as qtng_core; if qtng already exists under the default name,
-# append the PUBLIC def so this tree remaps (prefer a clean build if both
-# -DQTNG_NAMESPACE=qtng and =qtng_core end up on the command line).
-set(QTNG_NAMESPACE "qtng_core" CACHE STRING "C++ namespace for libqtng" FORCE)
+# Core is only linked privately by qtnetworkng; bridge TUs name core types through
+# QTNG_NAMESPACE, so both sides must agree on the same mangled symbols. Pin the CACHE before
+# add_subdirectory so the core we add is built as qtng_core; the binding's own TUs receive the
+# macro from that target's INTERFACE definitions.
 if(NOT TARGET qtng)
+    set(QTNG_NAMESPACE "qtng_core" CACHE STRING "C++ namespace for libqtng" FORCE)
     add_subdirectory("${QTNG_ROOT}" "${CMAKE_BINARY_DIR}/qtng-core" EXCLUDE_FROM_ALL)
 else()
-    target_compile_definitions(qtng PUBLIC QTNG_NAMESPACE=qtng_core)
+    # Core was added by someone else: it is already compiled, so it cannot be renamed here and
+    # the parent's QTNG_NAMESPACE must stay untouched. Only verify it is the namespace this
+    # binding is built for; the macro reaches our TUs through the target's INTERFACE
+    # definitions because qtng is linked privately.
+    get_target_property(_qtng_ns_defs qtng INTERFACE_COMPILE_DEFINITIONS)
+    set(_qtng_existing_namespace "")
+    foreach(_qtng_ns_def IN LISTS _qtng_ns_defs)
+        if(_qtng_ns_def MATCHES "^QTNG_NAMESPACE=(.+)$")
+            set(_qtng_existing_namespace "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    unset(_qtng_ns_defs)
+    unset(_qtng_ns_def)
+    if(NOT _qtng_existing_namespace STREQUAL "qtng_core")
+        message(FATAL_ERROR
+            "Target 'qtng' already exists with QTNG_NAMESPACE='${_qtng_existing_namespace}' "
+            "(an empty value means it propagates no such definition), but this Qt binding is "
+            "built as 'qtng_core' and an existing core target cannot be renamed. Configure the "
+            "project that adds that core with -DQTNG_NAMESPACE=qtng_core, or drop it and let "
+            "qt/CMakeLists.txt add core itself (see docs/qt_integration.rst).")
+    endif()
+    unset(_qtng_existing_namespace)
 endif()
 
 # QTNG_QT_VERSION: auto (prefer Qt5, else Qt6), 5, or 6.

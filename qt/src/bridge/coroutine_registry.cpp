@@ -4,7 +4,7 @@
 #include "bridge/coroutine_registry.h"
 #include "config.h"
 
-using CoreCoroutine = qtng_core::BaseCoroutine;
+using CoreCoroutine = QTNG_NAMESPACE::BaseCoroutine;
 
 namespace qtng_bridge {
 

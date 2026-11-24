@@ -25,17 +25,17 @@ namespace QTNETWORKNG_NAMESPACE {
 class QtHttpBridgeAccess
 {
 public:
-    static qtng_core::HttpRequest coreOf(const HttpRequest &req);
-    static qtng_core::HttpResponse coreOf(const HttpResponse &resp);
-    static HttpRequest fromCore(qtng_core::HttpRequest core);
-    static HttpResponse fromCore(qtng_core::HttpResponse core);
+    static QTNG_NAMESPACE::HttpRequest coreOf(const HttpRequest &req);
+    static QTNG_NAMESPACE::HttpResponse coreOf(const HttpResponse &resp);
+    static HttpRequest fromCore(QTNG_NAMESPACE::HttpRequest core);
+    static HttpResponse fromCore(QTNG_NAMESPACE::HttpResponse core);
 };
 
 namespace {
 
-qtng_core::HttpCookie toCoreCookie(const HttpCookie &c)
+QTNG_NAMESPACE::HttpCookie toCoreCookie(const HttpCookie &c)
 {
-    qtng_core::HttpCookie cc(toStdString(c.name()), toStdString(c.value()));
+    QTNG_NAMESPACE::HttpCookie cc(toStdString(c.name()), toStdString(c.value()));
     cc.setDomain(toStdString(c.domain()));
     cc.setPath(toStdString(c.path()));
     cc.setSecure(c.isSecure());
@@ -43,7 +43,7 @@ qtng_core::HttpCookie toCoreCookie(const HttpCookie &c)
     return cc;
 }
 
-HttpCookie toQtCookie(const qtng_core::HttpCookie &c)
+HttpCookie toQtCookie(const QTNG_NAMESPACE::HttpCookie &c)
 {
     HttpCookie qc(c.name().data(), c.value().data());
     qc.setDomain(toQString(c.domain()));
@@ -53,14 +53,14 @@ HttpCookie toQtCookie(const qtng_core::HttpCookie &c)
     return qc;
 }
 
-qtng_core::HttpRequest toCoreRequest(const HttpRequest &req)
+QTNG_NAMESPACE::HttpRequest toCoreRequest(const HttpRequest &req)
 {
     return QtHttpBridgeAccess::coreOf(req);
 }
 
-HttpRequest toQtRequest(const qtng_core::HttpRequest &core)
+HttpRequest toQtRequest(const QTNG_NAMESPACE::HttpRequest &core)
 {
-    return QtHttpBridgeAccess::fromCore(qtng_core::detail::HttpDeepCopy::request(core));
+    return QtHttpBridgeAccess::fromCore(QTNG_NAMESPACE::detail::HttpDeepCopy::request(core));
 }
 
 // Core error types without a Qt binding counterpart are mapped onto this
@@ -78,12 +78,12 @@ private:
     QString message;
 };
 
-HttpResponse toQtResponse(qtng_core::HttpResponse core)
+HttpResponse toQtResponse(QTNG_NAMESPACE::HttpResponse core)
 {
     return QtHttpBridgeAccess::fromCore(std::move(core));
 }
 
-qtng_core::HttpResponse toCoreResponse(HttpResponse &resp)
+QTNG_NAMESPACE::HttpResponse toCoreResponse(HttpResponse &resp)
 {
     // Whole-payload deep copy through the private bridge. It copies the private
     // data directly and does not run the body accessors, so it cannot consume a
@@ -113,7 +113,7 @@ map<string, string> toCoreHeaderMap(const QMap<QString, QByteArray> &m)
 
 namespace {
 
-class CoreSocketProxyAdapter : public qtng_core::SocketProxy
+class CoreSocketProxyAdapter : public QTNG_NAMESPACE::SocketProxy
 {
 public:
     explicit CoreSocketProxyAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::SocketProxy> proxy)
@@ -121,18 +121,18 @@ public:
     {
     }
 
-    std::shared_ptr<qtng_core::SocketLike> connect(const qtng_core::HostAddress &addr, std::uint16_t port) override
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> connect(const QTNG_NAMESPACE::HostAddress &addr, std::uint16_t port) override
     {
         if (!proxy) {
-            return std::shared_ptr<qtng_core::SocketLike>();
+            return std::shared_ptr<QTNG_NAMESPACE::SocketLike>();
         }
         return toCoreSocketLike(proxy->connect(toQtAddress(addr), port));
     }
 
-    std::shared_ptr<qtng_core::SocketLike> connect(const std::string &addr, std::uint16_t port) override
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> connect(const std::string &addr, std::uint16_t port) override
     {
         if (!proxy) {
-            return std::shared_ptr<qtng_core::SocketLike>();
+            return std::shared_ptr<QTNG_NAMESPACE::SocketLike>();
         }
         return toCoreSocketLike(proxy->connect(toQString(addr), port));
     }
@@ -143,7 +143,7 @@ public:
 class QtSocketProxyAdapter : public SocketProxy
 {
 public:
-    explicit QtSocketProxyAdapter(std::shared_ptr<qtng_core::SocketProxy> core)
+    explicit QtSocketProxyAdapter(std::shared_ptr<QTNG_NAMESPACE::SocketProxy> core)
         : core(std::move(core))
     {
     }
@@ -164,10 +164,10 @@ public:
         return toQtSocketLike(core->connect(toStdString(addr), port));
     }
 
-    std::shared_ptr<qtng_core::SocketProxy> core;
+    std::shared_ptr<QTNG_NAMESPACE::SocketProxy> core;
 };
 
-class CoreHttpProxyAdapter : public qtng_core::HttpProxy
+class CoreHttpProxyAdapter : public QTNG_NAMESPACE::HttpProxy
 {
 public:
     explicit CoreHttpProxyAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::HttpProxy> proxy)
@@ -175,18 +175,18 @@ public:
     {
     }
 
-    std::shared_ptr<qtng_core::SocketLike> connect(const qtng_core::HostAddress &addr, std::uint16_t port) override
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> connect(const QTNG_NAMESPACE::HostAddress &addr, std::uint16_t port) override
     {
         if (!proxy) {
-            return std::shared_ptr<qtng_core::SocketLike>();
+            return std::shared_ptr<QTNG_NAMESPACE::SocketLike>();
         }
         return toCoreSocketLike(proxy->connect(toQtAddress(addr), port));
     }
 
-    std::shared_ptr<qtng_core::SocketLike> connect(const std::string &addr, std::uint16_t port) override
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> connect(const std::string &addr, std::uint16_t port) override
     {
         if (!proxy) {
-            return std::shared_ptr<qtng_core::SocketLike>();
+            return std::shared_ptr<QTNG_NAMESPACE::SocketLike>();
         }
         return toCoreSocketLike(proxy->connect(toQString(addr), port));
     }
@@ -197,7 +197,7 @@ public:
 class QtHttpProxyAdapter : public HttpProxy
 {
 public:
-    explicit QtHttpProxyAdapter(std::shared_ptr<qtng_core::HttpProxy> core)
+    explicit QtHttpProxyAdapter(std::shared_ptr<QTNG_NAMESPACE::HttpProxy> core)
         : core(std::move(core))
     {
         if (this->core) {
@@ -225,10 +225,10 @@ public:
         return toQtSocketLike(core->connect(toStdString(addr), port));
     }
 
-    std::shared_ptr<qtng_core::HttpProxy> core;
+    std::shared_ptr<QTNG_NAMESPACE::HttpProxy> core;
 };
 
-class CoreHttpCacheManagerAdapter : public qtng_core::HttpCacheManager
+class CoreHttpCacheManagerAdapter : public QTNG_NAMESPACE::HttpCacheManager
 {
 public:
     explicit CoreHttpCacheManagerAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::HttpCacheManager> manager)
@@ -236,7 +236,7 @@ public:
     {
     }
 
-    bool addResponse(qtng_core::HttpResponse &response) override
+    bool addResponse(QTNG_NAMESPACE::HttpResponse &response) override
     {
         if (!manager) {
             return false;
@@ -245,7 +245,7 @@ public:
         return manager->addResponse(qr);
     }
 
-    bool getResponse(qtng_core::HttpResponse *response) override
+    bool getResponse(QTNG_NAMESPACE::HttpResponse *response) override
     {
         if (!manager || !response) {
             return false;
@@ -265,7 +265,7 @@ public:
 class QtHttpCacheManagerAdapter : public HttpCacheManager
 {
 public:
-    explicit QtHttpCacheManagerAdapter(std::shared_ptr<qtng_core::HttpCacheManager> core)
+    explicit QtHttpCacheManagerAdapter(std::shared_ptr<QTNG_NAMESPACE::HttpCacheManager> core)
         : core(std::move(core))
     {
     }
@@ -275,7 +275,7 @@ public:
         if (!core) {
             return false;
         }
-        qtng_core::HttpResponse coreResp = toCoreResponse(response);
+        QTNG_NAMESPACE::HttpResponse coreResp = toCoreResponse(response);
         return core->addResponse(coreResp);
     }
 
@@ -284,7 +284,7 @@ public:
         if (!core || !response) {
             return false;
         }
-        qtng_core::HttpResponse coreResp = toCoreResponse(*response);
+        QTNG_NAMESPACE::HttpResponse coreResp = toCoreResponse(*response);
         const bool ok = core->getResponse(&coreResp);
         if (ok) {
             *response = toQtResponse(coreResp);
@@ -293,13 +293,13 @@ public:
     }
 
 public:
-    std::shared_ptr<qtng_core::HttpCacheManager> core;
+    std::shared_ptr<QTNG_NAMESPACE::HttpCacheManager> core;
 };
 
 // 桥接 Qt 侧自定义 BaseProxySwitcher 到 core：core 的连接池通过该适配器调用
 // Qt 侧 switcher 的 selectSocketProxy/selectHttpProxy，让自定义 switcher 真正
 // 参与请求选路（与原版 setProxySwitcher 语义一致）。
-class QtProxySwitcherCoreBridge : public qtng_core::BaseProxySwitcher
+class QtProxySwitcherCoreBridge : public QTNG_NAMESPACE::BaseProxySwitcher
 {
 public:
     explicit QtProxySwitcherCoreBridge(QSharedPointer<QTNETWORKNG_NAMESPACE::BaseProxySwitcher> switcher)
@@ -307,26 +307,26 @@ public:
     {
     }
 
-    std::shared_ptr<qtng_core::SocketProxy> selectSocketProxy(const std::string &url) override
+    std::shared_ptr<QTNG_NAMESPACE::SocketProxy> selectSocketProxy(const std::string &url) override
     {
         if (!switcher) {
-            return std::shared_ptr<qtng_core::SocketProxy>();
+            return std::shared_ptr<QTNG_NAMESPACE::SocketProxy>();
         }
-        const QSharedPointer<SocketProxy> proxy = switcher->selectSocketProxy(toQUrl(qtng_core::utils::Url(url)));
+        const QSharedPointer<SocketProxy> proxy = switcher->selectSocketProxy(toQUrl(QTNG_NAMESPACE::utils::Url(url)));
         if (proxy.isNull()) {
-            return std::shared_ptr<qtng_core::SocketProxy>();
+            return std::shared_ptr<QTNG_NAMESPACE::SocketProxy>();
         }
         return std::make_shared<CoreSocketProxyAdapter>(proxy);
     }
 
-    std::shared_ptr<qtng_core::HttpProxy> selectHttpProxy(const std::string &url) override
+    std::shared_ptr<QTNG_NAMESPACE::HttpProxy> selectHttpProxy(const std::string &url) override
     {
         if (!switcher) {
-            return std::shared_ptr<qtng_core::HttpProxy>();
+            return std::shared_ptr<QTNG_NAMESPACE::HttpProxy>();
         }
-        const QSharedPointer<HttpProxy> proxy = switcher->selectHttpProxy(toQUrl(qtng_core::utils::Url(url)));
+        const QSharedPointer<HttpProxy> proxy = switcher->selectHttpProxy(toQUrl(QTNG_NAMESPACE::utils::Url(url)));
         if (proxy.isNull()) {
-            return std::shared_ptr<qtng_core::HttpProxy>();
+            return std::shared_ptr<QTNG_NAMESPACE::HttpProxy>();
         }
         return std::make_shared<CoreHttpProxyAdapter>(proxy);
     }
@@ -342,20 +342,20 @@ class HttpRequestPrivate : public QSharedData
 public:
     HttpRequestPrivate() = default;
     HttpRequestPrivate(const HttpRequestPrivate &other)
-        : core(qtng_core::detail::HttpDeepCopy::request(other.core))
+        : core(QTNG_NAMESPACE::detail::HttpDeepCopy::request(other.core))
     {
     }
-    qtng_core::HttpRequest core;
+    QTNG_NAMESPACE::HttpRequest core;
 };
 
 FormData::FormData()
-    : boundary_(toQByteArray(qtng_core::FormData::makeBoundary()))
+    : boundary_(toQByteArray(QTNG_NAMESPACE::FormData::makeBoundary()))
 {
 }
 
 QByteArray FormData::toByteArray() const
 {
-    qtng_core::FormData core;
+    QTNG_NAMESPACE::FormData core;
     core.setBoundary(toStdString(boundary()));
     for (const Query &q : queries()) {
         core.addQuery(toStdString(q.name()), toStdString(q.value()));
@@ -399,14 +399,14 @@ void HttpRequest::setQuery(const QUrlQuery &query) { d->core.setQuery(toCoreUrlQ
 QList<HttpCookie> HttpRequest::cookies() const
 {
     QList<HttpCookie> result;
-    for (const qtng_core::HttpCookie &c : d->core.cookies()) {
+    for (const QTNG_NAMESPACE::HttpCookie &c : d->core.cookies()) {
         result.append(toQtCookie(c));
     }
     return result;
 }
 void HttpRequest::setCookies(const QList<HttpCookie> &cookies)
 {
-    vector<qtng_core::HttpCookie> coreCookies;
+    vector<QTNG_NAMESPACE::HttpCookie> coreCookies;
     for (const HttpCookie &c : cookies) {
         coreCookies.push_back(toCoreCookie(c));
     }
@@ -422,9 +422,9 @@ void HttpRequest::setMaxBodySize(qint64 maxBodySize) { d->core.setMaxBodySize(ma
 int HttpRequest::maxRedirects() const { return d->core.maxRedirects(); }
 void HttpRequest::setMaxRedirects(int maxRedirects) { d->core.setMaxRedirects(maxRedirects); }
 HttpRequest::Priority HttpRequest::priority() const { return static_cast<Priority>(d->core.priority()); }
-void HttpRequest::setPriority(Priority priority) { d->core.setPriority(static_cast<qtng_core::HttpRequest::Priority>(priority)); }
+void HttpRequest::setPriority(Priority priority) { d->core.setPriority(static_cast<QTNG_NAMESPACE::HttpRequest::Priority>(priority)); }
 HttpVersion HttpRequest::version() const { return static_cast<HttpVersion>(d->core.version()); }
-void HttpRequest::setVersion(HttpVersion version) { d->core.setVersion(static_cast<qtng_core::HttpVersion>(version)); }
+void HttpRequest::setVersion(HttpVersion version) { d->core.setVersion(static_cast<QTNG_NAMESPACE::HttpVersion>(version)); }
 void HttpRequest::setStreamResponse(bool streamResponse) { d->core.setStreamResponse(streamResponse); }
 bool HttpRequest::streamResponse() const { return d->core.streamResponse(); }
 float HttpRequest::connectionTimeout() const { return d->core.connectionTimeout(); }
@@ -516,10 +516,10 @@ class HttpResponsePrivate : public QSharedData
 public:
     HttpResponsePrivate() = default;
     HttpResponsePrivate(const HttpResponsePrivate &other)
-        : core(qtng_core::detail::HttpDeepCopy::response(other.core))
+        : core(QTNG_NAMESPACE::detail::HttpDeepCopy::response(other.core))
     {
     }
-    qtng_core::HttpResponse core;
+    QTNG_NAMESPACE::HttpResponse core;
 };
 
 HttpResponse::HttpResponse()
@@ -527,27 +527,27 @@ HttpResponse::HttpResponse()
 {
 }
 
-qtng_core::HttpRequest QtHttpBridgeAccess::coreOf(const HttpRequest &req)
+QTNG_NAMESPACE::HttpRequest QtHttpBridgeAccess::coreOf(const HttpRequest &req)
 {
     // The core copy constructor shares the private payload and
     // core::HttpSession::send() mutates the request in place (version, cookies),
     // so build an independent object through the private deep-copy bridge.
-    return qtng_core::detail::HttpDeepCopy::request(req.d->core);
+    return QTNG_NAMESPACE::detail::HttpDeepCopy::request(req.d->core);
 }
 
-qtng_core::HttpResponse QtHttpBridgeAccess::coreOf(const HttpResponse &resp)
+QTNG_NAMESPACE::HttpResponse QtHttpBridgeAccess::coreOf(const HttpResponse &resp)
 {
-    return qtng_core::detail::HttpDeepCopy::response(resp.d->core);
+    return QTNG_NAMESPACE::detail::HttpDeepCopy::response(resp.d->core);
 }
 
-HttpRequest QtHttpBridgeAccess::fromCore(qtng_core::HttpRequest core)
+HttpRequest QtHttpBridgeAccess::fromCore(QTNG_NAMESPACE::HttpRequest core)
 {
     HttpRequest req;
     req.d->core = std::move(core);
     return req;
 }
 
-HttpResponse QtHttpBridgeAccess::fromCore(qtng_core::HttpResponse core)
+HttpResponse QtHttpBridgeAccess::fromCore(QTNG_NAMESPACE::HttpResponse core)
 {
     HttpResponse resp;
     resp.d->core = std::move(core);
@@ -580,14 +580,14 @@ void HttpResponse::setStatusText(const QString &statusText) { d->core.setStatusT
 QList<HttpCookie> HttpResponse::cookies() const
 {
     QList<HttpCookie> result;
-    for (const qtng_core::HttpCookie &c : d->core.cookies()) {
+    for (const QTNG_NAMESPACE::HttpCookie &c : d->core.cookies()) {
         result.append(toQtCookie(c));
     }
     return result;
 }
 void HttpResponse::setCookies(const QList<HttpCookie> &cookies)
 {
-    vector<qtng_core::HttpCookie> coreCookies;
+    vector<QTNG_NAMESPACE::HttpCookie> coreCookies;
     for (const HttpCookie &c : cookies) {
         coreCookies.push_back(toCoreCookie(c));
     }
@@ -600,14 +600,14 @@ void HttpResponse::setElapsed(qint64 elapsed) { d->core.setElapsed(elapsed); }
 QList<HttpResponse> HttpResponse::history() const
 {
     QList<HttpResponse> result;
-    for (const qtng_core::HttpResponse &h : d->core.history()) {
+    for (const QTNG_NAMESPACE::HttpResponse &h : d->core.history()) {
         result.append(toQtResponse(h));
     }
     return result;
 }
 void HttpResponse::setHistory(const QList<HttpResponse> &history)
 {
-    vector<qtng_core::HttpResponse> coreHistory;
+    vector<QTNG_NAMESPACE::HttpResponse> coreHistory;
     coreHistory.reserve(history.size());
     for (const HttpResponse &h : history) {
         coreHistory.push_back(QtHttpBridgeAccess::coreOf(h));
@@ -615,7 +615,7 @@ void HttpResponse::setHistory(const QList<HttpResponse> &history)
     d->core.setHistory(coreHistory);
 }
 HttpVersion HttpResponse::version() const { return static_cast<HttpVersion>(d->core.version()); }
-void HttpResponse::setVersion(HttpVersion version) { d->core.setVersion(static_cast<qtng_core::HttpVersion>(version)); }
+void HttpResponse::setVersion(HttpVersion version) { d->core.setVersion(static_cast<QTNG_NAMESPACE::HttpVersion>(version)); }
 
 QSharedPointer<SocketLike> HttpResponse::takeStream(QByteArray *readBytes)
 {
@@ -642,71 +642,71 @@ bool HttpResponse::hasNetworkError() const { return d->core.hasNetworkError(); }
 bool HttpResponse::hasHttpError() const { return d->core.hasHttpError(); }
 QSharedPointer<RequestError> HttpResponse::error() const
 {
-    shared_ptr<qtng_core::RequestError> coreError = d->core.error();
+    shared_ptr<QTNG_NAMESPACE::RequestError> coreError = d->core.error();
     if (!coreError) {
         return QSharedPointer<RequestError>();
     }
     // Map core error types onto the Qt binding class hierarchy. Most specific
     // types first: ConnectTimeout/ReadTimeout derive from RequestTimeout and
     // ProxyError/SSLError derive from ConnectionError.
-    if (dynamic_pointer_cast<qtng_core::ConnectTimeout>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::ConnectTimeout>(coreError)) {
         return QSharedPointer<RequestError>(new ConnectTimeout());
     }
-    if (dynamic_pointer_cast<qtng_core::ReadTimeout>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::ReadTimeout>(coreError)) {
         return QSharedPointer<RequestError>(new ReadTimeout());
     }
-    if (dynamic_pointer_cast<class qtng_core::RequestTimeout>(coreError)) {
+    if (dynamic_pointer_cast<class QTNG_NAMESPACE::RequestTimeout>(coreError)) {
         // HttpStatus 枚举成员 RequestTimeout(=408) 会遮蔽同名错误类，
         // 需用 elaborated type specifier 引用（与原版 qtnetworkng 一致）。
         return QSharedPointer<RequestError>(new class RequestTimeout());
     }
-    if (dynamic_pointer_cast<qtng_core::ProxyError>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::ProxyError>(coreError)) {
         return QSharedPointer<RequestError>(new ProxyError());
     }
-    if (dynamic_pointer_cast<qtng_core::SSLError>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::SSLError>(coreError)) {
         return QSharedPointer<RequestError>(new SSLError());
     }
-    if (dynamic_pointer_cast<qtng_core::ConnectionError>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::ConnectionError>(coreError)) {
         return QSharedPointer<RequestError>(new ConnectionError());
     }
-    shared_ptr<qtng_core::HTTPError> httpError = dynamic_pointer_cast<qtng_core::HTTPError>(coreError);
+    shared_ptr<QTNG_NAMESPACE::HTTPError> httpError = dynamic_pointer_cast<QTNG_NAMESPACE::HTTPError>(coreError);
     if (httpError) {
         return QSharedPointer<RequestError>(new HTTPError(httpError->statusCode()));
     }
-    if (dynamic_pointer_cast<qtng_core::URLRequired>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::URLRequired>(coreError)) {
         return QSharedPointer<RequestError>(new URLRequired());
     }
-    if (dynamic_pointer_cast<qtng_core::TooManyRedirects>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::TooManyRedirects>(coreError)) {
         return QSharedPointer<RequestError>(new TooManyRedirects());
     }
-    if (dynamic_pointer_cast<qtng_core::MissingSchema>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::MissingSchema>(coreError)) {
         return QSharedPointer<RequestError>(new MissingSchema());
     }
-    if (dynamic_pointer_cast<qtng_core::InvalidScheme>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::InvalidScheme>(coreError)) {
         return QSharedPointer<RequestError>(new InvalidScheme());
     }
-    if (dynamic_pointer_cast<qtng_core::UnsupportedVersion>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::UnsupportedVersion>(coreError)) {
         return QSharedPointer<RequestError>(new UnsupportedVersion());
     }
-    if (dynamic_pointer_cast<qtng_core::InvalidURL>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::InvalidURL>(coreError)) {
         return QSharedPointer<RequestError>(new InvalidURL());
     }
-    if (dynamic_pointer_cast<qtng_core::InvalidHeader>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::InvalidHeader>(coreError)) {
         return QSharedPointer<RequestError>(new InvalidHeader());
     }
-    if (dynamic_pointer_cast<qtng_core::ChunkedEncodingError>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::ChunkedEncodingError>(coreError)) {
         return QSharedPointer<RequestError>(new ChunkedEncodingError());
     }
-    if (dynamic_pointer_cast<qtng_core::ContentDecodingError>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::ContentDecodingError>(coreError)) {
         return QSharedPointer<RequestError>(new ContentDecodingError());
     }
-    if (dynamic_pointer_cast<qtng_core::StreamConsumedError>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::StreamConsumedError>(coreError)) {
         return QSharedPointer<RequestError>(new StreamConsumedError());
     }
-    if (dynamic_pointer_cast<qtng_core::RetryError>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::RetryError>(coreError)) {
         return QSharedPointer<RequestError>(new RetryError());
     }
-    if (dynamic_pointer_cast<qtng_core::UnrewindableBodyError>(coreError)) {
+    if (dynamic_pointer_cast<QTNG_NAMESPACE::UnrewindableBodyError>(coreError)) {
         return QSharedPointer<RequestError>(new UnrewindableBodyError());
     }
     return QSharedPointer<RequestError>(new QtGenericRequestError(toQString(coreError->what())));
@@ -715,51 +715,51 @@ QSharedPointer<RequestError> HttpResponse::error() const
 void HttpResponse::setError(QSharedPointer<RequestError> error)
 {
     if (!error) {
-        d->core.setError(shared_ptr<qtng_core::RequestError>());
+        d->core.setError(shared_ptr<QTNG_NAMESPACE::RequestError>());
         return;
     }
     // Reverse mapping from the Qt binding class hierarchy back to core.
     if (error.dynamicCast<ConnectTimeout>()) {
-        d->core.setError(make_shared<qtng_core::ConnectTimeout>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::ConnectTimeout>());
     } else if (error.dynamicCast<ReadTimeout>()) {
-        d->core.setError(make_shared<qtng_core::ReadTimeout>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::ReadTimeout>());
     } else if (error.dynamicCast<class RequestTimeout>()) {
-        d->core.setError(make_shared<class qtng_core::RequestTimeout>());
+        d->core.setError(make_shared<class QTNG_NAMESPACE::RequestTimeout>());
     } else if (error.dynamicCast<ProxyError>()) {
-        d->core.setError(make_shared<qtng_core::ProxyError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::ProxyError>());
     } else if (error.dynamicCast<SSLError>()) {
-        d->core.setError(make_shared<qtng_core::SSLError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::SSLError>());
     } else if (error.dynamicCast<ConnectionError>()) {
-        d->core.setError(make_shared<qtng_core::ConnectionError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::ConnectionError>());
     } else if (error.dynamicCast<HTTPError>()) {
         QSharedPointer<HTTPError> httpError = error.dynamicCast<HTTPError>();
-        d->core.setError(make_shared<qtng_core::HTTPError>(httpError->statusCode()));
+        d->core.setError(make_shared<QTNG_NAMESPACE::HTTPError>(httpError->statusCode()));
     } else if (error.dynamicCast<URLRequired>()) {
-        d->core.setError(make_shared<qtng_core::URLRequired>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::URLRequired>());
     } else if (error.dynamicCast<TooManyRedirects>()) {
-        d->core.setError(make_shared<qtng_core::TooManyRedirects>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::TooManyRedirects>());
     } else if (error.dynamicCast<MissingSchema>()) {
-        d->core.setError(make_shared<qtng_core::MissingSchema>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::MissingSchema>());
     } else if (error.dynamicCast<InvalidScheme>()) {
-        d->core.setError(make_shared<qtng_core::InvalidScheme>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::InvalidScheme>());
     } else if (error.dynamicCast<UnsupportedVersion>()) {
-        d->core.setError(make_shared<qtng_core::UnsupportedVersion>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::UnsupportedVersion>());
     } else if (error.dynamicCast<InvalidURL>()) {
-        d->core.setError(make_shared<qtng_core::InvalidURL>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::InvalidURL>());
     } else if (error.dynamicCast<InvalidHeader>()) {
-        d->core.setError(make_shared<qtng_core::InvalidHeader>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::InvalidHeader>());
     } else if (error.dynamicCast<ChunkedEncodingError>()) {
-        d->core.setError(make_shared<qtng_core::ChunkedEncodingError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::ChunkedEncodingError>());
     } else if (error.dynamicCast<ContentDecodingError>()) {
-        d->core.setError(make_shared<qtng_core::ContentDecodingError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::ContentDecodingError>());
     } else if (error.dynamicCast<StreamConsumedError>()) {
-        d->core.setError(make_shared<qtng_core::StreamConsumedError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::StreamConsumedError>());
     } else if (error.dynamicCast<RetryError>()) {
-        d->core.setError(make_shared<qtng_core::RetryError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::RetryError>());
     } else if (error.dynamicCast<UnrewindableBodyError>()) {
-        d->core.setError(make_shared<qtng_core::UnrewindableBodyError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::UnrewindableBodyError>());
     } else {
-        d->core.setError(make_shared<qtng_core::RequestError>());
+        d->core.setError(make_shared<QTNG_NAMESPACE::RequestError>());
     }
 }
 
@@ -832,7 +832,7 @@ public:
     {
     }
 
-    qtng_core::HttpSession core;
+    QTNG_NAMESPACE::HttpSession core;
     HttpSession *q_ptr;
     std::shared_ptr<HttpCookieJar> cookieJar;
     std::shared_ptr<WebSocketConfiguration> webSocketConfiguration;
@@ -1791,7 +1791,7 @@ HttpResponse HttpSession::brew(const QUrl &url, const QByteArray &body)
 
 HttpResponse HttpSession::send(HttpRequest &request)
 {
-    qtng_core::HttpRequest core = toCoreRequest(request);
+    QTNG_NAMESPACE::HttpRequest core = toCoreRequest(request);
     return toQtResponse(d_ptr->core.send(core));
 }
 
@@ -1875,7 +1875,7 @@ bool HttpSession::keepAlive() const { return d_ptr->core.keepAlive(); }
 QString HttpSession::defaultUserAgent() const { return toQString(d_ptr->core.defaultUserAgent()); }
 void HttpSession::setDefaultUserAgent(const QString &userAgent) { d_ptr->core.setDefaultUserAgent(toStdString(userAgent)); }
 HttpVersion HttpSession::defaultVersion() const { return static_cast<HttpVersion>(d_ptr->core.defaultVersion()); }
-void HttpSession::setDefaultVersion(HttpVersion defaultVersion) { d_ptr->core.setDefaultVersion(static_cast<qtng_core::HttpVersion>(defaultVersion)); }
+void HttpSession::setDefaultVersion(HttpVersion defaultVersion) { d_ptr->core.setDefaultVersion(static_cast<QTNG_NAMESPACE::HttpVersion>(defaultVersion)); }
 float HttpSession::defaultConnnectionTimeout() const { return d_ptr->core.defaultConnnectionTimeout(); }
 void HttpSession::setDefaultConnectionTimeout(float timeout) { d_ptr->core.setDefaultConnectionTimeout(timeout); }
 float HttpSession::defaultTimeout() const { return d_ptr->core.defaultTimeout(); }
@@ -1894,7 +1894,7 @@ QSharedPointer<SocketDnsCache> HttpSession::dnsCache() const
 }
 QSharedPointer<SocketProxy> HttpSession::socketProxy() const
 {
-    std::shared_ptr<qtng_core::SocketProxy> core = d_ptr->core.socketProxy();
+    std::shared_ptr<QTNG_NAMESPACE::SocketProxy> core = d_ptr->core.socketProxy();
     if (!core) {
         return QSharedPointer<SocketProxy>();
     }
@@ -1906,7 +1906,7 @@ QSharedPointer<SocketProxy> HttpSession::socketProxy() const
 void HttpSession::setSocketProxy(QSharedPointer<SocketProxy> proxy)
 {
     if (proxy.isNull()) {
-        d_ptr->core.setSocketProxy(std::shared_ptr<qtng_core::SocketProxy>());
+        d_ptr->core.setSocketProxy(std::shared_ptr<QTNG_NAMESPACE::SocketProxy>());
         return;
     }
     if (QSharedPointer<QtSocketProxyAdapter> adapter = proxy.dynamicCast<QtSocketProxyAdapter>()) {
@@ -1917,7 +1917,7 @@ void HttpSession::setSocketProxy(QSharedPointer<SocketProxy> proxy)
 }
 QSharedPointer<HttpProxy> HttpSession::httpProxy() const
 {
-    std::shared_ptr<qtng_core::HttpProxy> core = d_ptr->core.httpProxy();
+    std::shared_ptr<QTNG_NAMESPACE::HttpProxy> core = d_ptr->core.httpProxy();
     if (!core) {
         return QSharedPointer<HttpProxy>();
     }
@@ -1929,7 +1929,7 @@ QSharedPointer<HttpProxy> HttpSession::httpProxy() const
 void HttpSession::setHttpProxy(QSharedPointer<HttpProxy> proxy)
 {
     if (proxy.isNull()) {
-        d_ptr->core.setHttpProxy(std::shared_ptr<qtng_core::HttpProxy>());
+        d_ptr->core.setHttpProxy(std::shared_ptr<QTNG_NAMESPACE::HttpProxy>());
         return;
     }
     if (QSharedPointer<QtHttpProxyAdapter> adapter = proxy.dynamicCast<QtHttpProxyAdapter>()) {
@@ -1940,7 +1940,7 @@ void HttpSession::setHttpProxy(QSharedPointer<HttpProxy> proxy)
 }
 QSharedPointer<HttpCacheManager> HttpSession::cacheManager() const
 {
-    std::shared_ptr<qtng_core::HttpCacheManager> core = d_ptr->core.cacheManager();
+    std::shared_ptr<QTNG_NAMESPACE::HttpCacheManager> core = d_ptr->core.cacheManager();
     if (!core) {
         return QSharedPointer<HttpCacheManager>();
     }
@@ -1952,7 +1952,7 @@ QSharedPointer<HttpCacheManager> HttpSession::cacheManager() const
 void HttpSession::setCacheManager(QSharedPointer<HttpCacheManager> cacheManager)
 {
     if (cacheManager.isNull()) {
-        d_ptr->core.setCacheManager(std::shared_ptr<qtng_core::HttpCacheManager>());
+        d_ptr->core.setCacheManager(std::shared_ptr<QTNG_NAMESPACE::HttpCacheManager>());
         return;
     }
     if (QSharedPointer<QtHttpCacheManagerAdapter> adapter = cacheManager.dynamicCast<QtHttpCacheManagerAdapter>()) {
@@ -2000,9 +2000,9 @@ void setProxySwitcher(HttpSession *session, QSharedPointer<BaseProxySwitcher> sw
     // 自定义 BaseProxySwitcher：真正安装到 core 会话，参与连接池的请求选路
     // （原版语义）。null 时恢复为全新的 SimpleProxySwitcher。
     if (switcher.isNull()) {
-        qtng_core::setProxySwitcher(&session->d_ptr->core, std::shared_ptr<qtng_core::BaseProxySwitcher>());
+        QTNG_NAMESPACE::setProxySwitcher(&session->d_ptr->core, std::shared_ptr<QTNG_NAMESPACE::BaseProxySwitcher>());
     } else {
-        qtng_core::setProxySwitcher(&session->d_ptr->core, std::make_shared<QtProxySwitcherCoreBridge>(switcher));
+        QTNG_NAMESPACE::setProxySwitcher(&session->d_ptr->core, std::make_shared<QtProxySwitcherCoreBridge>(switcher));
     }
 }
 
@@ -2022,7 +2022,7 @@ void HttpSession::setSslConfiguration(const std::shared_ptr<SslConfiguration> &c
 }
 #endif
 
-class HttpCacheManagerCoreBridge : public qtng_core::HttpCacheManager
+class HttpCacheManagerCoreBridge : public QTNG_NAMESPACE::HttpCacheManager
 {
 public:
     explicit HttpCacheManagerCoreBridge(QTNETWORKNG_NAMESPACE::HttpCacheManager *q)
@@ -2072,7 +2072,7 @@ HttpCacheManager::~HttpCacheManager()
 
 bool HttpCacheManager::addResponse(HttpResponse &response)
 {
-    qtng_core::HttpResponse coreResp = toCoreResponse(response);
+    QTNG_NAMESPACE::HttpResponse coreResp = toCoreResponse(response);
     return d_ptr->coreBridge->addResponse(coreResp);
 }
 
@@ -2084,7 +2084,7 @@ bool HttpCacheManager::getResponse(HttpResponse *response)
     // Only the URL is needed to look up the cache entry; do not run the full
     // toCoreResponse() here, since it reads body() and would mark the shared
     // core response (and therefore the caller's response) as consumed/errored.
-    qtng_core::HttpResponse coreResp;
+    QTNG_NAMESPACE::HttpResponse coreResp;
     coreResp.setUrl(toCoreUrl(response->url()));
     const bool ok = d_ptr->coreBridge->getResponse(&coreResp);
     if (ok) {
@@ -2155,7 +2155,7 @@ QString UnrewindableBodyError::what() const { return QString::fromLatin1("Reques
 
 namespace qtng_bridge {
 
-HttpResponse httpResponseFromCore(qtng_core::HttpResponse core)
+HttpResponse httpResponseFromCore(QTNG_NAMESPACE::HttpResponse core)
 {
     return QTNETWORKNG_NAMESPACE::QtHttpBridgeAccess::fromCore(std::move(core));
 }

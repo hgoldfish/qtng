@@ -64,7 +64,7 @@ private:
 int startQtLoop();
 
 // Event loop backends. The built-in values are fixed: Ev=1, Qt=2. Third-party backends
-// (io_uring, gtk, kqueue, ...) register under values >= 100 via qtng_core::registerEventLoop().
+// (io_uring, gtk, kqueue, ...) register under values >= 100 via the core registerEventLoop().
 enum class EventLoopType {
     Ev = 1,
     Qt = 2,

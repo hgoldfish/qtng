@@ -8,5 +8,5 @@ using namespace QTNETWORKNG_NAMESPACE;
 using namespace qtng_bridge;
 
 namespace QTNETWORKNG_NAMESPACE {
-QByteArray randomBytes(int i) { return toQByteArray(qtng_core::randomBytes(i)); }
+QByteArray randomBytes(int i) { return toQByteArray(QTNG_NAMESPACE::randomBytes(i)); }
 }  // namespace QTNETWORKNG_NAMESPACE

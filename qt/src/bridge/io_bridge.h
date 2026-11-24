@@ -11,7 +11,7 @@
 
 namespace qtng_bridge {
 
-class QtFileLikeAdapter : public qtng_core::FileLike
+class QtFileLikeAdapter : public QTNG_NAMESPACE::FileLike
 {
 public:
     explicit QtFileLikeAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::FileLike> qt)
@@ -34,7 +34,7 @@ public:
 class CoreFileLikeWrapper : public QTNETWORKNG_NAMESPACE::FileLike
 {
 public:
-    explicit CoreFileLikeWrapper(std::shared_ptr<qtng_core::FileLike> core)
+    explicit CoreFileLikeWrapper(std::shared_ptr<QTNG_NAMESPACE::FileLike> core)
         : core(std::move(core))
     {
     }
@@ -54,39 +54,39 @@ public:
     }
     qint64 size() override { return core ? core->size() : -1; }
 
-    std::shared_ptr<qtng_core::FileLike> core;
+    std::shared_ptr<QTNG_NAMESPACE::FileLike> core;
 };
 
-class QtSocketLikeAdapter : public qtng_core::SocketLike
+class QtSocketLikeAdapter : public QTNG_NAMESPACE::SocketLike
 {
 public:
     explicit QtSocketLikeAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> qt);
-    qtng_core::Socket::SocketError error() const override;
+    QTNG_NAMESPACE::Socket::SocketError error() const override;
     std::string errorString() const override;
     bool isValid() const override;
-    qtng_core::HostAddress localAddress() const override;
+    QTNG_NAMESPACE::HostAddress localAddress() const override;
     std::uint16_t localPort() const override;
-    qtng_core::HostAddress peerAddress() const override;
+    QTNG_NAMESPACE::HostAddress peerAddress() const override;
     std::string peerName() const override;
     std::uint16_t peerPort() const override;
     std::intptr_t fileno() const override;
-    qtng_core::Socket::SocketType type() const override;
-    qtng_core::Socket::SocketState state() const override;
-    qtng_core::HostAddress::NetworkLayerProtocol protocol() const override;
+    QTNG_NAMESPACE::Socket::SocketType type() const override;
+    QTNG_NAMESPACE::Socket::SocketState state() const override;
+    QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol protocol() const override;
     std::string localAddressURI() const override;
     std::string peerAddressURI() const override;
-    qtng_core::Socket *acceptRaw() override;
-    std::shared_ptr<qtng_core::SocketLike> accept() override;
-    bool bind(const qtng_core::HostAddress &address, std::uint16_t port, qtng_core::Socket::BindMode mode) override;
-    bool bind(std::uint16_t port, qtng_core::Socket::BindMode mode) override;
-    bool connect(const qtng_core::HostAddress &addr, std::uint16_t port) override;
+    QTNG_NAMESPACE::Socket *acceptRaw() override;
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> accept() override;
+    bool bind(const QTNG_NAMESPACE::HostAddress &address, std::uint16_t port, QTNG_NAMESPACE::Socket::BindMode mode) override;
+    bool bind(std::uint16_t port, QTNG_NAMESPACE::Socket::BindMode mode) override;
+    bool connect(const QTNG_NAMESPACE::HostAddress &addr, std::uint16_t port) override;
     bool connect(const std::string &hostName, std::uint16_t port,
-                 std::shared_ptr<qtng_core::SocketDnsCache> dnsCache) override;
+                 std::shared_ptr<QTNG_NAMESPACE::SocketDnsCache> dnsCache) override;
     void close() override;
     void abort() override;
     bool listen(int backlog) override;
-    bool setOption(qtng_core::Socket::SocketOption option, int value) override;
-    int option(qtng_core::Socket::SocketOption option) const override;
+    bool setOption(QTNG_NAMESPACE::Socket::SocketOption option, int value) override;
+    int option(QTNG_NAMESPACE::Socket::SocketOption option) const override;
     std::int32_t peek(char *data, std::int32_t size) override;
     std::int32_t peekRaw(char *data, std::int32_t size) override;
     std::int32_t recv(char *data, std::int32_t size) override;
@@ -104,7 +104,7 @@ public:
 class CoreSocketLikeWrapper : public QTNETWORKNG_NAMESPACE::SocketLike
 {
 public:
-    explicit CoreSocketLikeWrapper(std::shared_ptr<qtng_core::SocketLike> core);
+    explicit CoreSocketLikeWrapper(std::shared_ptr<QTNG_NAMESPACE::SocketLike> core);
     QTNETWORKNG_NAMESPACE::Socket::SocketError error() const override;
     QString errorString() const override;
     bool isValid() const override;
@@ -143,7 +143,7 @@ public:
     qint32 send(const QByteArray &data) override;
     qint32 sendall(const QByteArray &data) override;
 
-    std::shared_ptr<qtng_core::SocketLike> core;
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> core;
 };
 
 QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> asSocketLike(QSharedPointer<QTNETWORKNG_NAMESPACE::Socket> s);

@@ -13,19 +13,19 @@ class WebSocketConfiguration;
 
 namespace qtng_bridge {
 
-inline qtng_core::HttpHeader toCoreHeader(const QTNETWORKNG_NAMESPACE::HttpHeader &h)
+inline QTNG_NAMESPACE::HttpHeader toCoreHeader(const QTNETWORKNG_NAMESPACE::HttpHeader &h)
 {
-    return qtng_core::HttpHeader(toStdString(h.name()), toStdString(h.value()));
+    return QTNG_NAMESPACE::HttpHeader(toStdString(h.name()), toStdString(h.value()));
 }
 
-inline QTNETWORKNG_NAMESPACE::HttpHeader toQtHeader(const qtng_core::HttpHeader &h)
+inline QTNETWORKNG_NAMESPACE::HttpHeader toQtHeader(const QTNG_NAMESPACE::HttpHeader &h)
 {
     return QTNETWORKNG_NAMESPACE::HttpHeader(toQString(h.name()), toQByteArray(h.value()));
 }
 
-inline std::vector<qtng_core::HttpHeader> toCoreHeaders(const QList<QTNETWORKNG_NAMESPACE::HttpHeader> &headers)
+inline std::vector<QTNG_NAMESPACE::HttpHeader> toCoreHeaders(const QList<QTNETWORKNG_NAMESPACE::HttpHeader> &headers)
 {
-    std::vector<qtng_core::HttpHeader> result;
+    std::vector<QTNG_NAMESPACE::HttpHeader> result;
     result.reserve(static_cast<std::size_t>(headers.size()));
     for (const QTNETWORKNG_NAMESPACE::HttpHeader &h : headers) {
         result.push_back(toCoreHeader(h));
@@ -33,27 +33,27 @@ inline std::vector<qtng_core::HttpHeader> toCoreHeaders(const QList<QTNETWORKNG_
     return result;
 }
 
-inline QList<QTNETWORKNG_NAMESPACE::HttpHeader> toQtHeaders(const std::vector<qtng_core::HttpHeader> &headers)
+inline QList<QTNETWORKNG_NAMESPACE::HttpHeader> toQtHeaders(const std::vector<QTNG_NAMESPACE::HttpHeader> &headers)
 {
     QList<QTNETWORKNG_NAMESPACE::HttpHeader> result;
     result.reserve(static_cast<int>(headers.size()));
-    for (const qtng_core::HttpHeader &h : headers) {
+    for (const QTNG_NAMESPACE::HttpHeader &h : headers) {
         result.append(toQtHeader(h));
     }
     return result;
 }
 
-qtng_core::HttpProxy *httpProxyCoreOf(QTNETWORKNG_NAMESPACE::HttpProxy *proxy);
-const qtng_core::HttpProxy *httpProxyCoreOf(const QTNETWORKNG_NAMESPACE::HttpProxy *proxy);
+QTNG_NAMESPACE::HttpProxy *httpProxyCoreOf(QTNETWORKNG_NAMESPACE::HttpProxy *proxy);
+const QTNG_NAMESPACE::HttpProxy *httpProxyCoreOf(const QTNETWORKNG_NAMESPACE::HttpProxy *proxy);
 
 std::shared_ptr<QTNETWORKNG_NAMESPACE::HttpCookieJar>
-httpCookieJarFromCore(std::shared_ptr<qtng_core::HttpCookieJar> core);
+httpCookieJarFromCore(std::shared_ptr<QTNG_NAMESPACE::HttpCookieJar> core);
 std::shared_ptr<QTNETWORKNG_NAMESPACE::WebSocketConfiguration>
-webSocketConfigurationFromCore(std::shared_ptr<qtng_core::WebSocketConfiguration> core);
-std::shared_ptr<qtng_core::WebSocketConfiguration>
+webSocketConfigurationFromCore(std::shared_ptr<QTNG_NAMESPACE::WebSocketConfiguration> core);
+std::shared_ptr<QTNG_NAMESPACE::WebSocketConfiguration>
 webSocketConfigurationToCore(const std::shared_ptr<QTNETWORKNG_NAMESPACE::WebSocketConfiguration> &config);
 
-QTNETWORKNG_NAMESPACE::HttpResponse httpResponseFromCore(qtng_core::HttpResponse core);
+QTNETWORKNG_NAMESPACE::HttpResponse httpResponseFromCore(QTNG_NAMESPACE::HttpResponse core);
 
 }  // namespace qtng_bridge
 

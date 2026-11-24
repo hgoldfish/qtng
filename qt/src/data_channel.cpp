@@ -24,11 +24,11 @@ namespace QTNETWORKNG_NAMESPACE {
 class DataChannelPrivate
 {
 public:
-    shared_ptr<qtng_core::DataChannel> core;
+    shared_ptr<QTNG_NAMESPACE::DataChannel> core;
 
     // Wrap a core VirtualChannel (returned by makeChannel/takeChannel) into a Qt
     // VirtualChannel wrapper. The wrapper holds the core channel in d_ptr->core.
-    static QSharedPointer<VirtualChannel> wrapVirtualChannel(shared_ptr<qtng_core::VirtualChannel> coreChannel)
+    static QSharedPointer<VirtualChannel> wrapVirtualChannel(shared_ptr<QTNG_NAMESPACE::VirtualChannel> coreChannel)
     {
         if (!coreChannel) {
             return QSharedPointer<VirtualChannel>();
@@ -39,7 +39,7 @@ public:
     }
 };
 
-static shared_ptr<qtng_core::DataChannel> &coreOf(DataChannel *channel)
+static shared_ptr<QTNG_NAMESPACE::DataChannel> &coreOf(DataChannel *channel)
 {
     return ::qtng_bridge::DataChannelPrivateBridge::priv(channel)->core;
 }
@@ -185,56 +185,56 @@ class SocketChannelPrivate : public DataChannelPrivate
 SocketChannel::SocketChannel(QSharedPointer<Socket> socket, DataChannelPole pole)
     : DataChannel(new SocketChannelPrivate)
 {
-    coreOf(this) = std::make_shared<qtng_core::SocketChannel>(::qtng_bridge::socketCoreOf(socket.data()),
-                                                              static_cast<qtng_core::DataChannelPole>(pole));
+    coreOf(this) = std::make_shared<QTNG_NAMESPACE::SocketChannel>(::qtng_bridge::socketCoreOf(socket.data()),
+                                                              static_cast<QTNG_NAMESPACE::DataChannelPole>(pole));
 }
 
 SocketChannel::SocketChannel(QSharedPointer<SocketLike> socket, DataChannelPole pole)
     : DataChannel(new SocketChannelPrivate)
 {
-    coreOf(this) = std::make_shared<qtng_core::SocketChannel>(::qtng_bridge::toCoreSocketLike(socket),
-                                                              static_cast<qtng_core::DataChannelPole>(pole));
+    coreOf(this) = std::make_shared<QTNG_NAMESPACE::SocketChannel>(::qtng_bridge::toCoreSocketLike(socket),
+                                                              static_cast<QTNG_NAMESPACE::DataChannelPole>(pole));
 }
 
 void SocketChannel::setMaxPacketSize(quint32 size)
 {
-    static_pointer_cast<qtng_core::SocketChannel>(coreOf(this))->setMaxPacketSize(size);
+    static_pointer_cast<QTNG_NAMESPACE::SocketChannel>(coreOf(this))->setMaxPacketSize(size);
 }
 
 void SocketChannel::setPayloadSizeHint(quint32 payloadSizeHint)
 {
-    static_pointer_cast<qtng_core::SocketChannel>(coreOf(this))->setPayloadSizeHint(payloadSizeHint);
+    static_pointer_cast<QTNG_NAMESPACE::SocketChannel>(coreOf(this))->setPayloadSizeHint(payloadSizeHint);
 }
 
 void SocketChannel::setKeepaliveTimeout(float timeout)
 {
-    static_pointer_cast<qtng_core::SocketChannel>(coreOf(this))->setKeepaliveTimeout(timeout);
+    static_pointer_cast<QTNG_NAMESPACE::SocketChannel>(coreOf(this))->setKeepaliveTimeout(timeout);
 }
 
 float SocketChannel::keepaliveTimeout() const
 {
-    return static_pointer_cast<qtng_core::SocketChannel>(coreOf(const_cast<SocketChannel *>(this)))->keepaliveTimeout();
+    return static_pointer_cast<QTNG_NAMESPACE::SocketChannel>(coreOf(const_cast<SocketChannel *>(this)))->keepaliveTimeout();
 }
 
 void SocketChannel::setKeepaliveInterval(float keepaliveInterval)
 {
-    static_pointer_cast<qtng_core::SocketChannel>(coreOf(this))->setKeepaliveInterval(keepaliveInterval);
+    static_pointer_cast<QTNG_NAMESPACE::SocketChannel>(coreOf(this))->setKeepaliveInterval(keepaliveInterval);
 }
 
 float SocketChannel::keepaliveInterval() const
 {
-    return static_pointer_cast<qtng_core::SocketChannel>(coreOf(const_cast<SocketChannel *>(this)))->keepaliveInterval();
+    return static_pointer_cast<QTNG_NAMESPACE::SocketChannel>(coreOf(const_cast<SocketChannel *>(this)))->keepaliveInterval();
 }
 
 quint32 SocketChannel::sendingQueueSize() const
 {
-    return static_pointer_cast<qtng_core::SocketChannel>(coreOf(const_cast<SocketChannel *>(this)))->sendingQueueSize();
+    return static_pointer_cast<QTNG_NAMESPACE::SocketChannel>(coreOf(const_cast<SocketChannel *>(this)))->sendingQueueSize();
 }
 
 QSharedPointer<SocketLike> SocketChannel::connection() const
 {
     return ::qtng_bridge::toQtSocketLike(
-            static_pointer_cast<qtng_core::SocketChannel>(coreOf(const_cast<SocketChannel *>(this)))->connection());
+            static_pointer_cast<QTNG_NAMESPACE::SocketChannel>(coreOf(const_cast<SocketChannel *>(this)))->connection());
 }
 
 VirtualChannel::VirtualChannel(DataChannel *parentChannel, DataChannelPole pole, quint32 channelNumber)
@@ -247,22 +247,22 @@ VirtualChannel::VirtualChannel(DataChannel *parentChannel, DataChannelPole pole,
 
 quint32 VirtualChannel::channelNumber() const
 {
-    return static_pointer_cast<qtng_core::VirtualChannel>(coreOf(const_cast<VirtualChannel *>(this)))->channelNumber();
+    return static_pointer_cast<QTNG_NAMESPACE::VirtualChannel>(coreOf(const_cast<VirtualChannel *>(this)))->channelNumber();
 }
 
 bool VirtualChannel::waitPeerReady(quint32 msecs)
 {
-    return static_pointer_cast<qtng_core::VirtualChannel>(coreOf(this))->waitPeerReady(msecs);
+    return static_pointer_cast<QTNG_NAMESPACE::VirtualChannel>(coreOf(this))->waitPeerReady(msecs);
 }
 
 void exchange(QSharedPointer<DataChannel> incoming, QSharedPointer<DataChannel> outgoing)
 {
-    qtng_core::exchange(coreOf(incoming.data()), coreOf(outgoing.data()));
+    QTNG_NAMESPACE::exchange(coreOf(incoming.data()), coreOf(outgoing.data()));
 }
 
 QSharedPointer<SocketLike> asSocketLike(QSharedPointer<DataChannel> channel)
 {
-    return ::qtng_bridge::toQtSocketLike(qtng_core::asSocketLike(coreOf(channel.data())));
+    return ::qtng_bridge::toQtSocketLike(QTNG_NAMESPACE::asSocketLike(coreOf(channel.data())));
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

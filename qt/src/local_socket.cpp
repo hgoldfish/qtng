@@ -17,22 +17,22 @@ class LocalSocketPrivate
 {
 public:
     LocalSocketPrivate()
-        : core(make_shared<qtng_core::LocalSocket>())
+        : core(make_shared<QTNG_NAMESPACE::LocalSocket>())
     {
     }
-    explicit LocalSocketPrivate(shared_ptr<qtng_core::LocalSocket> c)
+    explicit LocalSocketPrivate(shared_ptr<QTNG_NAMESPACE::LocalSocket> c)
         : core(std::move(c))
     {
     }
     explicit LocalSocketPrivate(qintptr socketDescriptor)
-        : core(make_shared<qtng_core::LocalSocket>(static_cast<intptr_t>(socketDescriptor)))
+        : core(make_shared<QTNG_NAMESPACE::LocalSocket>(static_cast<intptr_t>(socketDescriptor)))
     {
     }
 
-    shared_ptr<qtng_core::LocalSocket> core;
+    shared_ptr<QTNG_NAMESPACE::LocalSocket> core;
 
-    static shared_ptr<qtng_core::LocalSocket> &coreOf(LocalSocket *s) { return s->d_func()->core; }
-    static const shared_ptr<qtng_core::LocalSocket> &coreOf(const LocalSocket *s) { return s->d_func()->core; }
+    static shared_ptr<QTNG_NAMESPACE::LocalSocket> &coreOf(LocalSocket *s) { return s->d_func()->core; }
+    static const shared_ptr<QTNG_NAMESPACE::LocalSocket> &coreOf(const LocalSocket *s) { return s->d_func()->core; }
 };
 
 LocalSocket::LocalSocket()
@@ -137,16 +137,16 @@ QString LocalSocket::fullServerName() const
 
 LocalSocket *LocalSocket::accept()
 {
-    qtng_core::LocalSocket *raw = d_ptr->core->accept();
+    QTNG_NAMESPACE::LocalSocket *raw = d_ptr->core->accept();
     if (!raw) {
         return nullptr;
     }
-    return new LocalSocket(new LocalSocketPrivate(shared_ptr<qtng_core::LocalSocket>(raw)));
+    return new LocalSocket(new LocalSocketPrivate(shared_ptr<QTNG_NAMESPACE::LocalSocket>(raw)));
 }
 
 bool LocalSocket::bind(const QString &name, Socket::BindMode mode)
 {
-    return d_ptr->core->bind(toStdString(name), static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+    return d_ptr->core->bind(toStdString(name), static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 
 bool LocalSocket::connect(const QString &name)
@@ -171,12 +171,12 @@ bool LocalSocket::listen(int backlog)
 
 bool LocalSocket::setOption(Socket::SocketOption option, const QVariant &value)
 {
-    return d_ptr->core->setOption(static_cast<qtng_core::Socket::SocketOption>(option), value.toInt());
+    return d_ptr->core->setOption(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option), value.toInt());
 }
 
 QVariant LocalSocket::option(Socket::SocketOption option) const
 {
-    return d_ptr->core->option(static_cast<qtng_core::Socket::SocketOption>(option));
+    return d_ptr->core->option(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option));
 }
 
 qint32 LocalSocket::peek(char *data, qint32 size)
@@ -231,25 +231,25 @@ qint32 LocalSocket::sendall(const QByteArray &data)
 
 LocalSocket *LocalSocket::createConnection(const QString &name, Socket::SocketError *error)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::NoError;
-    qtng_core::LocalSocket *raw =
-            qtng_core::LocalSocket::createConnection(toStdString(name), error ? &coreError : nullptr);
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::NoError;
+    QTNG_NAMESPACE::LocalSocket *raw =
+            QTNG_NAMESPACE::LocalSocket::createConnection(toStdString(name), error ? &coreError : nullptr);
     if (error) {
         *error = static_cast<Socket::SocketError>(coreError);
     }
     if (!raw) {
         return nullptr;
     }
-    return new LocalSocket(new LocalSocketPrivate(shared_ptr<qtng_core::LocalSocket>(raw)));
+    return new LocalSocket(new LocalSocketPrivate(shared_ptr<QTNG_NAMESPACE::LocalSocket>(raw)));
 }
 
 LocalSocket *LocalSocket::createServer(const QString &name, int backlog)
 {
-    qtng_core::LocalSocket *raw = qtng_core::LocalSocket::createServer(toStdString(name), backlog);
+    QTNG_NAMESPACE::LocalSocket *raw = QTNG_NAMESPACE::LocalSocket::createServer(toStdString(name), backlog);
     if (!raw) {
         return nullptr;
     }
-    return new LocalSocket(new LocalSocketPrivate(shared_ptr<qtng_core::LocalSocket>(raw)));
+    return new LocalSocket(new LocalSocketPrivate(shared_ptr<QTNG_NAMESPACE::LocalSocket>(raw)));
 }
 
 namespace {
@@ -337,43 +337,43 @@ QSharedPointer<LocalSocket> convertSocketLikeToLocalSocket(QSharedPointer<Socket
 
 namespace qtng_bridge {
 
-std::shared_ptr<qtng_core::LocalSocket> localSocketCoreOf(QTNETWORKNG_NAMESPACE::LocalSocket *socket)
+std::shared_ptr<QTNG_NAMESPACE::LocalSocket> localSocketCoreOf(QTNETWORKNG_NAMESPACE::LocalSocket *socket)
 {
     if (!socket) {
-        return std::shared_ptr<qtng_core::LocalSocket>();
+        return std::shared_ptr<QTNG_NAMESPACE::LocalSocket>();
     }
     return QTNETWORKNG_NAMESPACE::LocalSocketPrivate::coreOf(socket);
 }
 
-void assignLocalSocketCore(QTNETWORKNG_NAMESPACE::LocalSocket *socket, std::shared_ptr<qtng_core::LocalSocket> core)
+void assignLocalSocketCore(QTNETWORKNG_NAMESPACE::LocalSocket *socket, std::shared_ptr<QTNG_NAMESPACE::LocalSocket> core)
 {
     if (socket) {
         QTNETWORKNG_NAMESPACE::LocalSocketPrivate::coreOf(socket) = std::move(core);
     }
 }
 
-std::shared_ptr<qtng_core::SocketLike> localSocketToCoreSocketLike(const QSharedPointer<SocketLike> &socket)
+std::shared_ptr<QTNG_NAMESPACE::SocketLike> localSocketToCoreSocketLike(const QSharedPointer<SocketLike> &socket)
 {
     if (socket.isNull()) {
-        return std::shared_ptr<qtng_core::SocketLike>();
+        return std::shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
     QSharedPointer<LocalSocketLikeImpl> impl = socket.dynamicCast<LocalSocketLikeImpl>();
     if (impl.isNull()) {
-        return std::shared_ptr<qtng_core::SocketLike>();
+        return std::shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
-    std::shared_ptr<qtng_core::LocalSocket> core = localSocketCoreOf(impl->localSocket().data());
+    std::shared_ptr<QTNG_NAMESPACE::LocalSocket> core = localSocketCoreOf(impl->localSocket().data());
     if (!core) {
-        return std::shared_ptr<qtng_core::SocketLike>();
+        return std::shared_ptr<QTNG_NAMESPACE::SocketLike>();
     }
-    return qtng_core::asSocketLike(core);
+    return QTNG_NAMESPACE::asSocketLike(core);
 }
 
-QSharedPointer<SocketLike> localSocketFromCoreSocketLike(const std::shared_ptr<qtng_core::SocketLike> &core)
+QSharedPointer<SocketLike> localSocketFromCoreSocketLike(const std::shared_ptr<QTNG_NAMESPACE::SocketLike> &core)
 {
-    if (!core || core->type() != qtng_core::Socket::LocalSocket) {
+    if (!core || core->type() != QTNG_NAMESPACE::Socket::LocalSocket) {
         return QSharedPointer<SocketLike>();
     }
-    std::shared_ptr<qtng_core::LocalSocket> coreLocal = qtng_core::convertSocketLikeToLocalSocket(core);
+    std::shared_ptr<QTNG_NAMESPACE::LocalSocket> coreLocal = QTNG_NAMESPACE::convertSocketLikeToLocalSocket(core);
     if (!coreLocal) {
         return QSharedPointer<SocketLike>();
     }

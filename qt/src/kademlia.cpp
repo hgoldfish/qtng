@@ -12,58 +12,58 @@ namespace QTNETWORKNG_NAMESPACE {
 
 struct NodeIdCoreBridge
 {
-    static qtng_core::NodeId core(const NodeId &id);
-    static void setCore(NodeId &id, const qtng_core::NodeId &core);
+    static QTNG_NAMESPACE::NodeId core(const NodeId &id);
+    static void setCore(NodeId &id, const QTNG_NAMESPACE::NodeId &core);
 };
 
 namespace {
 
-qtng_core::NodeId toCoreNodeId(const NodeId &id);
-NodeId fromCoreNodeId(const qtng_core::NodeId &id);
+QTNG_NAMESPACE::NodeId toCoreNodeId(const NodeId &id);
+NodeId fromCoreNodeId(const QTNG_NAMESPACE::NodeId &id);
 
-qtng_core::DhtEndpoint toCoreEndpoint(const DhtEndpoint &ep)
+QTNG_NAMESPACE::DhtEndpoint toCoreEndpoint(const DhtEndpoint &ep)
 {
-    return qtng_core::DhtEndpoint(toCoreAddress(ep.address()), ep.port());
+    return QTNG_NAMESPACE::DhtEndpoint(toCoreAddress(ep.address()), ep.port());
 }
 
-DhtEndpoint fromCoreEndpoint(const qtng_core::DhtEndpoint &ep)
+DhtEndpoint fromCoreEndpoint(const QTNG_NAMESPACE::DhtEndpoint &ep)
 {
     return DhtEndpoint(toQtAddress(ep.address()), ep.port());
 }
 
-qtng_core::DhtNodeInfo toCoreNodeInfo(const DhtNodeInfo &info)
+QTNG_NAMESPACE::DhtNodeInfo toCoreNodeInfo(const DhtNodeInfo &info)
 {
-    return qtng_core::DhtNodeInfo(toCoreNodeId(info.id()), toCoreEndpoint(info.endpoint()));
+    return QTNG_NAMESPACE::DhtNodeInfo(toCoreNodeId(info.id()), toCoreEndpoint(info.endpoint()));
 }
 
-DhtNodeInfo fromCoreNodeInfo(const qtng_core::DhtNodeInfo &info)
+DhtNodeInfo fromCoreNodeInfo(const QTNG_NAMESPACE::DhtNodeInfo &info)
 {
     return DhtNodeInfo(fromCoreNodeId(info.id()), fromCoreEndpoint(info.endpoint()));
 }
 
-qtng_core::DhtPeer toCorePeer(const DhtPeer &peer)
+QTNG_NAMESPACE::DhtPeer toCorePeer(const DhtPeer &peer)
 {
-    return qtng_core::DhtPeer(toCoreAddress(peer.address()), peer.port());
+    return QTNG_NAMESPACE::DhtPeer(toCoreAddress(peer.address()), peer.port());
 }
 
-DhtPeer fromCorePeer(const qtng_core::DhtPeer &peer)
+DhtPeer fromCorePeer(const QTNG_NAMESPACE::DhtPeer &peer)
 {
     return DhtPeer(toQtAddress(peer.address()), peer.port());
 }
 
-QList<DhtNodeInfo> fromCoreNodeList(const vector<qtng_core::DhtNodeInfo> &nodes)
+QList<DhtNodeInfo> fromCoreNodeList(const vector<QTNG_NAMESPACE::DhtNodeInfo> &nodes)
 {
     QList<DhtNodeInfo> result;
     result.reserve(static_cast<int>(nodes.size()));
-    for (const qtng_core::DhtNodeInfo &node : nodes) {
+    for (const QTNG_NAMESPACE::DhtNodeInfo &node : nodes) {
         result.append(fromCoreNodeInfo(node));
     }
     return result;
 }
 
-vector<qtng_core::DhtNodeInfo> toCoreNodeList(const QList<DhtNodeInfo> &nodes)
+vector<QTNG_NAMESPACE::DhtNodeInfo> toCoreNodeList(const QList<DhtNodeInfo> &nodes)
 {
-    vector<qtng_core::DhtNodeInfo> result;
+    vector<QTNG_NAMESPACE::DhtNodeInfo> result;
     result.reserve(static_cast<size_t>(nodes.size()));
     for (const DhtNodeInfo &node : nodes) {
         result.push_back(toCoreNodeInfo(node));
@@ -71,17 +71,17 @@ vector<qtng_core::DhtNodeInfo> toCoreNodeList(const QList<DhtNodeInfo> &nodes)
     return result;
 }
 
-QList<DhtPeer> fromCorePeerList(const vector<qtng_core::DhtPeer> &peers)
+QList<DhtPeer> fromCorePeerList(const vector<QTNG_NAMESPACE::DhtPeer> &peers)
 {
     QList<DhtPeer> result;
     result.reserve(static_cast<int>(peers.size()));
-    for (const qtng_core::DhtPeer &peer : peers) {
+    for (const QTNG_NAMESPACE::DhtPeer &peer : peers) {
         result.append(fromCorePeer(peer));
     }
     return result;
 }
 
-class QtDhtStoreAdapter : public qtng_core::DhtStore
+class QtDhtStoreAdapter : public QTNG_NAMESPACE::DhtStore
 {
 public:
     explicit QtDhtStoreAdapter(const QSharedPointer< ::qtng::DhtStore> &store)
@@ -89,7 +89,7 @@ public:
     {
     }
 
-    bool loadMeta(qtng_core::NodeId *id, string *tokenSecret) override
+    bool loadMeta(QTNG_NAMESPACE::NodeId *id, string *tokenSecret) override
     {
         NodeId qtId;
         QByteArray secret;
@@ -101,28 +101,28 @@ public:
         return true;
     }
 
-    bool saveMeta(const qtng_core::NodeId &id, const char *tokenSecret, size_t size) override
+    bool saveMeta(const QTNG_NAMESPACE::NodeId &id, const char *tokenSecret, size_t size) override
     {
         return qtStore->saveMeta(fromCoreNodeId(id), QByteArray(tokenSecret, static_cast<int>(size)));
     }
 
-    vector<qtng_core::DhtNodeInfo> loadNodes() override
+    vector<QTNG_NAMESPACE::DhtNodeInfo> loadNodes() override
     {
         return toCoreNodeList(qtStore->loadNodes());
     }
 
-    bool saveNodes(const vector<qtng_core::DhtNodeInfo> &nodes) override
+    bool saveNodes(const vector<QTNG_NAMESPACE::DhtNodeInfo> &nodes) override
     {
         return qtStore->saveNodes(fromCoreNodeList(nodes));
     }
 
-    vector<qtng_core::DhtStore::StoredPeer> loadPeers(const qtng_core::NodeId &infoHash) override
+    vector<QTNG_NAMESPACE::DhtStore::StoredPeer> loadPeers(const QTNG_NAMESPACE::NodeId &infoHash) override
     {
         const QList< ::qtng::DhtStore::StoredPeer> peers = qtStore->loadPeers(fromCoreNodeId(infoHash));
-        vector<qtng_core::DhtStore::StoredPeer> result;
+        vector<QTNG_NAMESPACE::DhtStore::StoredPeer> result;
         result.reserve(static_cast<size_t>(peers.size()));
         for (const ::qtng::DhtStore::StoredPeer &peer : peers) {
-            qtng_core::DhtStore::StoredPeer item;
+            QTNG_NAMESPACE::DhtStore::StoredPeer item;
             item.setPeer(toCorePeer(peer.peer()));
             item.setExpireUnix(peer.expireUnix());
             result.push_back(item);
@@ -130,7 +130,7 @@ public:
         return result;
     }
 
-    bool putPeer(const qtng_core::NodeId &infoHash, const qtng_core::DhtPeer &peer, int64_t expireUnix) override
+    bool putPeer(const QTNG_NAMESPACE::NodeId &infoHash, const QTNG_NAMESPACE::DhtPeer &peer, int64_t expireUnix) override
     {
         return qtStore->putPeer(fromCoreNodeId(infoHash), fromCorePeer(peer), expireUnix);
     }
@@ -148,10 +148,10 @@ public:
     QSharedPointer< ::qtng::DhtStore> qtStore;
 };
 
-shared_ptr<qtng_core::DhtStore> toCoreStore(const QSharedPointer< ::qtng::DhtStore> &store)
+shared_ptr<QTNG_NAMESPACE::DhtStore> toCoreStore(const QSharedPointer< ::qtng::DhtStore> &store)
 {
     if (!store) {
-        return shared_ptr<qtng_core::DhtStore>();
+        return shared_ptr<QTNG_NAMESPACE::DhtStore>();
     }
     return make_shared<QtDhtStoreAdapter>(store);
 }
@@ -161,15 +161,15 @@ shared_ptr<qtng_core::DhtStore> toCoreStore(const QSharedPointer< ::qtng::DhtSto
 class NodeIdPrivate : public QSharedData
 {
 public:
-    qtng_core::NodeId core;
+    QTNG_NAMESPACE::NodeId core;
 };
 
-qtng_core::NodeId NodeIdCoreBridge::core(const NodeId &id)
+QTNG_NAMESPACE::NodeId NodeIdCoreBridge::core(const NodeId &id)
 {
-    return id.d ? id.d->core : qtng_core::NodeId();
+    return id.d ? id.d->core : QTNG_NAMESPACE::NodeId();
 }
 
-void NodeIdCoreBridge::setCore(NodeId &id, const qtng_core::NodeId &core)
+void NodeIdCoreBridge::setCore(NodeId &id, const QTNG_NAMESPACE::NodeId &core)
 {
     if (!id.d) {
         id.d = new NodeIdPrivate;
@@ -179,12 +179,12 @@ void NodeIdCoreBridge::setCore(NodeId &id, const qtng_core::NodeId &core)
 
 namespace {
 
-qtng_core::NodeId toCoreNodeId(const NodeId &id)
+QTNG_NAMESPACE::NodeId toCoreNodeId(const NodeId &id)
 {
     return NodeIdCoreBridge::core(id);
 }
 
-NodeId fromCoreNodeId(const qtng_core::NodeId &id)
+NodeId fromCoreNodeId(const QTNG_NAMESPACE::NodeId &id)
 {
     NodeId result;
     NodeIdCoreBridge::setCore(result, id);
@@ -201,7 +201,7 @@ NodeId::NodeId()
 NodeId::NodeId(const QByteArray &raw20)
     : d(new NodeIdPrivate)
 {
-    d->core = qtng_core::NodeId::fromBytes(toStdString(raw20));
+    d->core = QTNG_NAMESPACE::NodeId::fromBytes(toStdString(raw20));
 }
 
 NodeId::NodeId(const NodeId &other)
@@ -219,17 +219,17 @@ NodeId::~NodeId() = default;
 
 NodeId NodeId::random()
 {
-    return fromCoreNodeId(qtng_core::NodeId::random());
+    return fromCoreNodeId(QTNG_NAMESPACE::NodeId::random());
 }
 
 NodeId NodeId::fromBytes(const QByteArray &raw20)
 {
-    return fromCoreNodeId(qtng_core::NodeId::fromBytes(toStdString(raw20)));
+    return fromCoreNodeId(QTNG_NAMESPACE::NodeId::fromBytes(toStdString(raw20)));
 }
 
 NodeId NodeId::fromHex(const QString &hex40)
 {
-    return fromCoreNodeId(qtng_core::NodeId::fromHex(toStdString(hex40)));
+    return fromCoreNodeId(QTNG_NAMESPACE::NodeId::fromHex(toStdString(hex40)));
 }
 
 bool NodeId::isValid() const
@@ -279,68 +279,68 @@ bool NodeId::operator<(const NodeId &other) const
 
 QByteArray encodeCompactNodes(const QList<DhtNodeInfo> &nodes)
 {
-    return toQByteArray(qtng_core::encodeCompactNodes(toCoreNodeList(nodes)));
+    return toQByteArray(QTNG_NAMESPACE::encodeCompactNodes(toCoreNodeList(nodes)));
 }
 
 QByteArray encodeCompactNodes6(const QList<DhtNodeInfo> &nodes)
 {
-    return toQByteArray(qtng_core::encodeCompactNodes6(toCoreNodeList(nodes)));
+    return toQByteArray(QTNG_NAMESPACE::encodeCompactNodes6(toCoreNodeList(nodes)));
 }
 
 QList<DhtNodeInfo> decodeCompactNodes(const QByteArray &data)
 {
-    return fromCoreNodeList(qtng_core::decodeCompactNodes(toStdString(data)));
+    return fromCoreNodeList(QTNG_NAMESPACE::decodeCompactNodes(toStdString(data)));
 }
 
 QList<DhtNodeInfo> decodeCompactNodes6(const QByteArray &data)
 {
-    return fromCoreNodeList(qtng_core::decodeCompactNodes6(toStdString(data)));
+    return fromCoreNodeList(QTNG_NAMESPACE::decodeCompactNodes6(toStdString(data)));
 }
 
 QByteArray encodeCompactPeers(const QList<DhtPeer> &peers)
 {
-    vector<qtng_core::DhtPeer> corePeers;
+    vector<QTNG_NAMESPACE::DhtPeer> corePeers;
     corePeers.reserve(static_cast<size_t>(peers.size()));
     for (const DhtPeer &peer : peers) {
         corePeers.push_back(toCorePeer(peer));
     }
-    return toQByteArray(qtng_core::encodeCompactPeers(corePeers));
+    return toQByteArray(QTNG_NAMESPACE::encodeCompactPeers(corePeers));
 }
 
 QByteArray encodeCompactPeers6(const QList<DhtPeer> &peers)
 {
-    vector<qtng_core::DhtPeer> corePeers;
+    vector<QTNG_NAMESPACE::DhtPeer> corePeers;
     corePeers.reserve(static_cast<size_t>(peers.size()));
     for (const DhtPeer &peer : peers) {
         corePeers.push_back(toCorePeer(peer));
     }
-    return toQByteArray(qtng_core::encodeCompactPeers6(corePeers));
+    return toQByteArray(QTNG_NAMESPACE::encodeCompactPeers6(corePeers));
 }
 
 QList<DhtPeer> decodeCompactPeers(const QByteArray &data)
 {
-    return fromCorePeerList(qtng_core::decodeCompactPeers(toStdString(data)));
+    return fromCorePeerList(QTNG_NAMESPACE::decodeCompactPeers(toStdString(data)));
 }
 
 QList<DhtPeer> decodeCompactPeers6(const QByteArray &data)
 {
-    return fromCorePeerList(qtng_core::decodeCompactPeers6(toStdString(data)));
+    return fromCorePeerList(QTNG_NAMESPACE::decodeCompactPeers6(toStdString(data)));
 }
 
 class MemoryDhtStorePrivate
 {
 public:
     MemoryDhtStorePrivate()
-        : core(make_shared<qtng_core::MemoryDhtStore>())
+        : core(make_shared<QTNG_NAMESPACE::MemoryDhtStore>())
     {
     }
 
-    explicit MemoryDhtStorePrivate(const shared_ptr<qtng_core::MemoryDhtStore> &c)
+    explicit MemoryDhtStorePrivate(const shared_ptr<QTNG_NAMESPACE::MemoryDhtStore> &c)
         : core(c)
     {
     }
 
-    shared_ptr<qtng_core::MemoryDhtStore> core;
+    shared_ptr<QTNG_NAMESPACE::MemoryDhtStore> core;
 };
 
 MemoryDhtStore::MemoryDhtStore()
@@ -361,7 +361,7 @@ MemoryDhtStore::~MemoryDhtStore()
 bool MemoryDhtStore::loadMeta(NodeId *id, QByteArray *tokenSecret)
 {
     Q_D(MemoryDhtStore);
-    qtng_core::NodeId coreId;
+    QTNG_NAMESPACE::NodeId coreId;
     string secret;
     if (!d->core->loadMeta(&coreId, &secret)) {
         return false;
@@ -392,10 +392,10 @@ bool MemoryDhtStore::saveNodes(const QList<DhtNodeInfo> &nodes)
 QList<DhtStore::StoredPeer> MemoryDhtStore::loadPeers(const NodeId &infoHash)
 {
     Q_D(MemoryDhtStore);
-    const vector<qtng_core::DhtStore::StoredPeer> peers = d->core->loadPeers(toCoreNodeId(infoHash));
+    const vector<QTNG_NAMESPACE::DhtStore::StoredPeer> peers = d->core->loadPeers(toCoreNodeId(infoHash));
     QList<DhtStore::StoredPeer> result;
     result.reserve(static_cast<int>(peers.size()));
-    for (const qtng_core::DhtStore::StoredPeer &peer : peers) {
+    for (const QTNG_NAMESPACE::DhtStore::StoredPeer &peer : peers) {
         DhtStore::StoredPeer item;
         item.setPeer(fromCorePeer(peer.peer()));
         item.setExpireUnix(peer.expireUnix());
@@ -426,11 +426,11 @@ class LmdbDhtStorePrivate
 {
 public:
     explicit LmdbDhtStorePrivate(const QString &dirPath)
-        : core(make_shared<qtng_core::LmdbDhtStore>(toStdString(dirPath)))
+        : core(make_shared<QTNG_NAMESPACE::LmdbDhtStore>(toStdString(dirPath)))
     {
     }
 
-    shared_ptr<qtng_core::LmdbDhtStore> core;
+    shared_ptr<QTNG_NAMESPACE::LmdbDhtStore> core;
 };
 
 LmdbDhtStore::LmdbDhtStore(const QString &dirPath)
@@ -452,7 +452,7 @@ bool LmdbDhtStore::isOpen() const
 bool LmdbDhtStore::loadMeta(NodeId *id, QByteArray *tokenSecret)
 {
     Q_D(LmdbDhtStore);
-    qtng_core::NodeId coreId;
+    QTNG_NAMESPACE::NodeId coreId;
     string secret;
     if (!d->core->loadMeta(&coreId, &secret)) {
         return false;
@@ -483,10 +483,10 @@ bool LmdbDhtStore::saveNodes(const QList<DhtNodeInfo> &nodes)
 QList<DhtStore::StoredPeer> LmdbDhtStore::loadPeers(const NodeId &infoHash)
 {
     Q_D(LmdbDhtStore);
-    const vector<qtng_core::DhtStore::StoredPeer> peers = d->core->loadPeers(toCoreNodeId(infoHash));
+    const vector<QTNG_NAMESPACE::DhtStore::StoredPeer> peers = d->core->loadPeers(toCoreNodeId(infoHash));
     QList<DhtStore::StoredPeer> result;
     result.reserve(static_cast<int>(peers.size()));
-    for (const qtng_core::DhtStore::StoredPeer &peer : peers) {
+    for (const QTNG_NAMESPACE::DhtStore::StoredPeer &peer : peers) {
         DhtStore::StoredPeer item;
         item.setPeer(fromCorePeer(peer.peer()));
         item.setExpireUnix(peer.expireUnix());
@@ -517,7 +517,7 @@ class DhtNodePrivate
 {
 public:
     explicit DhtNodePrivate(const NodeId &id)
-        : core(new qtng_core::DhtNode(toCoreNodeId(id)))
+        : core(new QTNG_NAMESPACE::DhtNode(toCoreNodeId(id)))
     {
     }
 
@@ -530,9 +530,9 @@ public:
     // - core store 是 QtDhtStoreAdapter（用户显式传入的 qt store 的适配器）→ 取回原始 qt store；
     // - core store 是 core 默认创建的 MemoryDhtStore → 包装为 qt 版 MemoryDhtStore；
     // - 其它情况 → 返回空。
-    static QSharedPointer<DhtStore> qtStoreFromCore(const shared_ptr<qtng_core::DhtStore> &coreStore);
+    static QSharedPointer<DhtStore> qtStoreFromCore(const shared_ptr<QTNG_NAMESPACE::DhtStore> &coreStore);
 
-    qtng_core::DhtNode *core;
+    QTNG_NAMESPACE::DhtNode *core;
     // 例外处理：qt store 视图缓存。
     // core 的 DhtNode 是 DhtStore（core 类型）的唯一事实来源；qt binding 的 store() 必须返回
     // QSharedPointer<qtng::DhtStore>，而 core store → qt store 的转换（qtStoreFromCore）每次都要
@@ -543,7 +543,7 @@ public:
     QSharedPointer< ::qtng::DhtStore> qtStore;
 };
 
-QSharedPointer<DhtStore> DhtNodePrivate::qtStoreFromCore(const shared_ptr<qtng_core::DhtStore> &coreStore)
+QSharedPointer<DhtStore> DhtNodePrivate::qtStoreFromCore(const shared_ptr<QTNG_NAMESPACE::DhtStore> &coreStore)
 {
     if (!coreStore) {
         return QSharedPointer<DhtStore>();
@@ -551,8 +551,8 @@ QSharedPointer<DhtStore> DhtNodePrivate::qtStoreFromCore(const shared_ptr<qtng_c
     if (const QtDhtStoreAdapter *adapter = dynamic_cast<const QtDhtStoreAdapter *>(coreStore.get())) {
         return adapter->qtStore;
     }
-    const shared_ptr<qtng_core::MemoryDhtStore> memory =
-            dynamic_pointer_cast<qtng_core::MemoryDhtStore>(coreStore);
+    const shared_ptr<QTNG_NAMESPACE::MemoryDhtStore> memory =
+            dynamic_pointer_cast<QTNG_NAMESPACE::MemoryDhtStore>(coreStore);
     if (memory) {
         return QSharedPointer<MemoryDhtStore>(new MemoryDhtStore(new MemoryDhtStorePrivate(memory)));
     }
@@ -574,7 +574,7 @@ bool DhtNode::open(quint16 bindPort, QSharedPointer< ::qtng::DhtStore> store, Ho
     Q_D(DhtNode);
     d->qtStore.clear();
     const bool ok = d->core->open(bindPort, toCoreStore(store),
-                                  static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(proto));
+                                  static_cast<QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol>(proto));
     if (ok) {
         d->qtStore = DhtNodePrivate::qtStoreFromCore(d->core->store());
     }
@@ -615,7 +615,7 @@ QSharedPointer<DhtStore> DhtNode::store() const
 bool DhtNode::bootstrap(const QList<DhtEndpoint> &seeds)
 {
     Q_D(DhtNode);
-    vector<qtng_core::DhtEndpoint> coreSeeds;
+    vector<QTNG_NAMESPACE::DhtEndpoint> coreSeeds;
     coreSeeds.reserve(static_cast<size_t>(seeds.size()));
     for (const DhtEndpoint &seed : seeds) {
         coreSeeds.push_back(toCoreEndpoint(seed));

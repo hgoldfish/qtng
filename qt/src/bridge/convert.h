@@ -43,19 +43,19 @@ inline QByteArray toQByteArray(const std::string &s)
     return QByteArray(s.data(), static_cast<int>(s.size()));
 }
 
-inline qtng_core::utils::Url toCoreUrl(const QUrl &url)
+inline QTNG_NAMESPACE::utils::Url toCoreUrl(const QUrl &url)
 {
-    return qtng_core::utils::Url(url.toString(QUrl::FullyEncoded).toUtf8().constData());
+    return QTNG_NAMESPACE::utils::Url(url.toString(QUrl::FullyEncoded).toUtf8().constData());
 }
 
-inline QUrl toQUrl(const qtng_core::utils::Url &url)
+inline QUrl toQUrl(const QTNG_NAMESPACE::utils::Url &url)
 {
     return QUrl::fromEncoded(QByteArray::fromStdString(url.toString()));
 }
 
-inline qtng_core::utils::UrlQuery toCoreUrlQuery(const QUrlQuery &query)
+inline QTNG_NAMESPACE::utils::UrlQuery toCoreUrlQuery(const QUrlQuery &query)
 {
-    qtng_core::utils::UrlQuery result;
+    QTNG_NAMESPACE::utils::UrlQuery result;
     const QList<QPair<QString, QString>> items = query.queryItems();
     for (const QPair<QString, QString> &item : items) {
         result.addQueryItem(toStdString(item.first), toStdString(item.second));
@@ -63,7 +63,7 @@ inline qtng_core::utils::UrlQuery toCoreUrlQuery(const QUrlQuery &query)
     return result;
 }
 
-inline QUrlQuery toQUrlQuery(const qtng_core::utils::UrlQuery &query)
+inline QUrlQuery toQUrlQuery(const QTNG_NAMESPACE::utils::UrlQuery &query)
 {
     QUrlQuery result;
     for (const std::pair<const std::string, std::string> &item : query.items()) {

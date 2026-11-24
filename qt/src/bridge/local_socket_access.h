@@ -5,7 +5,7 @@
 
 #include "config.h"
 
-namespace qtng_core {
+namespace QTNG_NAMESPACE {
 class LocalSocket;
 }
 
@@ -15,9 +15,9 @@ QTNETWORKNG_NAMESPACE_END
 
 namespace qtng_bridge {
 
-std::shared_ptr<qtng_core::LocalSocket> localSocketCoreOf(QTNETWORKNG_NAMESPACE::LocalSocket *socket);
+std::shared_ptr<QTNG_NAMESPACE::LocalSocket> localSocketCoreOf(QTNETWORKNG_NAMESPACE::LocalSocket *socket);
 void assignLocalSocketCore(QTNETWORKNG_NAMESPACE::LocalSocket *socket,
-                           std::shared_ptr<qtng_core::LocalSocket> core);
+                           std::shared_ptr<QTNG_NAMESPACE::LocalSocket> core);
 
 }  // namespace qtng_bridge
 

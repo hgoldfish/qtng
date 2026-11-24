@@ -18,7 +18,7 @@ namespace QTNETWORKNG_NAMESPACE {
 
 namespace {
 
-class QIODeviceFileLike : public qtng_core::FileLike
+class QIODeviceFileLike : public QTNG_NAMESPACE::FileLike
 {
 public:
     explicit QIODeviceFileLike(QIODevice *dev)
@@ -61,12 +61,12 @@ enum class QVariantWireKind
     Ext,
 };
 
-// Mirror of qtng_core::detail::msgPackWireKind. The core version lives inside a
+// Mirror of QTNG_NAMESPACE::detail::msgPackWireKind. The core version lives inside a
 // C++17 guard (std::variant support), but the Qt binding must compile as C++11 for
 // Qt5, so the wire-kind classification is duplicated here.
 QVariantWireKind variantWireKind(quint8 b)
 {
-    namespace FB = qtng_core::FirstByte;
+    namespace FB = QTNG_NAMESPACE::FirstByte;
     if (b <= FB::POSITIVE_FIXINT || b >= FB::NEGATIVE_FIXINT) {
         return QVariantWireKind::Int;
     }
@@ -124,7 +124,7 @@ QVariantWireKind variantWireKind(quint8 b)
     return QVariantWireKind::Unknown;
 }
 
-// Mirror of qtng_core::detail::msgPackUnpackDatetime: decodes a msgpack timestamp ext payload of
+// Mirror of QTNG_NAMESPACE::detail::msgPackUnpackDatetime: decodes a msgpack timestamp ext payload of
 // 4/8/12 bytes into a QDateTime. The caller guarantees the size already.
 QDateTime unpackDatetime(const QByteArray &bs)
 {
@@ -145,11 +145,11 @@ QDateTime unpackDatetime(const QByteArray &bs)
     return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(seconds * 1000 + nanoseconds / 1000000));
 }
 
-bool takeQtLen(qtng_core::MsgPackStream &core, uint32_t coreLen, qint32 &out)
+bool takeQtLen(QTNG_NAMESPACE::MsgPackStream &core, uint32_t coreLen, qint32 &out)
 {
     // Qt containers use int sizes; reject values that would truncate to negative.
     if (coreLen > static_cast<uint32_t>(std::numeric_limits<qint32>::max())) {
-        core.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+        core.setStatus(QTNG_NAMESPACE::MsgPackStream::ReadCorruptData);
         return false;
     }
     out = static_cast<qint32>(coreLen);
@@ -204,8 +204,8 @@ public:
     QByteArray *byteArray;
     QSharedPointer<QIODeviceFileLike> ioAdapter;
     QSharedPointer<QBuffer> buffer;
-    QSharedPointer<qtng_core::BytesIO> bytesBackend;
-    qtng_core::MsgPackStream core;
+    QSharedPointer<QTNG_NAMESPACE::BytesIO> bytesBackend;
+    QTNG_NAMESPACE::MsgPackStream core;
 };
 
 MsgPackExtUserData::~MsgPackExtUserData() { }
@@ -265,7 +265,7 @@ MsgPackStream::MsgPackStream(const QByteArray &a)
     Q_D(MsgPackStream);
     // Match former core MsgPackStream(string) semantics: own the bytes and cap length.
     // Do not placement-new over default-constructed core (that path owned a BytesIO).
-    d->bytesBackend = QSharedPointer<qtng_core::BytesIO>(new qtng_core::BytesIO(toStdString(a)));
+    d->bytesBackend = QSharedPointer<QTNG_NAMESPACE::BytesIO>(new QTNG_NAMESPACE::BytesIO(toStdString(a)));
     d->core.setDevice(d->bytesBackend.data());
     d->core.setLengthLimit(static_cast<uint32_t>(d->bytesBackend->size()));
 }
@@ -321,7 +321,7 @@ void MsgPackStream::resetStatus()
 void MsgPackStream::setStatus(Status status)
 {
     Q_D(MsgPackStream);
-    d->core.setStatus(static_cast<qtng_core::MsgPackStream::Status>(status));
+    d->core.setStatus(static_cast<QTNG_NAMESPACE::MsgPackStream::Status>(status));
 }
 
 void MsgPackStream::setFlushWrites(bool flushWrites)
@@ -451,7 +451,7 @@ MsgPackStream &MsgPackStream::operator<<(const QByteArray &array)
 MsgPackStream &MsgPackStream::operator>>(QDateTime &dt)
 {
     Q_D(MsgPackStream);
-    qtng_core::utils::DateTime cdt;
+    QTNG_NAMESPACE::utils::DateTime cdt;
     d->core >> cdt;
     dt = QDateTime::fromMSecsSinceEpoch(cdt.toMSecsSinceEpoch());
     return *this;
@@ -461,17 +461,17 @@ MsgPackStream &MsgPackStream::operator<<(const QDateTime &dt)
 {
     Q_D(MsgPackStream);
     if (!dt.isValid()) {
-        d->core.setStatus(qtng_core::MsgPackStream::WriteFailed);
+        d->core.setStatus(QTNG_NAMESPACE::MsgPackStream::WriteFailed);
         return *this;
     }
-    d->core << qtng_core::utils::DateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch());
+    d->core << QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch());
     return *this;
 }
 
 MsgPackStream &MsgPackStream::operator>>(MsgPackExtData &ext)
 {
     Q_D(MsgPackStream);
-    qtng_core::MsgPackExtData cext;
+    QTNG_NAMESPACE::MsgPackExtData cext;
     d->core >> cext;
     ext.setType(cext.type());
     ext.setPayload(toQByteArray(cext.payload()));
@@ -481,7 +481,7 @@ MsgPackStream &MsgPackStream::operator>>(MsgPackExtData &ext)
 MsgPackStream &MsgPackStream::operator<<(const MsgPackExtData &ext)
 {
     Q_D(MsgPackStream);
-    qtng_core::MsgPackExtData cext;
+    QTNG_NAMESPACE::MsgPackExtData cext;
     cext.setType(ext.type());
     cext.setPayload(toStdString(ext.payload()));
     d->core << cext;
@@ -491,11 +491,11 @@ MsgPackStream &MsgPackStream::operator<<(const MsgPackExtData &ext)
 MsgPackStream &MsgPackStream::operator>>(QVariant &v)
 {
     Q_D(MsgPackStream);
-    qtng_core::MsgPackStream &s = d->core;
+    QTNG_NAMESPACE::MsgPackStream &s = d->core;
     uint8_t b = 0;
     if (!s.peekByte(&b)) {
         if (s.isOk()) {
-            s.setStatus(qtng_core::MsgPackStream::ReadPastEnd);
+            s.setStatus(QTNG_NAMESPACE::MsgPackStream::ReadPastEnd);
         }
         return *this;
     }
@@ -518,9 +518,9 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
     case QVariantWireKind::Int: {
         // Signed encodings are read as signed integers; everything else is treated as unsigned so that
         // values beyond the qint64 range are not truncated.
-        if (b >= qtng_core::FirstByte::NEGATIVE_FIXINT || b == qtng_core::FirstByte::INT8
-            || b == qtng_core::FirstByte::INT16 || b == qtng_core::FirstByte::INT32
-            || b == qtng_core::FirstByte::INT64) {
+        if (b >= QTNG_NAMESPACE::FirstByte::NEGATIVE_FIXINT || b == QTNG_NAMESPACE::FirstByte::INT8
+            || b == QTNG_NAMESPACE::FirstByte::INT16 || b == QTNG_NAMESPACE::FirstByte::INT32
+            || b == QTNG_NAMESPACE::FirstByte::INT64) {
             int64_t i = 0;
             s >> i;
             v = QVariant(qint64(i));
@@ -536,7 +536,7 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
         break;
     }
     case QVariantWireKind::Float: {
-        if (b == qtng_core::FirstByte::FLOAT32) {
+        if (b == QTNG_NAMESPACE::FirstByte::FLOAT32) {
             float f = 0;
             s >> f;
             v = static_cast<double>(f);
@@ -565,7 +565,7 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
             return *this;
         }
         if (len > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
-            s.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+            s.setStatus(QTNG_NAMESPACE::MsgPackStream::ReadCorruptData);
             return *this;
         }
         QVariantList list;
@@ -573,7 +573,7 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
         for (uint32_t i = 0; i < len; ++i) {
             QVariant item;
             *this >> item;
-            if (s.status() != qtng_core::MsgPackStream::Ok) {
+            if (s.status() != QTNG_NAMESPACE::MsgPackStream::Ok) {
                 break;
             }
             list.append(item);
@@ -590,12 +590,12 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
         for (uint32_t i = 0; i < len; ++i) {
             std::string key;
             s.readString(key);
-            if (s.status() != qtng_core::MsgPackStream::Ok) {
+            if (s.status() != QTNG_NAMESPACE::MsgPackStream::Ok) {
                 break;
             }
             QVariant value;
             *this >> value;
-            if (s.status() != qtng_core::MsgPackStream::Ok) {
+            if (s.status() != QTNG_NAMESPACE::MsgPackStream::Ok) {
                 break;
             }
             map.insert(toQString(key), value);
@@ -606,10 +606,10 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
     case QVariantWireKind::Ext: {
         // Timestamp ext (type 0xff) becomes a QDateTime; any other ext type is preserved as
         // MsgPackExtData (lafrpc serialization uses QDateTime as its only extension type).
-        qtng_core::MsgPackExtData cext;
+        QTNG_NAMESPACE::MsgPackExtData cext;
         s >> cext;
-        if (s.status() != qtng_core::MsgPackStream::Ok) {
-            s.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+        if (s.status() != QTNG_NAMESPACE::MsgPackStream::Ok) {
+            s.setStatus(QTNG_NAMESPACE::MsgPackStream::ReadCorruptData);
             v = QVariant();
             break;
         }
@@ -618,7 +618,7 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
             if (payload.size() == 4 || payload.size() == 8 || payload.size() == 12) {
                 v = unpackDatetime(payload);
             } else {
-                s.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+                s.setStatus(QTNG_NAMESPACE::MsgPackStream::ReadCorruptData);
                 v = QVariant();
             }
         } else {
@@ -632,7 +632,7 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
     default:
         qWarning() << "msgpack cannot read QVariant wire kind:" << static_cast<int>(kind)
                    << "first byte:" << static_cast<int>(b);
-        s.setStatus(qtng_core::MsgPackStream::ReadCorruptData);
+        s.setStatus(QTNG_NAMESPACE::MsgPackStream::ReadCorruptData);
         v = QVariant();
         break;
     }
@@ -642,7 +642,7 @@ MsgPackStream &MsgPackStream::operator>>(QVariant &v)
 MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
 {
     Q_D(MsgPackStream);
-    qtng_core::MsgPackStream &s = d->core;
+    QTNG_NAMESPACE::MsgPackStream &s = d->core;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     switch (v.typeId()) {
 #else
@@ -679,7 +679,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
         }
         for (const QString &str : list) {
             s.writeString(toStdString(str));
-            if (s.status() != qtng_core::MsgPackStream::Ok) {
+            if (s.status() != QTNG_NAMESPACE::MsgPackStream::Ok) {
                 break;
             }
         }
@@ -703,7 +703,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
         }
         for (const QVariant &item : list) {
             *this << item;
-            if (s.status() != qtng_core::MsgPackStream::Ok) {
+            if (s.status() != QTNG_NAMESPACE::MsgPackStream::Ok) {
                 break;
             }
         }
@@ -717,7 +717,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
         for (QVariantMap::const_iterator it = map.constBegin(); it != map.constEnd(); ++it) {
             s.writeString(toStdString(it.key()));
             *this << it.value();
-            if (s.status() != qtng_core::MsgPackStream::Ok) {
+            if (s.status() != QTNG_NAMESPACE::MsgPackStream::Ok) {
                 break;
             }
         }
@@ -731,7 +731,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
         for (QVariantHash::const_iterator it = hash.constBegin(); it != hash.constEnd(); ++it) {
             s.writeString(toStdString(it.key()));
             *this << it.value();
-            if (s.status() != qtng_core::MsgPackStream::Ok) {
+            if (s.status() != QTNG_NAMESPACE::MsgPackStream::Ok) {
                 break;
             }
         }
@@ -743,7 +743,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
 #else
         if (v.type() == QVariant::Invalid) {
 #endif
-            static const char nilByte[1] = {static_cast<char>(qtng_core::FirstByte::NIL)};
+            static const char nilByte[1] = {static_cast<char>(QTNG_NAMESPACE::FirstByte::NIL)};
             s.writeRawBytes(nilByte, 1);
         } else if (v.canConvert<MsgPackExtData>()) {
             *this << v.value<MsgPackExtData>();
@@ -754,7 +754,7 @@ MsgPackStream &MsgPackStream::operator<<(const QVariant &v)
             qWarning() << "msgpack cannot write QVariant type:" << v.type() << "userType:" << v.userType()
                        << "name:" << v.typeName();
 #endif
-            s.setStatus(qtng_core::MsgPackStream::WriteFailed);
+            s.setStatus(QTNG_NAMESPACE::MsgPackStream::WriteFailed);
         }
         break;
     }

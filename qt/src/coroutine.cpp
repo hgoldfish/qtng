@@ -13,7 +13,7 @@ namespace QTNETWORKNG_NAMESPACE {
 
 namespace {
 
-class BridgedException : public qtng_core::CoroutineException
+class BridgedException : public QTNG_NAMESPACE::CoroutineException
 {
 public:
     explicit BridgedException(QTNETWORKNG_NAMESPACE::CoroutineException *qtException)
@@ -32,7 +32,7 @@ public:
     {
         return qtException ? toStdString(qtException->what()) : std::string("bridged coroutine exception");
     }
-    qtng_core::CoroutineException *clone() const override
+    QTNG_NAMESPACE::CoroutineException *clone() const override
     {
         return new BridgedException(qtException ? qtException->clone() : new QTNETWORKNG_NAMESPACE::CoroutineException());
     }
@@ -40,11 +40,11 @@ public:
     QTNETWORKNG_NAMESPACE::CoroutineException *qtException;
 };
 
-class CoreCoroutineAdapter : public qtng_core::Coroutine
+class CoreCoroutineAdapter : public QTNG_NAMESPACE::Coroutine
 {
 public:
-    CoreCoroutineAdapter(QTNETWORKNG_NAMESPACE::BaseCoroutine *wrapper, qtng_core::BaseCoroutine *previous, size_t stackSize)
-        : qtng_core::Coroutine(stackSize)
+    CoreCoroutineAdapter(QTNETWORKNG_NAMESPACE::BaseCoroutine *wrapper, QTNG_NAMESPACE::BaseCoroutine *previous, size_t stackSize)
+        : QTNG_NAMESPACE::Coroutine(stackSize)
         , wrapper(wrapper)
     {
         if (previous) {
@@ -56,7 +56,7 @@ public:
         // alive here (its destruction would delete this still-running adapter). Callbacks that drop
         // the last reference (e.g. CoroutineGroup) must defer destruction themselves, as upstream
         // CoroutineGroup::deleteCoroutine does.
-        this->finished.addCallback([this](qtng_core::BaseCoroutine *) {
+        this->finished.addCallback([this](QTNG_NAMESPACE::BaseCoroutine *) {
             if (this->wrapper) {
                 this->wrapper->finished.callback(this->wrapper);
             }
@@ -76,20 +76,20 @@ public:
         try {
             wrapper->run();
         } catch (QTNETWORKNG_NAMESPACE::CoroutineExitException &) {
-            qtng_core::CoroutineExitException exitEx;
+            QTNG_NAMESPACE::CoroutineExitException exitEx;
             throw exitEx;
         } catch (QTNETWORKNG_NAMESPACE::TimeoutException &) {
-            qtng_core::TimeoutException timeoutEx;
+            QTNG_NAMESPACE::TimeoutException timeoutEx;
             throw timeoutEx;
         } catch (QTNETWORKNG_NAMESPACE::CoroutineInterruptedException &) {
-            qtng_core::CoroutineInterruptedException interruptedEx;
+            QTNG_NAMESPACE::CoroutineInterruptedException interruptedEx;
             throw interruptedEx;
         } catch (QTNETWORKNG_NAMESPACE::CoroutineException &) {
-            qtng_core::CoroutineException baseEx;
+            QTNG_NAMESPACE::CoroutineException baseEx;
             throw baseEx;
         }
     }
-    void applyState(qtng_core::BaseCoroutine::State state) { setState(state); }
+    void applyState(QTNG_NAMESPACE::BaseCoroutine::State state) { setState(state); }
 
     QTNETWORKNG_NAMESPACE::BaseCoroutine *wrapper;
 };
@@ -158,7 +158,7 @@ public:
         : q_ptr(q)
         , ownsCore(true)
     {
-        qtng_core::BaseCoroutine *corePrev = previous ? coreFor(previous) : nullptr;
+        QTNG_NAMESPACE::BaseCoroutine *corePrev = previous ? coreFor(previous) : nullptr;
         core = new CoreCoroutineAdapter(q, corePrev, stackSize);
     }
     ~BaseCoroutinePrivate()
@@ -171,7 +171,7 @@ public:
     }
 
     BaseCoroutine *q_ptr;
-    qtng_core::BaseCoroutine *core;
+    QTNG_NAMESPACE::BaseCoroutine *core;
     bool ownsCore;
 };
 
@@ -230,7 +230,7 @@ void BaseCoroutine::setPrevious(BaseCoroutine *previous)
 void BaseCoroutine::setState(BaseCoroutine::State state)
 {
     if (CoreCoroutineAdapter *adapter = dynamic_cast<CoreCoroutineAdapter *>(dd_ptr->core)) {
-        adapter->applyState(static_cast<qtng_core::BaseCoroutine::State>(state));
+        adapter->applyState(static_cast<QTNG_NAMESPACE::BaseCoroutine::State>(state));
     }
 }
 
@@ -241,7 +241,7 @@ void BaseCoroutine::cleanup()
 
 BaseCoroutine *BaseCoroutine::current()
 {
-    qtng_core::BaseCoroutine *core = qtng_core::BaseCoroutine::current();
+    QTNG_NAMESPACE::BaseCoroutine *core = QTNG_NAMESPACE::BaseCoroutine::current();
     if (!core) {
         return nullptr;
     }

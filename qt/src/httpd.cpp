@@ -9,22 +9,22 @@ using namespace qtng_bridge;
 
 namespace qtng_bridge {
 
-qtng_core::PosixPath toCorePosixPath(const QDir &dir)
+QTNG_NAMESPACE::PosixPath toCorePosixPath(const QDir &dir)
 {
-    return qtng_core::PosixPath(toStdString(dir.path()));
+    return QTNG_NAMESPACE::PosixPath(toStdString(dir.path()));
 }
 
-qtng_core::PosixPath toCorePosixPath(const QFileInfo &fileInfo)
+QTNG_NAMESPACE::PosixPath toCorePosixPath(const QFileInfo &fileInfo)
 {
-    return qtng_core::PosixPath(toStdString(fileInfo.absoluteFilePath()));
+    return QTNG_NAMESPACE::PosixPath(toStdString(fileInfo.absoluteFilePath()));
 }
 
-QDir toQtDir(const qtng_core::PosixPath &path)
+QDir toQtDir(const QTNG_NAMESPACE::PosixPath &path)
 {
     return QDir(toQString(path.path()));
 }
 
-QFileInfo toQtFileInfo(const qtng_core::PosixPath &path)
+QFileInfo toQtFileInfo(const QTNG_NAMESPACE::PosixPath &path)
 {
     return QFileInfo(toQString(path.path()));
 }
@@ -38,7 +38,7 @@ namespace QTNETWORKNG_NAMESPACE {
 //    so that user subclasses overriding the Qt API keep working;
 //  - the Qt default implementations call back into the non-virtual core helpers (…Core()),
 //    which hold the real protocol logic implemented in the core library.
-class QtHttpRequestHandlerCoreBridge : public qtng_core::StaticHttpRequestHandler
+class QtHttpRequestHandlerCoreBridge : public QTNG_NAMESPACE::StaticHttpRequestHandler
 {
 public:
     explicit QtHttpRequestHandlerCoreBridge(QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler *q)
@@ -47,85 +47,85 @@ public:
     }
 
     // ---- non-virtual core helpers, called from the Qt default implementations ----
-    void handleCore() { qtng_core::BaseHttpRequestHandler::handle(); }
-    void handleOneRequestCore() { qtng_core::BaseHttpRequestHandler::handleOneRequest(); }
+    void handleCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::handle(); }
+    void handleOneRequestCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::handleOneRequest(); }
     bool parseRequestCore()
     {
-        const bool ok = qtng_core::BaseHttpRequestHandler::parseRequest();
+        const bool ok = QTNG_NAMESPACE::BaseHttpRequestHandler::parseRequest();
         syncToQt();
         return ok;
     }
-    void doMethodCore() { qtng_core::BaseHttpRequestHandler::doMethod(); }
-    void doGETCore() { qtng_core::BaseHttpRequestHandler::doGET(); }
-    void doPOSTCore() { qtng_core::BaseHttpRequestHandler::doPOST(); }
-    void doQUERYCore() { qtng_core::BaseHttpRequestHandler::doQUERY(); }
-    void doPUTCore() { qtng_core::BaseHttpRequestHandler::doPUT(); }
-    void doDELETECore() { qtng_core::BaseHttpRequestHandler::doDELETE(); }
-    void doPATCHCore() { qtng_core::BaseHttpRequestHandler::doPATCH(); }
-    void doHEADCore() { qtng_core::BaseHttpRequestHandler::doHEAD(); }
-    void doOPTIONSCore() { qtng_core::BaseHttpRequestHandler::doOPTIONS(); }
-    void doTRACECore() { qtng_core::BaseHttpRequestHandler::doTRACE(); }
-    void doCONNECTCore() { qtng_core::BaseHttpRequestHandler::doCONNECT(); }
-    bool sendErrorCore(qtng_core::HttpStatus status, const string &longMessage)
+    void doMethodCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doMethod(); }
+    void doGETCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doGET(); }
+    void doPOSTCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doPOST(); }
+    void doQUERYCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doQUERY(); }
+    void doPUTCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doPUT(); }
+    void doDELETECore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doDELETE(); }
+    void doPATCHCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doPATCH(); }
+    void doHEADCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doHEAD(); }
+    void doOPTIONSCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doOPTIONS(); }
+    void doTRACECore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doTRACE(); }
+    void doCONNECTCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doCONNECT(); }
+    bool sendErrorCore(QTNG_NAMESPACE::HttpStatus status, const string &longMessage)
     {
-        return qtng_core::BaseHttpRequestHandler::sendError(status, longMessage);
+        return QTNG_NAMESPACE::BaseHttpRequestHandler::sendError(status, longMessage);
     }
-    bool sendResponseCore(qtng_core::HttpStatus status, const string &longMessage)
+    bool sendResponseCore(QTNG_NAMESPACE::HttpStatus status, const string &longMessage)
     {
-        return qtng_core::BaseHttpRequestHandler::sendResponse(status, longMessage);
+        return QTNG_NAMESPACE::BaseHttpRequestHandler::sendResponse(status, longMessage);
     }
-    string errorMessageCore(qtng_core::HttpStatus status, const string &shortMessage, const string &longMessage)
+    string errorMessageCore(QTNG_NAMESPACE::HttpStatus status, const string &shortMessage, const string &longMessage)
     {
-        return qtng_core::BaseHttpRequestHandler::errorMessage(status, shortMessage, longMessage);
+        return QTNG_NAMESPACE::BaseHttpRequestHandler::errorMessage(status, shortMessage, longMessage);
     }
-    string errorMessageContentTypeCore() { return qtng_core::BaseHttpRequestHandler::errorMessageContentType(); }
-    string dateTimeStringCore() { return qtng_core::BaseHttpRequestHandler::dateTimeString(); }
-    string serverNameCore() { return qtng_core::BaseHttpRequestHandler::serverName(); }
-    void logRequestCore(qtng_core::HttpStatus status, int bodySize)
+    string errorMessageContentTypeCore() { return QTNG_NAMESPACE::BaseHttpRequestHandler::errorMessageContentType(); }
+    string dateTimeStringCore() { return QTNG_NAMESPACE::BaseHttpRequestHandler::dateTimeString(); }
+    string serverNameCore() { return QTNG_NAMESPACE::BaseHttpRequestHandler::serverName(); }
+    void logRequestCore(QTNG_NAMESPACE::HttpStatus status, int bodySize)
     {
-        qtng_core::BaseHttpRequestHandler::logRequest(status, bodySize);
+        QTNG_NAMESPACE::BaseHttpRequestHandler::logRequest(status, bodySize);
     }
-    void logErrorCore(qtng_core::HttpStatus status, const string &shortMessage, const string &longMessage)
+    void logErrorCore(QTNG_NAMESPACE::HttpStatus status, const string &shortMessage, const string &longMessage)
     {
-        qtng_core::BaseHttpRequestHandler::logError(status, shortMessage, longMessage);
+        QTNG_NAMESPACE::BaseHttpRequestHandler::logError(status, shortMessage, longMessage);
     }
-    shared_ptr<qtng_core::FileLike> bodyAsFileCore(bool processEncoding)
+    shared_ptr<QTNG_NAMESPACE::FileLike> bodyAsFileCore(bool processEncoding)
     {
-        return qtng_core::BaseHttpRequestHandler::bodyAsFile(processEncoding);
+        return QTNG_NAMESPACE::BaseHttpRequestHandler::bodyAsFile(processEncoding);
     }
-    bool switchToWebSocketCore() { return qtng_core::BaseHttpRequestHandler::switchToWebSocket(); }
-    string tryToHandleMagicCodeCore(bool &done) { return qtng_core::BaseHttpRequestHandler::tryToHandleMagicCode(done); }
+    bool switchToWebSocketCore() { return QTNG_NAMESPACE::BaseHttpRequestHandler::switchToWebSocket(); }
+    string tryToHandleMagicCodeCore(bool &done) { return QTNG_NAMESPACE::BaseHttpRequestHandler::tryToHandleMagicCode(done); }
 
     // non-virtual static-file helpers, called from the Qt default implementations.
-    shared_ptr<qtng_core::FileLike> serveStaticFilesCore(const qtng_core::PosixPath &dir, const string &subPath)
+    shared_ptr<QTNG_NAMESPACE::FileLike> serveStaticFilesCore(const QTNG_NAMESPACE::PosixPath &dir, const string &subPath)
     {
-        return qtng_core::StaticHttpRequestHandler::serveStaticFiles(dir, subPath);
+        return QTNG_NAMESPACE::StaticHttpRequestHandler::serveStaticFiles(dir, subPath);
     }
-    shared_ptr<qtng_core::FileLike> listDirectoryCore(const qtng_core::PosixPath &dir, const string &displayDir)
+    shared_ptr<QTNG_NAMESPACE::FileLike> listDirectoryCore(const QTNG_NAMESPACE::PosixPath &dir, const string &displayDir)
     {
-        return qtng_core::StaticHttpRequestHandler::listDirectory(dir, displayDir);
+        return QTNG_NAMESPACE::StaticHttpRequestHandler::listDirectory(dir, displayDir);
     }
-    bool loadMissingFileCore(const qtng_core::PosixPath &fileInfo)
+    bool loadMissingFileCore(const QTNG_NAMESPACE::PosixPath &fileInfo)
     {
-        return qtng_core::StaticHttpRequestHandler::loadMissingFile(fileInfo);
+        return QTNG_NAMESPACE::StaticHttpRequestHandler::loadMissingFile(fileInfo);
     }
-    qtng_core::PosixPath getIndexFileCore(const qtng_core::PosixPath &dir)
+    QTNG_NAMESPACE::PosixPath getIndexFileCore(const QTNG_NAMESPACE::PosixPath &dir)
     {
-        return qtng_core::StaticHttpRequestHandler::getIndexFile(dir);
+        return QTNG_NAMESPACE::StaticHttpRequestHandler::getIndexFile(dir);
     }
 
     // non-virtual protocol utilities, called from the Qt default implementations.
-    void sendCommandLine(qtng_core::HttpStatus status, const string &shortMessage)
+    void sendCommandLine(QTNG_NAMESPACE::HttpStatus status, const string &shortMessage)
     {
-        qtng_core::BaseHttpRequestHandler::sendCommandLine(status, shortMessage);
+        QTNG_NAMESPACE::BaseHttpRequestHandler::sendCommandLine(status, shortMessage);
     }
     void sendHeader(const string &name, const string &value)
     {
-        qtng_core::BaseHttpRequestHandler::sendHeader(name, value);
+        QTNG_NAMESPACE::BaseHttpRequestHandler::sendHeader(name, value);
     }
-    bool endHeader() { return qtng_core::BaseHttpRequestHandler::endHeader(); }
-    bool readBody() { return qtng_core::BaseHttpRequestHandler::readBody(); }
-    vector<string> webSocketProtocols() { return qtng_core::BaseHttpRequestHandler::webSocketProtocols(); }
+    bool endHeader() { return QTNG_NAMESPACE::BaseHttpRequestHandler::endHeader(); }
+    bool readBody() { return QTNG_NAMESPACE::BaseHttpRequestHandler::readBody(); }
+    vector<string> webSocketProtocols() { return QTNG_NAMESPACE::BaseHttpRequestHandler::webSocketProtocols(); }
 
     // ---- virtual methods: forward to the Qt side so that user overrides are honored ----
     void handle() override { q->handle(); }
@@ -142,58 +142,58 @@ public:
     void doOPTIONS() override { q->doOPTIONS(); }
     void doTRACE() override { q->doTRACE(); }
     void doCONNECT() override { q->doCONNECT(); }
-    bool sendError(qtng_core::HttpStatus status, const string &longMessage) override
+    bool sendError(QTNG_NAMESPACE::HttpStatus status, const string &longMessage) override
     {
         return q->sendError(static_cast<HttpStatus>(status), toQString(longMessage));
     }
-    bool sendResponse(qtng_core::HttpStatus status, const string &longMessage) override
+    bool sendResponse(QTNG_NAMESPACE::HttpStatus status, const string &longMessage) override
     {
         return q->sendResponse(static_cast<HttpStatus>(status), toQString(longMessage));
     }
-    string errorMessage(qtng_core::HttpStatus status, const string &shortMessage, const string &longMessage) override
+    string errorMessage(QTNG_NAMESPACE::HttpStatus status, const string &shortMessage, const string &longMessage) override
     {
         return toStdString(q->errorMessage(static_cast<HttpStatus>(status), toQString(shortMessage), toQString(longMessage)));
     }
     string errorMessageContentType() override { return toStdString(q->errorMessageContentType()); }
     string dateTimeString() override { return toStdString(q->dateTimeString()); }
     string serverName() override { return toStdString(q->serverName()); }
-    void logRequest(qtng_core::HttpStatus status, int bodySize) override
+    void logRequest(QTNG_NAMESPACE::HttpStatus status, int bodySize) override
     {
         q->logRequest(static_cast<HttpStatus>(status), bodySize);
     }
-    void logError(qtng_core::HttpStatus status, const string &shortMessage, const string &longMessage) override
+    void logError(QTNG_NAMESPACE::HttpStatus status, const string &shortMessage, const string &longMessage) override
     {
         q->logError(static_cast<HttpStatus>(status), toQString(shortMessage), toQString(longMessage));
     }
-    shared_ptr<qtng_core::FileLike> bodyAsFile(bool processEncoding) override
+    shared_ptr<QTNG_NAMESPACE::FileLike> bodyAsFile(bool processEncoding) override
     {
         return toCoreFileLike(q->bodyAsFile(processEncoding));
     }
     bool switchToWebSocket() override { return q->switchToWebSocket(); }
     string tryToHandleMagicCode(bool &done) override { return toStdString(q->tryToHandleMagicCode(done)); }
 
-    shared_ptr<qtng_core::FileLike> serveStaticFiles(const qtng_core::PosixPath &dir, const string &subPath) override
+    shared_ptr<QTNG_NAMESPACE::FileLike> serveStaticFiles(const QTNG_NAMESPACE::PosixPath &dir, const string &subPath) override
     {
         return toCoreFileLike(static_cast<QTNETWORKNG_NAMESPACE::StaticHttpRequestHandler *>(q)
                                       ->serveStaticFiles(toQtDir(dir), toQString(subPath)));
     }
-    shared_ptr<qtng_core::FileLike> listDirectory(const qtng_core::PosixPath &dir, const string &displayDir) override
+    shared_ptr<QTNG_NAMESPACE::FileLike> listDirectory(const QTNG_NAMESPACE::PosixPath &dir, const string &displayDir) override
     {
         return toCoreFileLike(static_cast<QTNETWORKNG_NAMESPACE::StaticHttpRequestHandler *>(q)
                                       ->listDirectory(toQtDir(dir), toQString(displayDir)));
     }
-    bool loadMissingFile(const qtng_core::PosixPath &fileInfo) override
+    bool loadMissingFile(const QTNG_NAMESPACE::PosixPath &fileInfo) override
     {
         return static_cast<QTNETWORKNG_NAMESPACE::StaticHttpRequestHandler *>(q)->loadMissingFile(toQtFileInfo(fileInfo));
     }
-    qtng_core::PosixPath getIndexFile(const qtng_core::PosixPath &dir) override
+    QTNG_NAMESPACE::PosixPath getIndexFile(const QTNG_NAMESPACE::PosixPath &dir) override
     {
         return toCorePosixPath(static_cast<QTNETWORKNG_NAMESPACE::StaticHttpRequestHandler *>(q)
                                        ->getIndexFile(toQtDir(dir)));
     }
 
     // ---- state synchronization ----
-    void setServerVersion(qtng_core::HttpVersion v) { serverVersion = v; }
+    void setServerVersion(QTNG_NAMESPACE::HttpVersion v) { serverVersion = v; }
     void setRequestTimeout(float t) { requestTimeout = t; }
     void setMaxBodySize(std::int32_t s) { maxBodySize = s; }
     void setEnableDirectoryListing(bool b) { enableDirectoryListing = b; }
@@ -207,7 +207,7 @@ public:
         q->closeConnection =
                 static_cast<QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler::CloseConnectionStatus>(closeConnection);
         QList<HttpHeader> qtHeaders;
-        for (const qtng_core::HttpHeader &h : allHeaders()) {
+        for (const QTNG_NAMESPACE::HttpHeader &h : allHeaders()) {
             qtHeaders.append(HttpHeader(toQString(h.name()), toQByteArray(h.value())));
         }
         q->setHeaders(qtHeaders);
@@ -240,7 +240,7 @@ void BaseHttpRequestHandler::handle()
         return;
     }
     coreBridge->request = toCoreSocketLike(request);
-    coreBridge->setServerVersion(static_cast<qtng_core::HttpVersion>(serverVersion));
+    coreBridge->setServerVersion(static_cast<QTNG_NAMESPACE::HttpVersion>(serverVersion));
     coreBridge->setRequestTimeout(requestTimeout);
     coreBridge->setMaxBodySize(maxBodySize);
     coreBridge->handleCore();
@@ -279,12 +279,12 @@ QString BaseHttpRequestHandler::serverName()
 
 void BaseHttpRequestHandler::logRequest(HttpStatus status, int bodySize)
 {
-    coreBridge->logRequestCore(static_cast<qtng_core::HttpStatus>(status), bodySize);
+    coreBridge->logRequestCore(static_cast<QTNG_NAMESPACE::HttpStatus>(status), bodySize);
 }
 
 void BaseHttpRequestHandler::logError(HttpStatus status, const QString &shortMessage, const QString &longMessage)
 {
-    coreBridge->logErrorCore(static_cast<qtng_core::HttpStatus>(status), toStdString(shortMessage),
+    coreBridge->logErrorCore(static_cast<QTNG_NAMESPACE::HttpStatus>(status), toStdString(shortMessage),
                              toStdString(longMessage));
 }
 
@@ -295,17 +295,17 @@ bool BaseHttpRequestHandler::parseRequest()
 
 bool BaseHttpRequestHandler::sendError(HttpStatus status, const QString &longMessage)
 {
-    return coreBridge->sendErrorCore(static_cast<qtng_core::HttpStatus>(status), toStdString(longMessage));
+    return coreBridge->sendErrorCore(static_cast<QTNG_NAMESPACE::HttpStatus>(status), toStdString(longMessage));
 }
 
 bool BaseHttpRequestHandler::sendResponse(HttpStatus status, const QString &longMessage)
 {
-    return coreBridge->sendResponseCore(static_cast<qtng_core::HttpStatus>(status), toStdString(longMessage));
+    return coreBridge->sendResponseCore(static_cast<QTNG_NAMESPACE::HttpStatus>(status), toStdString(longMessage));
 }
 
 QString BaseHttpRequestHandler::errorMessage(HttpStatus status, const QString &shortMessage, const QString &longMessage)
 {
-    return toQString(coreBridge->errorMessageCore(static_cast<qtng_core::HttpStatus>(status), toStdString(shortMessage),
+    return toQString(coreBridge->errorMessageCore(static_cast<QTNG_NAMESPACE::HttpStatus>(status), toStdString(shortMessage),
                                                   toStdString(longMessage)));
 }
 
@@ -340,7 +340,7 @@ QBYTEARRAYLIST BaseHttpRequestHandler::webSocketProtocols()
 
 void BaseHttpRequestHandler::sendCommandLine(HttpStatus status, const QString &shortMessage)
 {
-    coreBridge->sendCommandLine(static_cast<qtng_core::HttpStatus>(status), toStdString(shortMessage));
+    coreBridge->sendCommandLine(static_cast<QTNG_NAMESPACE::HttpStatus>(status), toStdString(shortMessage));
     closeConnection = static_cast<CloseConnectionStatus>(coreBridge->qtCloseConnection());
 }
 
@@ -374,13 +374,13 @@ QByteArray BaseHttpRequestHandler::tryToHandleMagicCode(bool &done)
 QSharedPointer<FileLike> StaticHttpRequestHandler::serveStaticFiles(const QDir &dir, const QString &subPath)
 {
     coreBridge->setEnableDirectoryListing(enableDirectoryListing);
-    const shared_ptr<qtng_core::FileLike> core = coreBridge->serveStaticFilesCore(toCorePosixPath(dir), toStdString(subPath));
+    const shared_ptr<QTNG_NAMESPACE::FileLike> core = coreBridge->serveStaticFilesCore(toCorePosixPath(dir), toStdString(subPath));
     return toQtFileLike(core);
 }
 
 QSharedPointer<FileLike> StaticHttpRequestHandler::listDirectory(const QDir &dir, const QString &displayDir)
 {
-    const shared_ptr<qtng_core::FileLike> core =
+    const shared_ptr<QTNG_NAMESPACE::FileLike> core =
             coreBridge->listDirectoryCore(toCorePosixPath(dir), toStdString(displayDir));
     return toQtFileLike(core);
 }

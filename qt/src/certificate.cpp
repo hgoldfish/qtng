@@ -17,16 +17,16 @@ namespace QTNETWORKNG_NAMESPACE {
 class CertificatePrivate : public QSharedData
 {
 public:
-    qtng_core::Certificate core;
+    QTNG_NAMESPACE::Certificate core;
 
-    static Certificate fromCore(const qtng_core::Certificate &cert)
+    static Certificate fromCore(const QTNG_NAMESPACE::Certificate &cert)
     {
         Certificate result;
         result.d->core = cert;
         return result;
     }
 
-    static const qtng_core::Certificate &coreOf(const Certificate &cert)
+    static const QTNG_NAMESPACE::Certificate &coreOf(const Certificate &cert)
     {
         return cert.d->core;
     }
@@ -43,29 +43,29 @@ bool Certificate::isNull() const { return d->core.isNull(); }
 Qt::HANDLE Certificate::handle() const { return reinterpret_cast<Qt::HANDLE>(d->core.handle()); }
 QByteArray Certificate::digest(MessageDigest::Algorithm algorithm) const
 {
-    return toQByteArray(d->core.digest(static_cast<qtng_core::MessageDigest::Algorithm>(algorithm)));
+    return toQByteArray(d->core.digest(static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(algorithm)));
 }
 QDateTime Certificate::effectiveDate() const { return toQDateTime(d->core.effectiveDate()); }
 QDateTime Certificate::expiryDate() const { return toQDateTime(d->core.expiryDate()); }
 PublicKey Certificate::publicKey() const
 {
-    const qtng_core::PublicKey pk = d->core.publicKey();
-    return PublicKey::load(toQByteArray(pk.save(qtng_core::Ssl::Pem)), Ssl::Pem);
+    const QTNG_NAMESPACE::PublicKey pk = d->core.publicKey();
+    return PublicKey::load(toQByteArray(pk.save(QTNG_NAMESPACE::Ssl::Pem)), Ssl::Pem);
 }
 QByteArray Certificate::serialNumber() const { return toQByteArray(d->core.serialNumber()); }
 QMultiMap<Certificate::AlternativeNameEntryType, QString> Certificate::subjectAlternativeNames() const
 {
     QMultiMap<AlternativeNameEntryType, QString> result;
-    const std::multimap<qtng_core::Certificate::AlternativeNameEntryType, std::string> &names =
+    const std::multimap<QTNG_NAMESPACE::Certificate::AlternativeNameEntryType, std::string> &names =
             d->core.subjectAlternativeNames();
-    for (const pair<const qtng_core::Certificate::AlternativeNameEntryType, std::string> &entry : names) {
+    for (const pair<const QTNG_NAMESPACE::Certificate::AlternativeNameEntryType, std::string> &entry : names) {
         result.insert(static_cast<AlternativeNameEntryType>(entry.first), toQString(entry.second));
     }
     return result;
 }
 QStringList Certificate::subjectInfo(SubjectInfo subject) const
 {
-    return toQList<QString>(d->core.subjectInfo(static_cast<qtng_core::Certificate::SubjectInfo>(subject)), toQString);
+    return toQList<QString>(d->core.subjectInfo(static_cast<QTNG_NAMESPACE::Certificate::SubjectInfo>(subject)), toQString);
 }
 QStringList Certificate::subjectInfo(const QByteArray &attribute) const
 {
@@ -80,7 +80,7 @@ QByteArray Certificate::version() const { return toQByteArray(d->core.version())
 bool Certificate::isSelfSigned() const { return d->core.isSelfSigned(); }
 QStringList Certificate::issuerInfo(SubjectInfo subject) const
 {
-    return toQList<QString>(d->core.issuerInfo(static_cast<qtng_core::Certificate::SubjectInfo>(subject)), toQString);
+    return toQList<QString>(d->core.issuerInfo(static_cast<QTNG_NAMESPACE::Certificate::SubjectInfo>(subject)), toQString);
 }
 QStringList Certificate::issuerInfo(const QByteArray &attribute) const
 {
@@ -92,25 +92,25 @@ QList<QByteArray> Certificate::issuerInfoAttributes() const
 }
 Certificate Certificate::load(const QByteArray &data, Ssl::EncodingFormat format)
 {
-    Certificate c; c.d->core = qtng_core::Certificate::load(toStdString(data), static_cast<qtng_core::Ssl::EncodingFormat>(format)); return c;
+    Certificate c; c.d->core = QTNG_NAMESPACE::Certificate::load(toStdString(data), static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format)); return c;
 }
 Certificate Certificate::generate(const PublicKey &publickey, const PrivateKey &caKey,
                                   MessageDigest::Algorithm signAlgo, long serialNumber,
                                   const QDateTime &effectiveDate, const QDateTime &expiryDate,
                                   const QMultiMap<SubjectInfo, QString> &subjectInfoes)
 {
-    std::multimap<qtng_core::Certificate::SubjectInfo, std::string> coreSubjectInfoes;
+    std::multimap<QTNG_NAMESPACE::Certificate::SubjectInfo, std::string> coreSubjectInfoes;
     for (QMultiMap<SubjectInfo, QString>::const_iterator it = subjectInfoes.constBegin(); it != subjectInfoes.constEnd(); ++it) {
-        coreSubjectInfoes.emplace(static_cast<qtng_core::Certificate::SubjectInfo>(it.key()), toStdString(it.value()));
+        coreSubjectInfoes.emplace(static_cast<QTNG_NAMESPACE::Certificate::SubjectInfo>(it.key()), toStdString(it.value()));
     }
-    return CertificatePrivate::fromCore(qtng_core::Certificate::generate(
-            qtng_core::PublicKey::load(toStdString(publickey.save(Ssl::Pem)), qtng_core::Ssl::Pem),
-            privateKeyCoreOf(caKey), static_cast<qtng_core::MessageDigest::Algorithm>(signAlgo), serialNumber,
+    return CertificatePrivate::fromCore(QTNG_NAMESPACE::Certificate::generate(
+            QTNG_NAMESPACE::PublicKey::load(toStdString(publickey.save(Ssl::Pem)), QTNG_NAMESPACE::Ssl::Pem),
+            privateKeyCoreOf(caKey), static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(signAlgo), serialNumber,
             toCoreDateTime(effectiveDate), toCoreDateTime(expiryDate), coreSubjectInfoes));
 }
 QByteArray Certificate::save(Ssl::EncodingFormat format) const
 {
-    return toQByteArray(d->core.save(static_cast<qtng_core::Ssl::EncodingFormat>(format)));
+    return toQByteArray(d->core.save(static_cast<QTNG_NAMESPACE::Ssl::EncodingFormat>(format)));
 }
 
 uint qHash(const Certificate &key, uint seed)
@@ -122,12 +122,12 @@ uint qHash(const Certificate &key, uint seed)
 
 namespace qtng_bridge {
 
-QTNETWORKNG_NAMESPACE::Certificate toQtCertificate(const qtng_core::Certificate &cert)
+QTNETWORKNG_NAMESPACE::Certificate toQtCertificate(const QTNG_NAMESPACE::Certificate &cert)
 {
     return QTNETWORKNG_NAMESPACE::CertificatePrivate::fromCore(cert);
 }
 
-const qtng_core::Certificate &certificateCoreOf(const QTNETWORKNG_NAMESPACE::Certificate &cert)
+const QTNG_NAMESPACE::Certificate &certificateCoreOf(const QTNETWORKNG_NAMESPACE::Certificate &cert)
 {
     return QTNETWORKNG_NAMESPACE::CertificatePrivate::coreOf(cert);
 }

@@ -3,7 +3,7 @@
 
 #include "config.h"
 
-namespace qtng_core {
+namespace QTNG_NAMESPACE {
 class PrivateKey;
 }
 
@@ -13,8 +13,8 @@ QTNETWORKNG_NAMESPACE_END
 
 namespace qtng_bridge {
 
-QTNETWORKNG_NAMESPACE::PrivateKey toQtPrivateKey(const qtng_core::PrivateKey &key);
-const qtng_core::PrivateKey &privateKeyCoreOf(const QTNETWORKNG_NAMESPACE::PrivateKey &key);
+QTNETWORKNG_NAMESPACE::PrivateKey toQtPrivateKey(const QTNG_NAMESPACE::PrivateKey &key);
+const QTNG_NAMESPACE::PrivateKey &privateKeyCoreOf(const QTNETWORKNG_NAMESPACE::PrivateKey &key);
 
 }  // namespace qtng_bridge
 

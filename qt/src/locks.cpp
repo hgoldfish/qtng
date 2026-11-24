@@ -15,7 +15,7 @@ public:
     {
     }
 
-    qtng_core::Semaphore core;
+    QTNG_NAMESPACE::Semaphore core;
 };
 
 Semaphore::Semaphore(int value)
@@ -63,7 +63,7 @@ Lock::Lock()
 class RLockPrivate
 {
 public:
-    qtng_core::RLock core;
+    QTNG_NAMESPACE::RLock core;
     Q_DECLARE_PUBLIC(RLock)
     RLock *q_ptr;
     explicit RLockPrivate(RLock *q)
@@ -109,7 +109,7 @@ bool RLock::isOwned() const
 class ConditionPrivate
 {
 public:
-    qtng_core::Condition core;
+    QTNG_NAMESPACE::Condition core;
     Q_DECLARE_PUBLIC(Condition)
     Condition *q_ptr;
     explicit ConditionPrivate(Condition *q)
@@ -155,8 +155,8 @@ quint32 Condition::getting() const
 class EventPrivate
 {
 public:
-    qtng_core::Event owned;
-    qtng_core::Event *core;
+    QTNG_NAMESPACE::Event owned;
+    QTNG_NAMESPACE::Event *core;
     Q_DECLARE_PUBLIC(Event)
     Event *q_ptr;
     explicit EventPrivate(Event *q)
@@ -165,7 +165,7 @@ public:
     {
     }
 
-    void attach(qtng_core::Event *external)
+    void attach(QTNG_NAMESPACE::Event *external)
     {
         core = external ? external : &owned;
     }
@@ -184,7 +184,7 @@ Event::~Event()
 void Event::attachCore(void *coreEvent)
 {
     Q_D(Event);
-    d->attach(static_cast<qtng_core::Event *>(coreEvent));
+    d->attach(static_cast<QTNG_NAMESPACE::Event *>(coreEvent));
 }
 
 bool Event::tryWait(quint32 msecs)
@@ -232,7 +232,7 @@ void Event::unlink(Event &other)
 class ThreadEventPrivate
 {
 public:
-    qtng_core::ThreadEvent core;
+    QTNG_NAMESPACE::ThreadEvent core;
 };
 
 ThreadEvent::ThreadEvent()

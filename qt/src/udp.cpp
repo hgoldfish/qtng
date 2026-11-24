@@ -47,7 +47,7 @@ qint32 DatagramLink::recvfrom(QList<Datagram> *datagrams)
         datagrams->clear();
         return n;
     }
-    const qtng_core::UdpDatagramPath udp(toCoreDatagramPath(who));
+    const QTNG_NAMESPACE::UdpDatagramPath udp(toCoreDatagramPath(who));
     datagram.data.resize(n);
     datagram.addr = toQtAddress(udp.address());
     datagram.port = udp.port();
@@ -65,7 +65,7 @@ qint32 DatagramLink::sendto(const QList<Datagram> &datagrams)
         if (datagram.data.isEmpty()) {
             return -1;
         }
-        const qtng_core::UdpDatagramPath udp(toCoreAddress(datagram.addr), datagram.port);
+        const QTNG_NAMESPACE::UdpDatagramPath udp(toCoreAddress(datagram.addr), datagram.port);
         const qint32 n = sendto(datagram.data.constData(), datagram.data.size(), toQtDatagramPath(udp.toPath()));
         if (n < 0) {
             return -1;
@@ -77,28 +77,28 @@ qint32 DatagramLink::sendto(const QList<Datagram> &datagrams)
 
 namespace {
 
-class QtKcpSocketCore : public qtng_core::KcpSocket
+class QtKcpSocketCore : public QTNG_NAMESPACE::KcpSocket
 {
 public:
-    QtKcpSocketCore(::qtng::KcpSocket *qtSocket, qtng_core::HostAddress::NetworkLayerProtocol protocol)
-        : qtng_core::KcpSocket(protocol)
+    QtKcpSocketCore(::qtng::KcpSocket *qtSocket, QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol protocol)
+        : QTNG_NAMESPACE::KcpSocket(protocol)
         , qt(qtSocket)
     {
     }
 
     QtKcpSocketCore(::qtng::KcpSocket *qtSocket, intptr_t socketDescriptor)
-        : qtng_core::KcpSocket(socketDescriptor)
+        : QTNG_NAMESPACE::KcpSocket(socketDescriptor)
         , qt(qtSocket)
     {
     }
 
-    QtKcpSocketCore(::qtng::KcpSocket *qtSocket, shared_ptr<qtng_core::Socket> rawSocket)
-        : qtng_core::KcpSocket(rawSocket)
+    QtKcpSocketCore(::qtng::KcpSocket *qtSocket, shared_ptr<QTNG_NAMESPACE::Socket> rawSocket)
+        : QTNG_NAMESPACE::KcpSocket(rawSocket)
         , qt(qtSocket)
     {
     }
 
-    bool filter(char *data, int32_t *len, qtng_core::HostAddress *addr, uint16_t *port) override
+    bool filter(char *data, int32_t *len, QTNG_NAMESPACE::HostAddress *addr, uint16_t *port) override
     {
         if (!qt) {
             return false;
@@ -118,28 +118,28 @@ public:
     ::qtng::KcpSocket *qt;
 };
 
-class QtUtpSocketCore : public qtng_core::UtpSocket
+class QtUtpSocketCore : public QTNG_NAMESPACE::UtpSocket
 {
 public:
-    QtUtpSocketCore(::qtng::UtpSocket *qtSocket, qtng_core::HostAddress::NetworkLayerProtocol protocol)
-        : qtng_core::UtpSocket(protocol)
+    QtUtpSocketCore(::qtng::UtpSocket *qtSocket, QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol protocol)
+        : QTNG_NAMESPACE::UtpSocket(protocol)
         , qt(qtSocket)
     {
     }
 
     QtUtpSocketCore(::qtng::UtpSocket *qtSocket, intptr_t socketDescriptor)
-        : qtng_core::UtpSocket(socketDescriptor)
+        : QTNG_NAMESPACE::UtpSocket(socketDescriptor)
         , qt(qtSocket)
     {
     }
 
-    QtUtpSocketCore(::qtng::UtpSocket *qtSocket, shared_ptr<qtng_core::Socket> rawSocket)
-        : qtng_core::UtpSocket(rawSocket)
+    QtUtpSocketCore(::qtng::UtpSocket *qtSocket, shared_ptr<QTNG_NAMESPACE::Socket> rawSocket)
+        : QTNG_NAMESPACE::UtpSocket(rawSocket)
         , qt(qtSocket)
     {
     }
 
-    bool filter(char *data, int32_t *len, qtng_core::HostAddress *addr, uint16_t *port) override
+    bool filter(char *data, int32_t *len, QTNG_NAMESPACE::HostAddress *addr, uint16_t *port) override
     {
         if (!qt) {
             return false;
@@ -164,7 +164,7 @@ public:
 class KcpSocketPrivate
 {
 public:
-    explicit KcpSocketPrivate(KcpSocket *q, qtng_core::HostAddress::NetworkLayerProtocol protocol)
+    explicit KcpSocketPrivate(KcpSocket *q, QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol protocol)
         : core(new QtKcpSocketCore(q, protocol))
     {
     }
@@ -174,18 +174,18 @@ public:
     {
     }
 
-    KcpSocketPrivate(KcpSocket *q, shared_ptr<qtng_core::Socket> rawSocket)
+    KcpSocketPrivate(KcpSocket *q, shared_ptr<QTNG_NAMESPACE::Socket> rawSocket)
         : core(new QtKcpSocketCore(q, rawSocket))
     {
     }
 
-    explicit KcpSocketPrivate(qtng_core::KcpSocket *adopted)
+    explicit KcpSocketPrivate(QTNG_NAMESPACE::KcpSocket *adopted)
         : core(adopted)
         , ownsCore(true)
     {
     }
 
-    static KcpSocketPrivate *adopt(qtng_core::KcpSocket *adopted)
+    static KcpSocketPrivate *adopt(QTNG_NAMESPACE::KcpSocket *adopted)
     {
         return new KcpSocketPrivate(adopted);
     }
@@ -193,7 +193,7 @@ public:
     // Wrap a core socket whose lifetime is owned elsewhere (e.g. shared_ptr held by the
     // underlying SocketLike). The wrapper must NOT take ownership, or the core gets freed
     // while the real owner still references it (use-after-free / double free).
-    static KcpSocket *fromShared(qtng_core::KcpSocket *shared)
+    static KcpSocket *fromShared(QTNG_NAMESPACE::KcpSocket *shared)
     {
         KcpSocketPrivate *d = new KcpSocketPrivate(shared);
         d->ownsCore = false;
@@ -204,12 +204,12 @@ public:
     // The aliasing shared_ptr captures the QSharedPointer by value (sharing its control
     // block), otherwise the Qt wrapper is freed as soon as the caller's QSharedPointer
     // drops out of scope and the core is destroyed under us.
-    static shared_ptr<qtng_core::KcpSocket> sharedCore(QSharedPointer<KcpSocket> socket)
+    static shared_ptr<QTNG_NAMESPACE::KcpSocket> sharedCore(QSharedPointer<KcpSocket> socket)
     {
         if (!socket) {
-            return shared_ptr<qtng_core::KcpSocket>();
+            return shared_ptr<QTNG_NAMESPACE::KcpSocket>();
         }
-        return shared_ptr<qtng_core::KcpSocket>(socket->d_ptr->core, [socket](qtng_core::KcpSocket *) {});
+        return shared_ptr<QTNG_NAMESPACE::KcpSocket>(socket->d_ptr->core, [socket](QTNG_NAMESPACE::KcpSocket *) {});
     }
 
     ~KcpSocketPrivate()
@@ -219,13 +219,13 @@ public:
         }
     }
 
-    qtng_core::KcpSocket *core;
+    QTNG_NAMESPACE::KcpSocket *core;
     bool ownsCore = true;
     std::function<bool(char *, qint32 *, HostAddress *, quint16 *)> filterCallback;
 };
 
 KcpSocket::KcpSocket(HostAddress::NetworkLayerProtocol protocol)
-    : d_ptr(new KcpSocketPrivate(this, static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(protocol)))
+    : d_ptr(new KcpSocketPrivate(this, static_cast<QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol>(protocol)))
 {
 }
 
@@ -351,7 +351,7 @@ QString KcpSocket::peerAddressURI() const
 
 KcpSocket *KcpSocket::accept()
 {
-    qtng_core::KcpSocket *accepted = d_ptr->core->accept();
+    QTNG_NAMESPACE::KcpSocket *accepted = d_ptr->core->accept();
     if (!accepted) {
         return nullptr;
     }
@@ -360,7 +360,7 @@ KcpSocket *KcpSocket::accept()
 
 KcpSocket *KcpSocket::accept(const HostAddress &addr, quint16 port)
 {
-    qtng_core::KcpSocket *accepted = d_ptr->core->accept(toCoreAddress(addr), port);
+    QTNG_NAMESPACE::KcpSocket *accepted = d_ptr->core->accept(toCoreAddress(addr), port);
     if (!accepted) {
         return nullptr;
     }
@@ -369,7 +369,7 @@ KcpSocket *KcpSocket::accept(const HostAddress &addr, quint16 port)
 
 KcpSocket *KcpSocket::accept(const QString &hostName, quint16 port, QSharedPointer<SocketDnsCache> dnsCache)
 {
-    qtng_core::KcpSocket *accepted =
+    QTNG_NAMESPACE::KcpSocket *accepted =
             d_ptr->core->accept(toStdString(hostName), port, dnsCacheCoreOf(dnsCache.data()));
     if (!accepted) {
         return nullptr;
@@ -380,12 +380,12 @@ KcpSocket *KcpSocket::accept(const QString &hostName, quint16 port, QSharedPoint
 bool KcpSocket::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
 {
     return d_ptr->core->bind(toCoreAddress(address), port,
-                             static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+                             static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 
 bool KcpSocket::bind(quint16 port, Socket::BindMode mode)
 {
-    return d_ptr->core->bind(port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+    return d_ptr->core->bind(port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 
 bool KcpSocket::connect(const HostAddress &addr, quint16 port)
@@ -415,12 +415,12 @@ bool KcpSocket::listen(int backlog)
 
 bool KcpSocket::setOption(Socket::SocketOption option, const QVariant &value)
 {
-    return d_ptr->core->setOption(static_cast<qtng_core::Socket::SocketOption>(static_cast<int>(option)), value.toInt());
+    return d_ptr->core->setOption(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(static_cast<int>(option)), value.toInt());
 }
 
 QVariant KcpSocket::option(Socket::SocketOption option) const
 {
-    return d_ptr->core->option(static_cast<qtng_core::Socket::SocketOption>(static_cast<int>(option)));
+    return d_ptr->core->option(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(static_cast<int>(option)));
 }
 
 bool KcpSocket::joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
@@ -514,8 +514,8 @@ qint32 KcpSocket::udpSend(const char *data, qint32 size, const HostAddress &addr
 KcpSocket *KcpSocket::createConnection(const HostAddress &host, quint16 port, Socket::SocketError *error,
                                        int allowProtocol)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::UnknownSocketError;
-    qtng_core::KcpSocket *raw = qtng_core::KcpSocket::createConnection(
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::UnknownSocketError;
+    QTNG_NAMESPACE::KcpSocket *raw = QTNG_NAMESPACE::KcpSocket::createConnection(
             toCoreAddress(host), port, error ? &coreError : nullptr, allowProtocol);
     if (error) {
         *error = static_cast<Socket::SocketError>(coreError);
@@ -529,8 +529,8 @@ KcpSocket *KcpSocket::createConnection(const HostAddress &host, quint16 port, So
 KcpSocket *KcpSocket::createConnection(const QString &hostName, quint16 port, Socket::SocketError *error,
                                        QSharedPointer<SocketDnsCache> dnsCache, int allowProtocol)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::UnknownSocketError;
-    qtng_core::KcpSocket *raw = qtng_core::KcpSocket::createConnection(
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::UnknownSocketError;
+    QTNG_NAMESPACE::KcpSocket *raw = QTNG_NAMESPACE::KcpSocket::createConnection(
             toStdString(hostName), port, error ? &coreError : nullptr, dnsCacheCoreOf(dnsCache.data()), allowProtocol);
     if (error) {
         *error = static_cast<Socket::SocketError>(coreError);
@@ -543,7 +543,7 @@ KcpSocket *KcpSocket::createConnection(const QString &hostName, quint16 port, So
 
 KcpSocket *KcpSocket::createServer(const HostAddress &host, quint16 port, int backlog)
 {
-    qtng_core::KcpSocket *raw = qtng_core::KcpSocket::createServer(toCoreAddress(host), port, backlog);
+    QTNG_NAMESPACE::KcpSocket *raw = QTNG_NAMESPACE::KcpSocket::createServer(toCoreAddress(host), port, backlog);
     if (!raw) {
         return nullptr;
     }
@@ -553,7 +553,7 @@ KcpSocket *KcpSocket::createServer(const HostAddress &host, quint16 port, int ba
 class UtpSocketPrivate
 {
 public:
-    explicit UtpSocketPrivate(UtpSocket *q, qtng_core::HostAddress::NetworkLayerProtocol protocol)
+    explicit UtpSocketPrivate(UtpSocket *q, QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol protocol)
         : core(new QtUtpSocketCore(q, protocol))
     {
     }
@@ -563,24 +563,24 @@ public:
     {
     }
 
-    UtpSocketPrivate(UtpSocket *q, shared_ptr<qtng_core::Socket> rawSocket)
+    UtpSocketPrivate(UtpSocket *q, shared_ptr<QTNG_NAMESPACE::Socket> rawSocket)
         : core(new QtUtpSocketCore(q, rawSocket))
     {
     }
 
-    explicit UtpSocketPrivate(qtng_core::UtpSocket *adopted)
+    explicit UtpSocketPrivate(QTNG_NAMESPACE::UtpSocket *adopted)
         : core(adopted)
         , ownsCore(true)
     {
     }
 
-    static UtpSocketPrivate *adopt(qtng_core::UtpSocket *adopted)
+    static UtpSocketPrivate *adopt(QTNG_NAMESPACE::UtpSocket *adopted)
     {
         return new UtpSocketPrivate(adopted);
     }
 
     // Non-owning variant for cores whose lifetime is shared (see KcpSocketPrivate::fromShared).
-    static UtpSocket *fromShared(qtng_core::UtpSocket *shared)
+    static UtpSocket *fromShared(QTNG_NAMESPACE::UtpSocket *shared)
     {
         UtpSocketPrivate *d = new UtpSocketPrivate(shared);
         d->ownsCore = false;
@@ -589,12 +589,12 @@ public:
 
     // See KcpSocketPrivate::sharedCore: keep the Qt wrapper alive via the captured
     // QSharedPointer so the aliased core outlives the caller's local reference.
-    static shared_ptr<qtng_core::UtpSocket> sharedCore(QSharedPointer<UtpSocket> socket)
+    static shared_ptr<QTNG_NAMESPACE::UtpSocket> sharedCore(QSharedPointer<UtpSocket> socket)
     {
         if (!socket) {
-            return shared_ptr<qtng_core::UtpSocket>();
+            return shared_ptr<QTNG_NAMESPACE::UtpSocket>();
         }
-        return shared_ptr<qtng_core::UtpSocket>(socket->d_ptr->core, [socket](qtng_core::UtpSocket *) {});
+        return shared_ptr<QTNG_NAMESPACE::UtpSocket>(socket->d_ptr->core, [socket](QTNG_NAMESPACE::UtpSocket *) {});
     }
 
     ~UtpSocketPrivate()
@@ -604,12 +604,12 @@ public:
         }
     }
 
-    qtng_core::UtpSocket *core;
+    QTNG_NAMESPACE::UtpSocket *core;
     bool ownsCore = true;
 };
 
 UtpSocket::UtpSocket(HostAddress::NetworkLayerProtocol protocol)
-    : d_ptr(new UtpSocketPrivate(this, static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(protocol)))
+    : d_ptr(new UtpSocketPrivate(this, static_cast<QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol>(protocol)))
 {
 }
 
@@ -664,19 +664,19 @@ QString UtpSocket::peerAddressURI() const { return toQString(d_ptr->core->peerAd
 
 UtpSocket *UtpSocket::accept()
 {
-    qtng_core::UtpSocket *accepted = d_ptr->core->accept();
+    QTNG_NAMESPACE::UtpSocket *accepted = d_ptr->core->accept();
     return accepted ? new UtpSocket(UtpSocketPrivate::adopt(accepted)) : nullptr;
 }
 
 UtpSocket *UtpSocket::accept(const HostAddress &addr, quint16 port)
 {
-    qtng_core::UtpSocket *accepted = d_ptr->core->accept(toCoreAddress(addr), port);
+    QTNG_NAMESPACE::UtpSocket *accepted = d_ptr->core->accept(toCoreAddress(addr), port);
     return accepted ? new UtpSocket(UtpSocketPrivate::adopt(accepted)) : nullptr;
 }
 
 UtpSocket *UtpSocket::accept(const QString &hostName, quint16 port, QSharedPointer<SocketDnsCache> dnsCache)
 {
-    qtng_core::UtpSocket *accepted =
+    QTNG_NAMESPACE::UtpSocket *accepted =
             d_ptr->core->accept(toStdString(hostName), port, dnsCacheCoreOf(dnsCache.data()));
     return accepted ? new UtpSocket(UtpSocketPrivate::adopt(accepted)) : nullptr;
 }
@@ -684,12 +684,12 @@ UtpSocket *UtpSocket::accept(const QString &hostName, quint16 port, QSharedPoint
 bool UtpSocket::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
 {
     return d_ptr->core->bind(toCoreAddress(address), port,
-                             static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+                             static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 
 bool UtpSocket::bind(quint16 port, Socket::BindMode mode)
 {
-    return d_ptr->core->bind(port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+    return d_ptr->core->bind(port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 
 bool UtpSocket::connect(const HostAddress &addr, quint16 port)
@@ -708,12 +708,12 @@ bool UtpSocket::listen(int backlog) { return d_ptr->core->listen(backlog); }
 
 bool UtpSocket::setOption(Socket::SocketOption option, const QVariant &value)
 {
-    return d_ptr->core->setOption(static_cast<qtng_core::Socket::SocketOption>(static_cast<int>(option)), value.toInt());
+    return d_ptr->core->setOption(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(static_cast<int>(option)), value.toInt());
 }
 
 QVariant UtpSocket::option(Socket::SocketOption option) const
 {
-    return d_ptr->core->option(static_cast<qtng_core::Socket::SocketOption>(static_cast<int>(option)));
+    return d_ptr->core->option(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(static_cast<int>(option)));
 }
 
 bool UtpSocket::joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
@@ -764,8 +764,8 @@ qint32 UtpSocket::udpSend(const char *data, qint32 size, const HostAddress &addr
 UtpSocket *UtpSocket::createConnection(const HostAddress &host, quint16 port, Socket::SocketError *error,
                                        int allowProtocol)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::UnknownSocketError;
-    qtng_core::UtpSocket *raw = qtng_core::UtpSocket::createConnection(
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::UnknownSocketError;
+    QTNG_NAMESPACE::UtpSocket *raw = QTNG_NAMESPACE::UtpSocket::createConnection(
             toCoreAddress(host), port, error ? &coreError : nullptr, allowProtocol);
     if (error) {
         *error = static_cast<Socket::SocketError>(coreError);
@@ -776,8 +776,8 @@ UtpSocket *UtpSocket::createConnection(const HostAddress &host, quint16 port, So
 UtpSocket *UtpSocket::createConnection(const QString &hostName, quint16 port, Socket::SocketError *error,
                                        QSharedPointer<SocketDnsCache> dnsCache, int allowProtocol)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::UnknownSocketError;
-    qtng_core::UtpSocket *raw = qtng_core::UtpSocket::createConnection(
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::UnknownSocketError;
+    QTNG_NAMESPACE::UtpSocket *raw = QTNG_NAMESPACE::UtpSocket::createConnection(
             toStdString(hostName), port, error ? &coreError : nullptr, dnsCacheCoreOf(dnsCache.data()), allowProtocol);
     if (error) {
         *error = static_cast<Socket::SocketError>(coreError);
@@ -787,7 +787,7 @@ UtpSocket *UtpSocket::createConnection(const QString &hostName, quint16 port, So
 
 UtpSocket *UtpSocket::createServer(const HostAddress &host, quint16 port, int backlog)
 {
-    qtng_core::UtpSocket *raw = qtng_core::UtpSocket::createServer(toCoreAddress(host), port, backlog);
+    QTNG_NAMESPACE::UtpSocket *raw = QTNG_NAMESPACE::UtpSocket::createServer(toCoreAddress(host), port, backlog);
     return raw ? new UtpSocket(UtpSocketPrivate::adopt(raw)) : nullptr;
 }
 
@@ -798,7 +798,7 @@ namespace qtng_bridge {
 class CoreSocketLikeAdapter : public QTNETWORKNG_NAMESPACE::SocketLike
 {
 public:
-    explicit CoreSocketLikeAdapter(std::shared_ptr<qtng_core::SocketLike> coreLike)
+    explicit CoreSocketLikeAdapter(std::shared_ptr<QTNG_NAMESPACE::SocketLike> coreLike)
         : core(std::move(coreLike))
     {
     }
@@ -849,11 +849,11 @@ public:
               QTNETWORKNG_NAMESPACE::Socket::BindMode mode) override
     {
         return core->bind(toCoreAddress(address), port,
-                          static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+                          static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
     }
     bool bind(quint16 port, QTNETWORKNG_NAMESPACE::Socket::BindMode mode) override
     {
-        return core->bind(port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+        return core->bind(port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
     }
     bool connect(const QTNETWORKNG_NAMESPACE::HostAddress &addr, quint16 port) override
     {
@@ -869,11 +869,11 @@ public:
     bool listen(int backlog) override { return core->listen(backlog); }
     bool setOption(QTNETWORKNG_NAMESPACE::Socket::SocketOption option, const QVariant &value) override
     {
-        return core->setOption(static_cast<qtng_core::Socket::SocketOption>(static_cast<int>(option)), value.toInt());
+        return core->setOption(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(static_cast<int>(option)), value.toInt());
     }
     QVariant option(QTNETWORKNG_NAMESPACE::Socket::SocketOption option) const override
     {
-        return core->option(static_cast<qtng_core::Socket::SocketOption>(static_cast<int>(option)));
+        return core->option(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(static_cast<int>(option)));
     }
     qint32 peek(char *data, qint32 size) override { return core->peek(data, size); }
     qint32 peekRaw(char *data, qint32 size) override { return core->peekRaw(data, size); }
@@ -886,10 +886,10 @@ public:
     qint32 send(const QByteArray &data) override { return core->send(toStdString(data)); }
     qint32 sendall(const QByteArray &data) override { return core->sendall(toStdString(data)); }
 
-    std::shared_ptr<qtng_core::SocketLike> core;
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> core;
 };
 
-class CoreSocketLikeReverseAdapter : public qtng_core::SocketLike
+class CoreSocketLikeReverseAdapter : public QTNG_NAMESPACE::SocketLike
 {
 public:
     explicit CoreSocketLikeReverseAdapter(const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socketLike)
@@ -897,49 +897,49 @@ public:
     {
     }
 
-    qtng_core::Socket::SocketError error() const override
+    QTNG_NAMESPACE::Socket::SocketError error() const override
     {
-        return static_cast<qtng_core::Socket::SocketError>(socket->error());
+        return static_cast<QTNG_NAMESPACE::Socket::SocketError>(socket->error());
     }
     std::string errorString() const override { return toStdString(socket->errorString()); }
     bool isValid() const override { return socket->isValid(); }
-    qtng_core::HostAddress localAddress() const override { return toCoreAddress(socket->localAddress()); }
+    QTNG_NAMESPACE::HostAddress localAddress() const override { return toCoreAddress(socket->localAddress()); }
     std::uint16_t localPort() const override { return socket->localPort(); }
-    qtng_core::HostAddress peerAddress() const override { return toCoreAddress(socket->peerAddress()); }
+    QTNG_NAMESPACE::HostAddress peerAddress() const override { return toCoreAddress(socket->peerAddress()); }
     std::string peerName() const override { return toStdString(socket->peerName()); }
     std::uint16_t peerPort() const override { return socket->peerPort(); }
     intptr_t fileno() const override { return socket->fileno(); }
-    qtng_core::Socket::SocketType type() const override
+    QTNG_NAMESPACE::Socket::SocketType type() const override
     {
-        return static_cast<qtng_core::Socket::SocketType>(socket->type());
+        return static_cast<QTNG_NAMESPACE::Socket::SocketType>(socket->type());
     }
-    qtng_core::Socket::SocketState state() const override
+    QTNG_NAMESPACE::Socket::SocketState state() const override
     {
-        return static_cast<qtng_core::Socket::SocketState>(socket->state());
+        return static_cast<QTNG_NAMESPACE::Socket::SocketState>(socket->state());
     }
-    qtng_core::HostAddress::NetworkLayerProtocol protocol() const override
+    QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol protocol() const override
     {
-        return static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(socket->protocol());
+        return static_cast<QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol>(socket->protocol());
     }
     std::string localAddressURI() const override { return toStdString(socket->localAddressURI()); }
     std::string peerAddressURI() const override { return toStdString(socket->peerAddressURI()); }
-    qtng_core::Socket *acceptRaw() override { return nullptr; }
-    std::shared_ptr<qtng_core::SocketLike> accept() override { return toCoreSocketLike(socket->accept()); }
-    bool bind(const qtng_core::HostAddress &address, std::uint16_t port, qtng_core::Socket::BindMode mode) override
+    QTNG_NAMESPACE::Socket *acceptRaw() override { return nullptr; }
+    std::shared_ptr<QTNG_NAMESPACE::SocketLike> accept() override { return toCoreSocketLike(socket->accept()); }
+    bool bind(const QTNG_NAMESPACE::HostAddress &address, std::uint16_t port, QTNG_NAMESPACE::Socket::BindMode mode) override
     {
         return socket->bind(toQtAddress(address), port,
                             static_cast<QTNETWORKNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
     }
-    bool bind(std::uint16_t port, qtng_core::Socket::BindMode mode) override
+    bool bind(std::uint16_t port, QTNG_NAMESPACE::Socket::BindMode mode) override
     {
         return socket->bind(port, static_cast<QTNETWORKNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
     }
-    bool connect(const qtng_core::HostAddress &addr, std::uint16_t port) override
+    bool connect(const QTNG_NAMESPACE::HostAddress &addr, std::uint16_t port) override
     {
         return socket->connect(toQtAddress(addr), port);
     }
     bool connect(const std::string &hostName, std::uint16_t port,
-                 std::shared_ptr<qtng_core::SocketDnsCache> dnsCache) override
+                 std::shared_ptr<QTNG_NAMESPACE::SocketDnsCache> dnsCache) override
     {
         QSharedPointer<QTNETWORKNG_NAMESPACE::SocketDnsCache> qtCache;
         Q_UNUSED(dnsCache);
@@ -948,12 +948,12 @@ public:
     void close() override { socket->close(); }
     void abort() override { socket->abort(); }
     bool listen(int backlog) override { return socket->listen(backlog); }
-    bool setOption(qtng_core::Socket::SocketOption option, int value) override
+    bool setOption(QTNG_NAMESPACE::Socket::SocketOption option, int value) override
     {
         return socket->setOption(static_cast<QTNETWORKNG_NAMESPACE::Socket::SocketOption>(static_cast<int>(option)),
                                  value);
     }
-    int option(qtng_core::Socket::SocketOption option) const override
+    int option(QTNG_NAMESPACE::Socket::SocketOption option) const override
     {
         return socket->option(static_cast<QTNETWORKNG_NAMESPACE::Socket::SocketOption>(static_cast<int>(option)))
                 .toInt();
@@ -972,21 +972,21 @@ public:
     QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> socket;
 };
 
-std::shared_ptr<qtng_core::SocketLike> kcpOrUtpToCoreSocketLike(
+std::shared_ptr<QTNG_NAMESPACE::SocketLike> kcpOrUtpToCoreSocketLike(
         const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socket)
 {
     if (QSharedPointer<QTNETWORKNG_NAMESPACE::KcpSocket> kcp =
                 socket.dynamicCast<QTNETWORKNG_NAMESPACE::KcpSocket>()) {
-        return qtng_core::asSocketLike(QTNETWORKNG_NAMESPACE::KcpSocketPrivate::sharedCore(kcp));
+        return QTNG_NAMESPACE::asSocketLike(QTNETWORKNG_NAMESPACE::KcpSocketPrivate::sharedCore(kcp));
     }
     if (QSharedPointer<QTNETWORKNG_NAMESPACE::UtpSocket> utp =
                 socket.dynamicCast<QTNETWORKNG_NAMESPACE::UtpSocket>()) {
-        return qtng_core::asSocketLike(QTNETWORKNG_NAMESPACE::UtpSocketPrivate::sharedCore(utp));
+        return QTNG_NAMESPACE::asSocketLike(QTNETWORKNG_NAMESPACE::UtpSocketPrivate::sharedCore(utp));
     }
-    return std::shared_ptr<qtng_core::SocketLike>();
+    return std::shared_ptr<QTNG_NAMESPACE::SocketLike>();
 }
 
-class QtDatagramLinkAdapter : public qtng_core::DatagramLink
+class QtDatagramLinkAdapter : public QTNG_NAMESPACE::DatagramLink
 {
 public:
     explicit QtDatagramLinkAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::DatagramLink> qtLink)
@@ -994,7 +994,7 @@ public:
     {
     }
 
-    std::int32_t recvfrom(char *data, std::int32_t size, qtng_core::DatagramPath *who) override
+    std::int32_t recvfrom(char *data, std::int32_t size, QTNG_NAMESPACE::DatagramPath *who) override
     {
         QTNETWORKNG_NAMESPACE::DatagramPath qtWho;
         const qint32 n = qt ? qt->recvfrom(data, size, who ? &qtWho : nullptr) : -1;
@@ -1004,12 +1004,12 @@ public:
         return n;
     }
 
-    std::int32_t sendto(const char *data, std::int32_t size, const qtng_core::DatagramPath &who) override
+    std::int32_t sendto(const char *data, std::int32_t size, const QTNG_NAMESPACE::DatagramPath &who) override
     {
         return qt ? qt->sendto(data, size, toQtDatagramPath(who)) : -1;
     }
 
-    std::int32_t recvfrom(std::vector<qtng_core::Datagram> *datagrams) override
+    std::int32_t recvfrom(std::vector<QTNG_NAMESPACE::Datagram> *datagrams) override
     {
         if (!qt || datagrams->empty()) {
             return -1;
@@ -1018,7 +1018,7 @@ public:
         // and copy the received bytes back into the core caller's buffers.
         QList<QTNETWORKNG_NAMESPACE::Datagram> qtDatagrams;
         qtDatagrams.reserve(static_cast<int>(datagrams->size()));
-        for (const qtng_core::Datagram &coreDatagram : *datagrams) {
+        for (const QTNG_NAMESPACE::Datagram &coreDatagram : *datagrams) {
             QTNETWORKNG_NAMESPACE::Datagram qtDatagram;
             qtDatagram.data = QByteArray(coreDatagram.len, '\0');
             qtDatagram.addr = toQtAddress(coreDatagram.addr);
@@ -1030,7 +1030,7 @@ public:
             return -1;
         }
         for (int i = 0; i < qtDatagrams.size(); ++i) {
-            qtng_core::Datagram &coreDatagram = (*datagrams)[static_cast<size_t>(i)];
+            QTNG_NAMESPACE::Datagram &coreDatagram = (*datagrams)[static_cast<size_t>(i)];
             const int len = qMin(qtDatagrams[i].data.size(), coreDatagram.len);
             if (len > 0) {
                 memcpy(coreDatagram.data, qtDatagrams[i].data.constData(), static_cast<size_t>(len));
@@ -1059,9 +1059,9 @@ public:
 
     bool isValid() const override { return qt && qt->isValid(); }
 
-    qtng_core::Socket::SocketError error() const override
+    QTNG_NAMESPACE::Socket::SocketError error() const override
     {
-        return qt ? static_cast<qtng_core::Socket::SocketError>(qt->error()) : qtng_core::Socket::NoError;
+        return qt ? static_cast<QTNG_NAMESPACE::Socket::SocketError>(qt->error()) : QTNG_NAMESPACE::Socket::NoError;
     }
 
     std::string errorString() const override { return qt ? toStdString(qt->errorString()) : std::string(); }
@@ -1072,14 +1072,14 @@ public:
 class CoreDatagramLinkWrapper : public QTNETWORKNG_NAMESPACE::DatagramLink
 {
 public:
-    explicit CoreDatagramLinkWrapper(std::shared_ptr<qtng_core::DatagramLink> coreLink)
+    explicit CoreDatagramLinkWrapper(std::shared_ptr<QTNG_NAMESPACE::DatagramLink> coreLink)
         : core(std::move(coreLink))
     {
     }
 
     qint32 recvfrom(char *data, qint32 size, QTNETWORKNG_NAMESPACE::DatagramPath *who) override
     {
-        qtng_core::DatagramPath coreWho;
+        QTNG_NAMESPACE::DatagramPath coreWho;
         const std::int32_t n = core ? core->recvfrom(data, size, who ? &coreWho : nullptr) : -1;
         if (who) {
             *who = toQtDatagramPath(coreWho);
@@ -1098,7 +1098,7 @@ public:
             return -1;
         }
         // The Qt caller owns the buffers; the core link fills them in place.
-        std::vector<qtng_core::Datagram> coreDatagrams = toCoreDatagrams(*datagrams);
+        std::vector<QTNG_NAMESPACE::Datagram> coreDatagrams = toCoreDatagrams(*datagrams);
         const std::int32_t n = core->recvfrom(&coreDatagrams);
         if (n < 0) {
             return -1;
@@ -1131,14 +1131,14 @@ public:
 
     QString errorString() const override { return core ? toQString(core->errorString()) : QString(); }
 
-    std::shared_ptr<qtng_core::DatagramLink> core;
+    std::shared_ptr<QTNG_NAMESPACE::DatagramLink> core;
 };
 
-std::shared_ptr<qtng_core::DatagramLink>
+std::shared_ptr<QTNG_NAMESPACE::DatagramLink>
 toCoreDatagramLink(const QSharedPointer<QTNETWORKNG_NAMESPACE::DatagramLink> &link)
 {
     if (link.isNull()) {
-        return std::shared_ptr<qtng_core::DatagramLink>();
+        return std::shared_ptr<QTNG_NAMESPACE::DatagramLink>();
     }
     if (QSharedPointer<CoreDatagramLinkWrapper> wrapper = link.dynamicCast<CoreDatagramLinkWrapper>()) {
         return wrapper->core;
@@ -1147,7 +1147,7 @@ toCoreDatagramLink(const QSharedPointer<QTNETWORKNG_NAMESPACE::DatagramLink> &li
 }
 
 QSharedPointer<QTNETWORKNG_NAMESPACE::DatagramLink>
-toQtDatagramLink(const std::shared_ptr<qtng_core::DatagramLink> &core)
+toQtDatagramLink(const std::shared_ptr<QTNG_NAMESPACE::DatagramLink> &core)
 {
     if (!core) {
         return QSharedPointer<QTNETWORKNG_NAMESPACE::DatagramLink>();
@@ -1167,13 +1167,13 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<KcpSocket> s)
     if (!s) {
         return QSharedPointer<SocketLike>();
     }
-    return ::qtng_bridge::toQtSocketLike(qtng_core::asSocketLike(KcpSocketPrivate::sharedCore(s)));
+    return ::qtng_bridge::toQtSocketLike(QTNG_NAMESPACE::asSocketLike(KcpSocketPrivate::sharedCore(s)));
 }
 
 QSharedPointer<KcpSocket> convertSocketLikeToKcpSocket(QSharedPointer<SocketLike> socket)
 {
-    shared_ptr<qtng_core::KcpSocket> core =
-            qtng_core::convertSocketLikeToKcpSocket(::qtng_bridge::toCoreSocketLike(socket));
+    shared_ptr<QTNG_NAMESPACE::KcpSocket> core =
+            QTNG_NAMESPACE::convertSocketLikeToKcpSocket(::qtng_bridge::toCoreSocketLike(socket));
     if (!core) {
         return QSharedPointer<KcpSocket>();
     }
@@ -1185,13 +1185,13 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<UtpSocket> s)
     if (!s) {
         return QSharedPointer<SocketLike>();
     }
-    return ::qtng_bridge::toQtSocketLike(qtng_core::asSocketLike(UtpSocketPrivate::sharedCore(s)));
+    return ::qtng_bridge::toQtSocketLike(QTNG_NAMESPACE::asSocketLike(UtpSocketPrivate::sharedCore(s)));
 }
 
 QSharedPointer<UtpSocket> convertSocketLikeToUtpSocket(QSharedPointer<SocketLike> socket)
 {
-    shared_ptr<qtng_core::UtpSocket> core =
-            qtng_core::convertSocketLikeToUtpSocket(::qtng_bridge::toCoreSocketLike(socket));
+    shared_ptr<QTNG_NAMESPACE::UtpSocket> core =
+            QTNG_NAMESPACE::convertSocketLikeToUtpSocket(::qtng_bridge::toCoreSocketLike(socket));
     if (!core) {
         return QSharedPointer<UtpSocket>();
     }

@@ -23,10 +23,16 @@ Core vs Qt API namespaces
 
 The Qt API lives in ``QTNETWORKNG_NAMESPACE`` (default ``qtng``, see ``qt/include/config.h``).
 The core library uses a separate macro ``QTNG_NAMESPACE`` (default ``qtng``, see
-``include/qtng/config.h``). When ``qt/CMakeLists.txt`` pulls in core, it sets the CMake
-cache ``QTNG_NAMESPACE`` to ``qtng_core`` so mangled core symbols do not collide with the
-Qt API. Prefer that CACHE / ``-DQTNG_NAMESPACE=...`` override; do **not** remap core with
-``#define qtng ...`` or ``target_compile_definitions(... qtng=...)``.
+``include/qtng/config.h``). The binding sources name core types only through
+``QTNG_NAMESPACE`` and never hard-code a namespace name. When ``qt/CMakeLists.txt`` adds core
+itself, it pins the CMake cache ``QTNG_NAMESPACE`` to ``qtng_core`` before
+``add_subdirectory`` so mangled core symbols do not collide with the Qt API. Do **not** remap
+core with ``#define qtng ...`` or ``target_compile_definitions(... qtng=...)``.
+
+If a ``qtng`` target already exists in the project (another checkout, or the parent added core
+first), the binding reuses it, leaves the parent's ``QTNG_NAMESPACE`` untouched, and requires
+that target to be built as ``qtng_core``: a compiled target cannot be renamed, so any other
+value (including the default ``qtng``) stops configuration with an explicit error.
 
 Standalone core builds keep the default ``qtng`` namespace unless you pass
 ``-DQTNG_NAMESPACE=<name>`` at configure time.
@@ -141,7 +147,7 @@ qtng decides which event loop to create on each thread; two public APIs control 
 * ``qtng::useEventloop(qtng::EventLoopType)`` — select the backend explicitly. Call it once at the
   very beginning of ``main()``, before any coroutine/network API. Built-in types are
   ``EventLoopType::Ev`` (1) and ``EventLoopType::Qt`` (2); third-party backends (io_uring, gtk,
-  kqueue, ...) register under values >= 100 via ``qtng_core::registerEventLoop()``.
+  kqueue, ...) register under values >= 100 via the core ``registerEventLoop()``.
 * ``qtng::useQtEventloop()`` — shortcut for ``useEventloop(EventLoopType::Qt)``.
 
 Without an explicit call the default backend is used: the Qt backend on the GUI thread,

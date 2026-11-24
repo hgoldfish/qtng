@@ -9,8 +9,8 @@ namespace qtng_bridge {
 // Convert between the Qt binding and core HostAddress. Implemented in qt/src/hostaddress.cpp,
 // where the binding type stores the core instance directly, so conversion is a shallow copy.
 
-qtng_core::HostAddress toCoreAddress(const QTNETWORKNG_NAMESPACE::HostAddress &addr);
-QTNETWORKNG_NAMESPACE::HostAddress toQtAddress(const qtng_core::HostAddress &addr);
+QTNG_NAMESPACE::HostAddress toCoreAddress(const QTNETWORKNG_NAMESPACE::HostAddress &addr);
+QTNETWORKNG_NAMESPACE::HostAddress toQtAddress(const QTNG_NAMESPACE::HostAddress &addr);
 
 }  // namespace qtng_bridge
 

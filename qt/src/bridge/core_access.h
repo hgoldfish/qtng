@@ -4,7 +4,7 @@
 // Internal bridge header: only included from qt/src/*.cpp translation units.
 // Provides access to qtng core implementation without exposing headers to consumers.
 //
-// Core types live in QTNG_NAMESPACE (qt/CMakeLists sets it to qtng_core) so they do
+// Core types live in QTNG_NAMESPACE (qt/CMakeLists defaults it to qtng_core) so they do
 // not collide with the Qt binding API (QTNETWORKNG_NAMESPACE, default qtng) or share
 // include guards with qt/include/.
 
@@ -48,16 +48,16 @@
 #include "qtng/private/network_interface_p.h"
 #include "qtng/private/kademlia_p.h"
 
-// The Qt-backed core event loop backend. Declared in QTNG_NAMESPACE (qtng_core) so
+// The Qt-backed core event loop backend. Declared in QTNG_NAMESPACE so
 // qt/src translation units can name it (e.g. for dynamic_cast-based backend checks)
 // without re-including core headers later.
-namespace qtng_core {
+namespace QTNG_NAMESPACE {
 class QtEventLoopCoroutine : public EventLoopCoroutine
 {
 public:
     QtEventLoopCoroutine();
 };
-}  // namespace qtng_core
+}  // namespace QTNG_NAMESPACE
 
 #ifndef QTNG_NO_CRYPTO
 #  include "qtng/ssl.h"

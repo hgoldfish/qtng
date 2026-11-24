@@ -9,13 +9,13 @@ namespace QTNETWORKNG_NAMESPACE {
 
 struct BencodeCoreBridge
 {
-    static qtng_core::Bencode core(const Bencode &v);
-    static void setCore(Bencode &v, const qtng_core::Bencode &core);
+    static QTNG_NAMESPACE::Bencode core(const Bencode &v);
+    static void setCore(Bencode &v, const QTNG_NAMESPACE::Bencode &core);
 };
 
 namespace {
 
-class QtIODeviceFileLike : public qtng_core::FileLike
+class QtIODeviceFileLike : public QTNG_NAMESPACE::FileLike
 {
 public:
     explicit QtIODeviceFileLike(QIODevice *device)
@@ -48,23 +48,23 @@ public:
     QIODevice *dev;
 };
 
-qtng_core::Bencode toCoreBencode(const Bencode &v);
-Bencode fromCoreBencode(const qtng_core::Bencode &v);
+QTNG_NAMESPACE::Bencode toCoreBencode(const Bencode &v);
+Bencode fromCoreBencode(const QTNG_NAMESPACE::Bencode &v);
 
 }  // namespace
 
 class BencodePrivate : public QSharedData
 {
 public:
-    qtng_core::Bencode core;
+    QTNG_NAMESPACE::Bencode core;
 };
 
-qtng_core::Bencode BencodeCoreBridge::core(const Bencode &v)
+QTNG_NAMESPACE::Bencode BencodeCoreBridge::core(const Bencode &v)
 {
-    return v.d ? v.d->core : qtng_core::Bencode();
+    return v.d ? v.d->core : QTNG_NAMESPACE::Bencode();
 }
 
-void BencodeCoreBridge::setCore(Bencode &v, const qtng_core::Bencode &core)
+void BencodeCoreBridge::setCore(Bencode &v, const QTNG_NAMESPACE::Bencode &core)
 {
     if (!v.d) {
         v.d = new BencodePrivate;
@@ -74,12 +74,12 @@ void BencodeCoreBridge::setCore(Bencode &v, const qtng_core::Bencode &core)
 
 namespace {
 
-qtng_core::Bencode toCoreBencode(const Bencode &v)
+QTNG_NAMESPACE::Bencode toCoreBencode(const Bencode &v)
 {
     return BencodeCoreBridge::core(v);
 }
 
-Bencode fromCoreBencode(const qtng_core::Bencode &v)
+Bencode fromCoreBencode(const QTNG_NAMESPACE::Bencode &v)
 {
     Bencode result;
     BencodeCoreBridge::setCore(result, v);
@@ -92,14 +92,14 @@ class BencodeStreamPrivate
 {
 public:
     BencodeStreamPrivate()
-        : stream(new qtng_core::BencodeStream())
+        : stream(new QTNG_NAMESPACE::BencodeStream())
         , device(nullptr)
         , qtBuffer(nullptr)
     {
     }
 
     explicit BencodeStreamPrivate(QIODevice *d)
-        : stream(new qtng_core::BencodeStream(new QtIODeviceFileLike(d)))
+        : stream(new QTNG_NAMESPACE::BencodeStream(new QtIODeviceFileLike(d)))
         , device(d)
         , ownedDevice(new QtIODeviceFileLike(d))
         , qtBuffer(nullptr)
@@ -113,20 +113,20 @@ public:
     {
         if (writeMode) {
             stringBuffer.reset(new string(toStdString(*a)));
-            stream.reset(new qtng_core::BencodeStream(stringBuffer.get(), qtng_core::BufferOwnership::Borrow, true));
+            stream.reset(new QTNG_NAMESPACE::BencodeStream(stringBuffer.get(), QTNG_NAMESPACE::BufferOwnership::Borrow, true));
         } else {
-            stream.reset(new qtng_core::BencodeStream(toStdString(*a)));
+            stream.reset(new QTNG_NAMESPACE::BencodeStream(toStdString(*a)));
         }
     }
 
     explicit BencodeStreamPrivate(const QByteArray &a)
-        : stream(new qtng_core::BencodeStream(toStdString(a)))
+        : stream(new QTNG_NAMESPACE::BencodeStream(toStdString(a)))
         , device(nullptr)
         , qtBuffer(nullptr)
     {
     }
 
-    unique_ptr<qtng_core::BencodeStream> stream;
+    unique_ptr<QTNG_NAMESPACE::BencodeStream> stream;
     QIODevice *device;
     unique_ptr<QtIODeviceFileLike> ownedDevice;
     unique_ptr<string> stringBuffer;
@@ -203,7 +203,7 @@ void BencodeStream::resetStatus()
 void BencodeStream::setStatus(Status status)
 {
     Q_D(BencodeStream);
-    d->stream->setStatus(static_cast<qtng_core::BencodeStream::Status>(status));
+    d->stream->setStatus(static_cast<QTNG_NAMESPACE::BencodeStream::Status>(status));
 }
 
 void BencodeStream::setLengthLimit(quint32 limit)
@@ -248,7 +248,7 @@ BencodeStream &BencodeStream::operator>>(QByteArray &array)
 BencodeStream &BencodeStream::operator>>(Bencode &v)
 {
     Q_D(BencodeStream);
-    qtng_core::Bencode core;
+    QTNG_NAMESPACE::Bencode core;
     (*d->stream) >> core;
     BencodeCoreBridge::setCore(v, core);
     return *this;
@@ -368,67 +368,67 @@ Bencode::Bencode()
 Bencode::Bencode(qint64 i)
     : d(new BencodePrivate)
 {
-    d->core = qtng_core::Bencode(static_cast<int64_t>(i));
+    d->core = QTNG_NAMESPACE::Bencode(static_cast<int64_t>(i));
 }
 
 Bencode::Bencode(const QString &s)
     : d(new BencodePrivate)
 {
-    d->core = qtng_core::Bencode(toStdString(s));
+    d->core = QTNG_NAMESPACE::Bencode(toStdString(s));
 }
 
 Bencode::Bencode(const QByteArray &s)
     : d(new BencodePrivate)
 {
-    d->core = qtng_core::Bencode(toStdString(s));
+    d->core = QTNG_NAMESPACE::Bencode(toStdString(s));
 }
 
 Bencode::Bencode(const char *s)
     : d(new BencodePrivate)
 {
-    d->core = qtng_core::Bencode(s ? s : "");
+    d->core = QTNG_NAMESPACE::Bencode(s ? s : "");
 }
 
 Bencode::Bencode(const QList<Bencode> &list)
     : d(new BencodePrivate)
 {
-    vector<qtng_core::Bencode> coreList;
+    vector<QTNG_NAMESPACE::Bencode> coreList;
     coreList.reserve(static_cast<size_t>(list.size()));
     for (const Bencode &item : list) {
         coreList.push_back(toCoreBencode(item));
     }
-    d->core = qtng_core::Bencode(coreList);
+    d->core = QTNG_NAMESPACE::Bencode(coreList);
 }
 
 Bencode::Bencode(QList<Bencode> &&list)
     : d(new BencodePrivate)
 {
-    vector<qtng_core::Bencode> coreList;
+    vector<QTNG_NAMESPACE::Bencode> coreList;
     coreList.reserve(static_cast<size_t>(list.size()));
     for (Bencode &item : list) {
         coreList.push_back(toCoreBencode(item));
     }
-    d->core = qtng_core::Bencode(std::move(coreList));
+    d->core = QTNG_NAMESPACE::Bencode(std::move(coreList));
 }
 
 Bencode::Bencode(const QMap<QString, Bencode> &dict)
     : d(new BencodePrivate)
 {
-    map<string, qtng_core::Bencode> coreMap;
+    map<string, QTNG_NAMESPACE::Bencode> coreMap;
     for (QMap<QString, Bencode>::const_iterator it = dict.constBegin(); it != dict.constEnd(); ++it) {
         coreMap.emplace(toStdString(it.key()), toCoreBencode(it.value()));
     }
-    d->core = qtng_core::Bencode(coreMap);
+    d->core = QTNG_NAMESPACE::Bencode(coreMap);
 }
 
 Bencode::Bencode(QMap<QString, Bencode> &&dict)
     : d(new BencodePrivate)
 {
-    map<string, qtng_core::Bencode> coreMap;
+    map<string, QTNG_NAMESPACE::Bencode> coreMap;
     for (QMap<QString, Bencode>::iterator it = dict.begin(); it != dict.end(); ++it) {
         coreMap.emplace(toStdString(it.key()), toCoreBencode(it.value()));
     }
-    d->core = qtng_core::Bencode(std::move(coreMap));
+    d->core = QTNG_NAMESPACE::Bencode(std::move(coreMap));
 }
 
 Bencode::Bencode(const Bencode &other)
@@ -446,12 +446,12 @@ Bencode::~Bencode() = default;
 
 Bencode Bencode::dict()
 {
-    return fromCoreBencode(qtng_core::Bencode::dict());
+    return fromCoreBencode(QTNG_NAMESPACE::Bencode::dict());
 }
 
 Bencode Bencode::list()
 {
-    return fromCoreBencode(qtng_core::Bencode::list());
+    return fromCoreBencode(QTNG_NAMESPACE::Bencode::list());
 }
 
 Bencode::Type Bencode::type() const
@@ -502,9 +502,9 @@ QByteArray Bencode::toByteArray() const
 QList<Bencode> Bencode::toList() const
 {
     QList<Bencode> result;
-    const vector<qtng_core::Bencode> &list = d->core.toList();
+    const vector<QTNG_NAMESPACE::Bencode> &list = d->core.toList();
     result.reserve(static_cast<int>(list.size()));
-    for (const qtng_core::Bencode &item : list) {
+    for (const QTNG_NAMESPACE::Bencode &item : list) {
         result.append(fromCoreBencode(item));
     }
     return result;
@@ -513,8 +513,8 @@ QList<Bencode> Bencode::toList() const
 QMap<QString, Bencode> Bencode::toMap() const
 {
     QMap<QString, Bencode> result;
-    const map<string, qtng_core::Bencode> &dict = d->core.toMap();
-    for (const pair<const string, qtng_core::Bencode> &entry : dict) {
+    const map<string, QTNG_NAMESPACE::Bencode> &dict = d->core.toMap();
+    for (const pair<const string, QTNG_NAMESPACE::Bencode> &entry : dict) {
         result.insert(toQString(entry.first), fromCoreBencode(entry.second));
     }
     return result;
@@ -528,8 +528,8 @@ QByteArray Bencode::encode() const
 Bencode Bencode::decode(const QByteArray &data, QString *error, quint32 lengthLimit)
 {
     string coreError;
-    const qtng_core::Bencode value =
-            qtng_core::Bencode::decode(toStdString(data), error ? &coreError : nullptr, lengthLimit);
+    const QTNG_NAMESPACE::Bencode value =
+            QTNG_NAMESPACE::Bencode::decode(toStdString(data), error ? &coreError : nullptr, lengthLimit);
     if (error) {
         *error = toQString(coreError);
     }
@@ -540,8 +540,8 @@ Bencode Bencode::decode(QIODevice *device, QString *error, quint32 lengthLimit)
 {
     QtIODeviceFileLike fileLike(device);
     string coreError;
-    const qtng_core::Bencode value =
-            qtng_core::Bencode::decode(&fileLike, error ? &coreError : nullptr, lengthLimit);
+    const QTNG_NAMESPACE::Bencode value =
+            QTNG_NAMESPACE::Bencode::decode(&fileLike, error ? &coreError : nullptr, lengthLimit);
     if (error) {
         *error = toQString(coreError);
     }

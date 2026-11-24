@@ -92,7 +92,6 @@ inline bool isValidParseBase(int base)
     return base == 0 || (base >= 2 && base <= 36);
 }
 
-
 inline std::uint32_t utf8DecodeStrict(const char *p, std::uint32_t remaining, std::uint32_t *cp)
 {
     const unsigned char c = static_cast<unsigned char>(p[0]);

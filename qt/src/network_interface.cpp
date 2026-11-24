@@ -15,7 +15,7 @@ namespace QTNETWORKNG_NAMESPACE {
 class NetworkAddressEntryPrivate
 {
 public:
-    qtng_core::NetworkAddressEntry core;
+    QTNG_NAMESPACE::NetworkAddressEntry core;
 #if QT_VERSION > QT_VERSION_CHECK(5, 8, 0)
     QDeadlineTimer preferredLifetime = QDeadlineTimer(QDeadlineTimer::Forever);
     QDeadlineTimer validityLifetime = QDeadlineTimer(QDeadlineTimer::Forever);
@@ -25,21 +25,21 @@ public:
 class NetworkInterfacePrivate : public QSharedData
 {
 public:
-    static NetworkInterface fromCore(const qtng_core::NetworkInterface &iface)
+    static NetworkInterface fromCore(const QTNG_NAMESPACE::NetworkInterface &iface)
     {
         NetworkInterface result;
         result.d->core = iface;
         return result;
     }
 
-    static qtng_core::NetworkInterface coreOf(const NetworkInterface &iface) { return iface.d->core; }
+    static QTNG_NAMESPACE::NetworkInterface coreOf(const NetworkInterface &iface) { return iface.d->core; }
 
-    qtng_core::NetworkInterface core;
+    QTNG_NAMESPACE::NetworkInterface core;
 };
 
 namespace {
 
-NetworkAddressEntry toQtNetworkAddressEntry(const qtng_core::NetworkAddressEntry &entry)
+NetworkAddressEntry toQtNetworkAddressEntry(const QTNG_NAMESPACE::NetworkAddressEntry &entry)
 {
     NetworkAddressEntry result;
     result.setIp(toQtAddress(entry.ip()));
@@ -88,7 +88,7 @@ NetworkAddressEntry::DnsEligibilityStatus NetworkAddressEntry::dnsEligibility() 
 
 void NetworkAddressEntry::setDnsEligibility(DnsEligibilityStatus status)
 {
-    d->core.setDnsEligibility(static_cast<qtng_core::NetworkAddressEntry::DnsEligibilityStatus>(status));
+    d->core.setDnsEligibility(static_cast<QTNG_NAMESPACE::NetworkAddressEntry::DnsEligibilityStatus>(status));
 }
 
 HostAddress NetworkAddressEntry::ip() const
@@ -234,7 +234,7 @@ QList<NetworkAddressEntry> NetworkInterface::addressEntries() const
     if (!d) {
         return result;
     }
-    for (const qtng_core::NetworkAddressEntry &entry : d->core.addressEntries()) {
+    for (const QTNG_NAMESPACE::NetworkAddressEntry &entry : d->core.addressEntries()) {
         result.append(toQtNetworkAddressEntry(entry));
     }
     return result;
@@ -242,29 +242,29 @@ QList<NetworkAddressEntry> NetworkInterface::addressEntries() const
 
 int NetworkInterface::interfaceIndexFromName(const QString &name)
 {
-    return qtng_core::NetworkInterface::interfaceIndexFromName(toStdString(name));
+    return QTNG_NAMESPACE::NetworkInterface::interfaceIndexFromName(toStdString(name));
 }
 
 NetworkInterface NetworkInterface::interfaceFromName(const QString &name)
 {
-    return toQtInterface(qtng_core::NetworkInterface::interfaceFromName(toStdString(name)));
+    return toQtInterface(QTNG_NAMESPACE::NetworkInterface::interfaceFromName(toStdString(name)));
 }
 
 NetworkInterface NetworkInterface::interfaceFromIndex(int index)
 {
-    return toQtInterface(qtng_core::NetworkInterface::interfaceFromIndex(index));
+    return toQtInterface(QTNG_NAMESPACE::NetworkInterface::interfaceFromIndex(index));
 }
 
 QString NetworkInterface::interfaceNameFromIndex(int index)
 {
-    return toQString(qtng_core::NetworkInterface::interfaceNameFromIndex(index));
+    return toQString(QTNG_NAMESPACE::NetworkInterface::interfaceNameFromIndex(index));
 }
 
 QList<NetworkInterface> NetworkInterface::allInterfaces()
 {
-    const vector<qtng_core::NetworkInterface> ifaces = qtng_core::NetworkInterface::allInterfaces();
+    const vector<QTNG_NAMESPACE::NetworkInterface> ifaces = QTNG_NAMESPACE::NetworkInterface::allInterfaces();
     QList<NetworkInterface> result;
-    for (const qtng_core::NetworkInterface &iface : ifaces) {
+    for (const QTNG_NAMESPACE::NetworkInterface &iface : ifaces) {
         result.append(toQtInterface(iface));
     }
     return result;
@@ -272,9 +272,9 @@ QList<NetworkInterface> NetworkInterface::allInterfaces()
 
 QList<HostAddress> NetworkInterface::allAddresses()
 {
-    const vector<qtng_core::HostAddress> addrs = qtng_core::NetworkInterface::allAddresses();
+    const vector<QTNG_NAMESPACE::HostAddress> addrs = QTNG_NAMESPACE::NetworkInterface::allAddresses();
     QList<HostAddress> result;
-    for (const qtng_core::HostAddress &addr : addrs) {
+    for (const QTNG_NAMESPACE::HostAddress &addr : addrs) {
         result.append(toQtAddress(addr));
     }
     return result;
@@ -309,12 +309,12 @@ QDebug operator<<(QDebug debug, const NetworkInterface &networkInterface)
 
 namespace qtng_bridge {
 
-qtng_core::NetworkInterface toCoreInterface(const QTNETWORKNG_NAMESPACE::NetworkInterface &iface)
+QTNG_NAMESPACE::NetworkInterface toCoreInterface(const QTNETWORKNG_NAMESPACE::NetworkInterface &iface)
 {
     return QTNETWORKNG_NAMESPACE::NetworkInterfacePrivate::coreOf(iface);
 }
 
-QTNETWORKNG_NAMESPACE::NetworkInterface toQtInterface(const qtng_core::NetworkInterface &iface)
+QTNETWORKNG_NAMESPACE::NetworkInterface toQtInterface(const QTNG_NAMESPACE::NetworkInterface &iface)
 {
     return QTNETWORKNG_NAMESPACE::NetworkInterfacePrivate::fromCore(iface);
 }

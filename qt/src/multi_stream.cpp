@@ -18,35 +18,35 @@ namespace QTNETWORKNG_NAMESPACE {
 
 namespace {
 
-shared_ptr<qtng_core::MultiStreamMaster> makeCoreMaster(QSharedPointer<Socket> socket, MultiStreamPole pole)
+shared_ptr<QTNG_NAMESPACE::MultiStreamMaster> makeCoreMaster(QSharedPointer<Socket> socket, MultiStreamPole pole)
 {
-    return make_shared<qtng_core::MultiStreamMaster>(socketCoreOf(socket.data()),
-                                                     static_cast<qtng_core::MultiStreamPole>(pole));
+    return make_shared<QTNG_NAMESPACE::MultiStreamMaster>(socketCoreOf(socket.data()),
+                                                     static_cast<QTNG_NAMESPACE::MultiStreamPole>(pole));
 }
 
 #ifndef QTNG_NO_CRYPTO
-shared_ptr<qtng_core::MultiStreamMaster> makeCoreMaster(QSharedPointer<SslSocket> socket, MultiStreamPole pole)
+shared_ptr<QTNG_NAMESPACE::MultiStreamMaster> makeCoreMaster(QSharedPointer<SslSocket> socket, MultiStreamPole pole)
 {
-    return make_shared<qtng_core::MultiStreamMaster>(::qtng_bridge::sslSocketCoreOf(socket.data()),
-                                                     static_cast<qtng_core::MultiStreamPole>(pole));
+    return make_shared<QTNG_NAMESPACE::MultiStreamMaster>(::qtng_bridge::sslSocketCoreOf(socket.data()),
+                                                     static_cast<QTNG_NAMESPACE::MultiStreamPole>(pole));
 }
 #endif
 
-shared_ptr<qtng_core::MultiStreamMaster> makeCoreMaster(QSharedPointer<KcpSocket> socket, MultiStreamPole pole)
+shared_ptr<QTNG_NAMESPACE::MultiStreamMaster> makeCoreMaster(QSharedPointer<KcpSocket> socket, MultiStreamPole pole)
 {
-    return make_shared<qtng_core::MultiStreamMaster>(toCoreSocketLike(asSocketLike(socket)),
-                                                     static_cast<qtng_core::MultiStreamPole>(pole));
+    return make_shared<QTNG_NAMESPACE::MultiStreamMaster>(toCoreSocketLike(asSocketLike(socket)),
+                                                     static_cast<QTNG_NAMESPACE::MultiStreamPole>(pole));
 }
 
-shared_ptr<qtng_core::MultiStreamMaster> makeCoreMaster(QSharedPointer<UtpSocket> socket, MultiStreamPole pole)
+shared_ptr<QTNG_NAMESPACE::MultiStreamMaster> makeCoreMaster(QSharedPointer<UtpSocket> socket, MultiStreamPole pole)
 {
-    return make_shared<qtng_core::MultiStreamMaster>(toCoreSocketLike(asSocketLike(socket)),
-                                                     static_cast<qtng_core::MultiStreamPole>(pole));
+    return make_shared<QTNG_NAMESPACE::MultiStreamMaster>(toCoreSocketLike(asSocketLike(socket)),
+                                                     static_cast<QTNG_NAMESPACE::MultiStreamPole>(pole));
 }
 
-shared_ptr<qtng_core::MultiStreamMaster> makeCoreMaster(QSharedPointer<SocketLike> socket, MultiStreamPole pole)
+shared_ptr<QTNG_NAMESPACE::MultiStreamMaster> makeCoreMaster(QSharedPointer<SocketLike> socket, MultiStreamPole pole)
 {
-    return make_shared<qtng_core::MultiStreamMaster>(toCoreSocketLike(socket), static_cast<qtng_core::MultiStreamPole>(pole));
+    return make_shared<QTNG_NAMESPACE::MultiStreamMaster>(toCoreSocketLike(socket), static_cast<QTNG_NAMESPACE::MultiStreamPole>(pole));
 }
 
 }  // namespace
@@ -54,19 +54,19 @@ shared_ptr<qtng_core::MultiStreamMaster> makeCoreMaster(QSharedPointer<SocketLik
 class MultiStreamMasterPrivate
 {
 public:
-    explicit MultiStreamMasterPrivate(shared_ptr<qtng_core::MultiStreamMaster> master)
+    explicit MultiStreamMasterPrivate(shared_ptr<QTNG_NAMESPACE::MultiStreamMaster> master)
         : core(std::move(master))
     {
     }
 
-    shared_ptr<qtng_core::MultiStreamMaster> core;
+    shared_ptr<QTNG_NAMESPACE::MultiStreamMaster> core;
 };
 
 class MultiStreamSlavePrivate
 {
 public:
     MultiStreamSlavePrivate(MultiStreamMaster *master, MultiStreamPole pole, quint32 streamNumber,
-                            shared_ptr<qtng_core::MultiStreamSlave> slave)
+                            shared_ptr<QTNG_NAMESPACE::MultiStreamSlave> slave)
         : master(master)
         , pole(pole)
         , streamNumber(streamNumber)
@@ -75,7 +75,7 @@ public:
     }
 
     static QSharedPointer<MultiStreamSlave> wrap(MultiStreamMaster *master,
-                                                 const shared_ptr<qtng_core::MultiStreamSlave> &coreSlave)
+                                                 const shared_ptr<QTNG_NAMESPACE::MultiStreamSlave> &coreSlave)
     {
         if (!coreSlave) {
             return QSharedPointer<MultiStreamSlave>();
@@ -91,7 +91,7 @@ public:
     MultiStreamMaster *master;
     MultiStreamPole pole;
     quint32 streamNumber;
-    shared_ptr<qtng_core::MultiStreamSlave> core;
+    shared_ptr<QTNG_NAMESPACE::MultiStreamSlave> core;
 };
 
 MultiStreamMaster::MultiStreamMaster(QSharedPointer<Socket> socket, MultiStreamPole pole)
@@ -401,7 +401,7 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<MultiStreamSlave> slave)
     if (!slave || !slave->d_ptr->core) {
         return QSharedPointer<SocketLike>();
     }
-    return toQtSocketLike(qtng_core::asSocketLike(slave->d_ptr->core));
+    return toQtSocketLike(QTNG_NAMESPACE::asSocketLike(slave->d_ptr->core));
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

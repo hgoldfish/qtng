@@ -17,60 +17,60 @@ QtSocketLikeAdapter::QtSocketLikeAdapter(QSharedPointer<QTNETWORKNG_NAMESPACE::S
 {
 }
 
-qtng_core::Socket::SocketError QtSocketLikeAdapter::error() const
+QTNG_NAMESPACE::Socket::SocketError QtSocketLikeAdapter::error() const
 {
-    return static_cast<qtng_core::Socket::SocketError>(qt->error());
+    return static_cast<QTNG_NAMESPACE::Socket::SocketError>(qt->error());
 }
 
 string QtSocketLikeAdapter::errorString() const { return toStdString(qt->errorString()); }
 bool QtSocketLikeAdapter::isValid() const { return qt->isValid(); }
-qtng_core::HostAddress QtSocketLikeAdapter::localAddress() const { return toCoreAddress(qt->localAddress()); }
+QTNG_NAMESPACE::HostAddress QtSocketLikeAdapter::localAddress() const { return toCoreAddress(qt->localAddress()); }
 uint16_t QtSocketLikeAdapter::localPort() const { return qt->localPort(); }
-qtng_core::HostAddress QtSocketLikeAdapter::peerAddress() const { return toCoreAddress(qt->peerAddress()); }
+QTNG_NAMESPACE::HostAddress QtSocketLikeAdapter::peerAddress() const { return toCoreAddress(qt->peerAddress()); }
 string QtSocketLikeAdapter::peerName() const { return toStdString(qt->peerName()); }
 uint16_t QtSocketLikeAdapter::peerPort() const { return qt->peerPort(); }
 intptr_t QtSocketLikeAdapter::fileno() const { return static_cast<intptr_t>(qt->fileno()); }
-qtng_core::Socket::SocketType QtSocketLikeAdapter::type() const
+QTNG_NAMESPACE::Socket::SocketType QtSocketLikeAdapter::type() const
 {
-    return static_cast<qtng_core::Socket::SocketType>(qt->type());
+    return static_cast<QTNG_NAMESPACE::Socket::SocketType>(qt->type());
 }
-qtng_core::Socket::SocketState QtSocketLikeAdapter::state() const
+QTNG_NAMESPACE::Socket::SocketState QtSocketLikeAdapter::state() const
 {
-    return static_cast<qtng_core::Socket::SocketState>(qt->state());
+    return static_cast<QTNG_NAMESPACE::Socket::SocketState>(qt->state());
 }
-qtng_core::HostAddress::NetworkLayerProtocol QtSocketLikeAdapter::protocol() const
+QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol QtSocketLikeAdapter::protocol() const
 {
-    return static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(qt->protocol());
+    return static_cast<QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol>(qt->protocol());
 }
 string QtSocketLikeAdapter::localAddressURI() const { return toStdString(qt->localAddressURI()); }
 string QtSocketLikeAdapter::peerAddressURI() const { return toStdString(qt->peerAddressURI()); }
 
-qtng_core::Socket *QtSocketLikeAdapter::acceptRaw()
+QTNG_NAMESPACE::Socket *QtSocketLikeAdapter::acceptRaw()
 {
     return nullptr;
 }
 
-shared_ptr<qtng_core::SocketLike> QtSocketLikeAdapter::accept()
+shared_ptr<QTNG_NAMESPACE::SocketLike> QtSocketLikeAdapter::accept()
 {
     return toCoreSocketLike(qt->accept());
 }
 
-bool QtSocketLikeAdapter::bind(const qtng_core::HostAddress &address, uint16_t port, qtng_core::Socket::BindMode mode)
+bool QtSocketLikeAdapter::bind(const QTNG_NAMESPACE::HostAddress &address, uint16_t port, QTNG_NAMESPACE::Socket::BindMode mode)
 {
     return qt->bind(toQtAddress(address), port, static_cast<Socket::BindMode>(static_cast<int>(mode)));
 }
 
-bool QtSocketLikeAdapter::bind(uint16_t port, qtng_core::Socket::BindMode mode)
+bool QtSocketLikeAdapter::bind(uint16_t port, QTNG_NAMESPACE::Socket::BindMode mode)
 {
     return qt->bind(port, static_cast<Socket::BindMode>(static_cast<int>(mode)));
 }
 
-bool QtSocketLikeAdapter::connect(const qtng_core::HostAddress &addr, uint16_t port)
+bool QtSocketLikeAdapter::connect(const QTNG_NAMESPACE::HostAddress &addr, uint16_t port)
 {
     return qt->connect(toQtAddress(addr), port);
 }
 
-bool QtSocketLikeAdapter::connect(const string &hostName, uint16_t port, shared_ptr<qtng_core::SocketDnsCache> dnsCache)
+bool QtSocketLikeAdapter::connect(const string &hostName, uint16_t port, shared_ptr<QTNG_NAMESPACE::SocketDnsCache> dnsCache)
 {
     Q_UNUSED(dnsCache);
     return qt->connect(toQString(hostName), port);
@@ -79,11 +79,11 @@ bool QtSocketLikeAdapter::connect(const string &hostName, uint16_t port, shared_
 void QtSocketLikeAdapter::close() { qt->close(); }
 void QtSocketLikeAdapter::abort() { qt->abort(); }
 bool QtSocketLikeAdapter::listen(int backlog) { return qt->listen(backlog); }
-bool QtSocketLikeAdapter::setOption(qtng_core::Socket::SocketOption option, int value)
+bool QtSocketLikeAdapter::setOption(QTNG_NAMESPACE::Socket::SocketOption option, int value)
 {
     return qt->setOption(static_cast<Socket::SocketOption>(option), value);
 }
-int QtSocketLikeAdapter::option(qtng_core::Socket::SocketOption option) const
+int QtSocketLikeAdapter::option(QTNG_NAMESPACE::Socket::SocketOption option) const
 {
     return qt->option(static_cast<Socket::SocketOption>(option)).toInt();
 }
@@ -98,7 +98,7 @@ string QtSocketLikeAdapter::recvall(int32_t size) { return toStdString(qt->recva
 int32_t QtSocketLikeAdapter::send(const string &data) { return qt->send(toQByteArray(data)); }
 int32_t QtSocketLikeAdapter::sendall(const string &data) { return qt->sendall(toQByteArray(data)); }
 
-CoreSocketLikeWrapper::CoreSocketLikeWrapper(shared_ptr<qtng_core::SocketLike> core)
+CoreSocketLikeWrapper::CoreSocketLikeWrapper(shared_ptr<QTNG_NAMESPACE::SocketLike> core)
     : core(std::move(core))
 {
 }
@@ -128,22 +128,22 @@ QSharedPointer<SocketLike> CoreSocketLikeWrapper::accept() { return toQtSocketLi
 
 Socket *CoreSocketLikeWrapper::acceptRaw()
 {
-    qtng_core::Socket *raw = core->acceptRaw();
+    QTNG_NAMESPACE::Socket *raw = core->acceptRaw();
     if (!raw) {
         return nullptr;
     }
     Socket *wrapper = new Socket(HostAddress::IPv4Protocol, Socket::TcpSocket);
-    assignSocketCore(wrapper, std::shared_ptr<qtng_core::Socket>(raw));
+    assignSocketCore(wrapper, std::shared_ptr<QTNG_NAMESPACE::Socket>(raw));
     return wrapper;
 }
 
 bool CoreSocketLikeWrapper::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
 {
-    return core->bind(toCoreAddress(address), port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+    return core->bind(toCoreAddress(address), port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 bool CoreSocketLikeWrapper::bind(quint16 port, Socket::BindMode mode)
 {
-    return core->bind(port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+    return core->bind(port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 bool CoreSocketLikeWrapper::connect(const HostAddress &addr, quint16 port)
 {
@@ -159,11 +159,11 @@ void CoreSocketLikeWrapper::abort() { core->abort(); }
 bool CoreSocketLikeWrapper::listen(int backlog) { return core->listen(backlog); }
 bool CoreSocketLikeWrapper::setOption(Socket::SocketOption option, const QVariant &value)
 {
-    return core->setOption(static_cast<qtng_core::Socket::SocketOption>(option), value.toInt());
+    return core->setOption(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option), value.toInt());
 }
 QVariant CoreSocketLikeWrapper::option(Socket::SocketOption option) const
 {
-    return core->option(static_cast<qtng_core::Socket::SocketOption>(option));
+    return core->option(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option));
 }
 qint32 CoreSocketLikeWrapper::peek(char *data, qint32 size) { return core->peek(data, size); }
 qint32 CoreSocketLikeWrapper::peekRaw(char *data, qint32 size) { return core->peekRaw(data, size); }
@@ -181,7 +181,7 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<Socket> s)
     if (!s) {
         return QSharedPointer<SocketLike>();
     }
-    return toQtSocketLike(qtng_core::asSocketLike(socketCoreOf(s.data())));
+    return toQtSocketLike(QTNG_NAMESPACE::asSocketLike(socketCoreOf(s.data())));
 }
 
 QSharedPointer<Socket> convertSocketLikeToSocket(QSharedPointer<SocketLike> socket)
@@ -189,8 +189,8 @@ QSharedPointer<Socket> convertSocketLikeToSocket(QSharedPointer<SocketLike> sock
     if (!socket) {
         return QSharedPointer<Socket>();
     }
-    shared_ptr<qtng_core::SocketLike> coreLike = toCoreSocketLike(socket);
-    shared_ptr<qtng_core::Socket> raw = qtng_core::convertSocketLikeToSocket(coreLike);
+    shared_ptr<QTNG_NAMESPACE::SocketLike> coreLike = toCoreSocketLike(socket);
+    shared_ptr<QTNG_NAMESPACE::Socket> raw = QTNG_NAMESPACE::convertSocketLikeToSocket(coreLike);
     if (!raw) {
         return QSharedPointer<Socket>();
     }

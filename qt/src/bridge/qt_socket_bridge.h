@@ -9,8 +9,8 @@ namespace qtng_bridge {
 // Implemented in qt/src/network_interface.cpp, where the binding NetworkInterface keeps the
 // core instance directly, so conversion is a shallow copy.
 
-qtng_core::NetworkInterface toCoreInterface(const QTNETWORKNG_NAMESPACE::NetworkInterface &iface);
-QTNETWORKNG_NAMESPACE::NetworkInterface toQtInterface(const qtng_core::NetworkInterface &iface);
+QTNG_NAMESPACE::NetworkInterface toCoreInterface(const QTNETWORKNG_NAMESPACE::NetworkInterface &iface);
+QTNETWORKNG_NAMESPACE::NetworkInterface toQtInterface(const QTNG_NAMESPACE::NetworkInterface &iface);
 
 }  // namespace qtng_bridge
 

@@ -11,12 +11,12 @@
 
 namespace qtng_bridge {
 
-inline qtng_core::DatagramPath toCoreDatagramPath(const QTNETWORKNG_NAMESPACE::DatagramPath &path)
+inline QTNG_NAMESPACE::DatagramPath toCoreDatagramPath(const QTNETWORKNG_NAMESPACE::DatagramPath &path)
 {
-    return qtng_core::DatagramPath(toStdString(path.key()));
+    return QTNG_NAMESPACE::DatagramPath(toStdString(path.key()));
 }
 
-inline QTNETWORKNG_NAMESPACE::DatagramPath toQtDatagramPath(const qtng_core::DatagramPath &path)
+inline QTNETWORKNG_NAMESPACE::DatagramPath toQtDatagramPath(const QTNG_NAMESPACE::DatagramPath &path)
 {
     return QTNETWORKNG_NAMESPACE::DatagramPath(toQString(path.key()));
 }
@@ -27,12 +27,12 @@ inline QTNETWORKNG_NAMESPACE::DatagramPath toQtDatagramPath(const qtng_core::Dat
 // receive result (length, sender address) back and shrinks the Qt list to the
 // number received. The Qt list must not be modified between the two calls.
 
-inline std::vector<qtng_core::Datagram> toCoreDatagrams(QList<QTNETWORKNG_NAMESPACE::Datagram> &qtDatagrams)
+inline std::vector<QTNG_NAMESPACE::Datagram> toCoreDatagrams(QList<QTNETWORKNG_NAMESPACE::Datagram> &qtDatagrams)
 {
-    std::vector<qtng_core::Datagram> coreDatagrams;
+    std::vector<QTNG_NAMESPACE::Datagram> coreDatagrams;
     coreDatagrams.reserve(static_cast<size_t>(qtDatagrams.size()));
     for (int i = 0; i < qtDatagrams.size(); ++i) {
-        qtng_core::Datagram datagram;
+        QTNG_NAMESPACE::Datagram datagram;
         datagram.data = qtDatagrams[i].data.data();
         datagram.len = static_cast<std::int32_t>(qtDatagrams[i].data.size());
         datagram.addr = toCoreAddress(qtDatagrams[i].addr);
@@ -42,12 +42,12 @@ inline std::vector<qtng_core::Datagram> toCoreDatagrams(QList<QTNETWORKNG_NAMESP
     return coreDatagrams;
 }
 
-inline std::vector<qtng_core::Datagram> toCoreDatagrams(const QList<QTNETWORKNG_NAMESPACE::Datagram> &qtDatagrams)
+inline std::vector<QTNG_NAMESPACE::Datagram> toCoreDatagrams(const QList<QTNETWORKNG_NAMESPACE::Datagram> &qtDatagrams)
 {
-    std::vector<qtng_core::Datagram> coreDatagrams;
+    std::vector<QTNG_NAMESPACE::Datagram> coreDatagrams;
     coreDatagrams.reserve(static_cast<size_t>(qtDatagrams.size()));
     for (int i = 0; i < qtDatagrams.size(); ++i) {
-        qtng_core::Datagram datagram;
+        QTNG_NAMESPACE::Datagram datagram;
         // safe! const_cast is ok here because the Qt binding owns its QByteArray buffers,
         // the core borrows char* into them.
         datagram.data = const_cast<char *>(qtDatagrams[i].data.constData());
@@ -59,7 +59,7 @@ inline std::vector<qtng_core::Datagram> toCoreDatagrams(const QList<QTNETWORKNG_
     return coreDatagrams;
 }
 
-inline void applyCoreDatagrams(const std::vector<qtng_core::Datagram> &coreDatagrams,
+inline void applyCoreDatagrams(const std::vector<QTNG_NAMESPACE::Datagram> &coreDatagrams,
                                QList<QTNETWORKNG_NAMESPACE::Datagram> &qtDatagrams)
 {
     for (size_t i = 0; i < coreDatagrams.size(); ++i) {
@@ -72,10 +72,10 @@ inline void applyCoreDatagrams(const std::vector<qtng_core::Datagram> &coreDatag
     }
 }
 
-std::shared_ptr<qtng_core::DatagramLink>
+std::shared_ptr<QTNG_NAMESPACE::DatagramLink>
 toCoreDatagramLink(const QSharedPointer<QTNETWORKNG_NAMESPACE::DatagramLink> &link);
 QSharedPointer<QTNETWORKNG_NAMESPACE::DatagramLink>
-toQtDatagramLink(const std::shared_ptr<qtng_core::DatagramLink> &core);
+toQtDatagramLink(const std::shared_ptr<QTNG_NAMESPACE::DatagramLink> &core);
 
 }  // namespace qtng_bridge
 

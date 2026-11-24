@@ -22,9 +22,14 @@ Qt5/Qt6 可选兼容层
 
 Qt API 位于 ``QTNETWORKNG_NAMESPACE``（默认 ``qtng``，见 ``qt/include/config.h``）。
 核心库使用独立宏 ``QTNG_NAMESPACE``（默认 ``qtng``，见 ``include/qtng/config.h``）。
-``qt/CMakeLists.txt`` 引入核心时会把 CMake 缓存 ``QTNG_NAMESPACE`` 设为 ``qtng_core``，
-避免与 Qt API 的符号冲突。请用该 CACHE / ``-DQTNG_NAMESPACE=...`` 覆盖；**不要**再用
-``#define qtng ...`` 或 ``target_compile_definitions(... qtng=...)`` 去劫持核心命名空间。
+binding 源码只通过 ``QTNG_NAMESPACE`` 引用核心类型，不硬编码命名空间名。``qt/CMakeLists.txt``
+自己引入核心时，会在 ``add_subdirectory`` 之前把 CMake 缓存 ``QTNG_NAMESPACE`` 钉为
+``qtng_core``，避免与 Qt API 的符号冲突。**不要**再用 ``#define qtng ...`` 或
+``target_compile_definitions(... qtng=...)`` 去劫持核心命名空间。
+
+若工程里已经存在 ``qtng`` 目标（别的检出，或父工程先加了核心），binding 直接复用它、不改动父
+工程的 ``QTNG_NAMESPACE``，但要求该目标按 ``qtng_core`` 编译：已编译的目标无法改名，其它取值
+（包括默认的 ``qtng``）都会让 configure 直接报错。
 
 单独构建核心时默认仍是 ``qtng``；若要改名，在 configure 时传入
 ``-DQTNG_NAMESPACE=<name>``。
@@ -134,7 +139,7 @@ libev/Win 循环），或调用了 ``useEventloop(EventLoopType::Ev)`` 在 GUI �
 * ``qtng::useEventloop(qtng::EventLoopType)`` —— 显式选择后端。在 ``main()`` 的最前面、
   任何协程/网络 API 之前调用一次。内置类型为 ``EventLoopType::Ev``（1）与
   ``EventLoopType::Qt``（2）；第三方后端（io_uring、gtk、kqueue 等）经
-  ``qtng_core::registerEventLoop()`` 以 ≥100 的值注册。
+  ``registerEventLoop()`` 以 ≥100 的值注册。
 * ``qtng::useQtEventloop()`` —— 等价于 ``useEventloop(EventLoopType::Qt)`` 的简写。
 
 不显式调用时使用默认后端：GUI 线程为 Qt 后端，其余线程为 libev/Win。

@@ -20,39 +20,39 @@ namespace QTNETWORKNG_NAMESPACE {
 class SocketPrivate
 {
 public:
-    explicit SocketPrivate(shared_ptr<qtng_core::Socket> c)
+    explicit SocketPrivate(shared_ptr<QTNG_NAMESPACE::Socket> c)
         : core(std::move(c))
     {
     }
     SocketPrivate(HostAddress::NetworkLayerProtocol protocol, Socket::SocketType type)
-        : core(make_shared<qtng_core::Socket>(static_cast<qtng_core::HostAddress::NetworkLayerProtocol>(protocol),
-                                              static_cast<qtng_core::Socket::SocketType>(type)))
+        : core(make_shared<QTNG_NAMESPACE::Socket>(static_cast<QTNG_NAMESPACE::HostAddress::NetworkLayerProtocol>(protocol),
+                                              static_cast<QTNG_NAMESPACE::Socket::SocketType>(type)))
     {
     }
     explicit SocketPrivate(qintptr socketDescriptor)
-        : core(make_shared<qtng_core::Socket>(static_cast<intptr_t>(socketDescriptor)))
+        : core(make_shared<QTNG_NAMESPACE::Socket>(static_cast<intptr_t>(socketDescriptor)))
     {
     }
 
-    shared_ptr<qtng_core::Socket> core;
+    shared_ptr<QTNG_NAMESPACE::Socket> core;
 
-    static shared_ptr<qtng_core::Socket> &coreOf(Socket *s) { return s->d_func()->core; }
-    static const shared_ptr<qtng_core::Socket> &coreOf(const Socket *s) { return s->d_func()->core; }
+    static shared_ptr<QTNG_NAMESPACE::Socket> &coreOf(Socket *s) { return s->d_func()->core; }
+    static const shared_ptr<QTNG_NAMESPACE::Socket> &coreOf(const Socket *s) { return s->d_func()->core; }
 };
 
 class SocketDnsCachePrivate
 {
 public:
     SocketDnsCachePrivate()
-        : core(make_shared<qtng_core::SocketDnsCache>())
+        : core(make_shared<QTNG_NAMESPACE::SocketDnsCache>())
     {
     }
 
-    shared_ptr<qtng_core::SocketDnsCache> core;
+    shared_ptr<QTNG_NAMESPACE::SocketDnsCache> core;
 
-    static shared_ptr<qtng_core::SocketDnsCache> coreOf(SocketDnsCache *cache)
+    static shared_ptr<QTNG_NAMESPACE::SocketDnsCache> coreOf(SocketDnsCache *cache)
     {
-        return cache ? cache->d_func()->core : shared_ptr<qtng_core::SocketDnsCache>();
+        return cache ? cache->d_func()->core : shared_ptr<QTNG_NAMESPACE::SocketDnsCache>();
     }
 };
 
@@ -143,7 +143,7 @@ QString Socket::peerAddressURI() const
 
 Socket *Socket::accept()
 {
-    qtng_core::Socket *raw = d_ptr->core->accept();
+    QTNG_NAMESPACE::Socket *raw = d_ptr->core->accept();
     if (!raw) {
         return nullptr;
     }
@@ -154,12 +154,12 @@ Socket *Socket::accept()
 
 bool Socket::bind(const HostAddress &address, quint16 port, BindMode mode)
 {
-    return d_ptr->core->bind(toCoreAddress(address), port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+    return d_ptr->core->bind(toCoreAddress(address), port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 
 bool Socket::bind(quint16 port, BindMode mode)
 {
-    return d_ptr->core->bind(port, static_cast<qtng_core::Socket::BindMode>(static_cast<int>(mode)));
+    return d_ptr->core->bind(port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(static_cast<int>(mode)));
 }
 
 bool Socket::connect(const HostAddress &host, quint16 port)
@@ -194,12 +194,12 @@ bool Socket::setTcpKeepalive(bool keepalve, int keepaliveTimeoutSesc, int keepal
 
 bool Socket::setOption(SocketOption option, const QVariant &value)
 {
-    return d_ptr->core->setOption(static_cast<qtng_core::Socket::SocketOption>(option), value.toInt());
+    return d_ptr->core->setOption(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option), value.toInt());
 }
 
 QVariant Socket::option(SocketOption option) const
 {
-    return d_ptr->core->option(static_cast<qtng_core::Socket::SocketOption>(option));
+    return d_ptr->core->option(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option));
 }
 
 bool Socket::joinMulticastGroup(const HostAddress &groupAddress, const NetworkInterface &iface)
@@ -249,7 +249,7 @@ qint32 Socket::sendall(const char *data, qint32 size)
 
 qint32 Socket::recvfrom(char *data, qint32 size, HostAddress *addr, quint16 *port)
 {
-    qtng_core::HostAddress coreAddr;
+    QTNG_NAMESPACE::HostAddress coreAddr;
     qint32 n = d_ptr->core->recvfrom(data, size, addr ? &coreAddr : nullptr, port);
     if (addr && n >= 0) {
         *addr = toQtAddress(coreAddr);
@@ -284,7 +284,7 @@ qint32 Socket::sendall(const QByteArray &data)
 
 QByteArray Socket::recvfrom(qint32 size, HostAddress *addr, quint16 *port)
 {
-    qtng_core::HostAddress coreAddr;
+    QTNG_NAMESPACE::HostAddress coreAddr;
     string data = d_ptr->core->recvfrom(size, addr ? &coreAddr : nullptr, port);
     if (addr) {
         *addr = toQtAddress(coreAddr);
@@ -302,7 +302,7 @@ qint32 Socket::recvfrom(QList<Datagram> *datagrams)
     if (!datagrams || datagrams->isEmpty()) {
         return -1;
     }
-    std::vector<qtng_core::Datagram> coreDatagrams = toCoreDatagrams(*datagrams);
+    std::vector<QTNG_NAMESPACE::Datagram> coreDatagrams = toCoreDatagrams(*datagrams);
     const qint32 n = d_ptr->core->recvfrom(&coreDatagrams);
     if (n < 0) {
         return -1;
@@ -318,10 +318,10 @@ qint32 Socket::sendto(const QList<Datagram> &datagrams)
 
 QList<HostAddress> Socket::resolve(const QString &hostName)
 {
-    const vector<qtng_core::HostAddress> addrs = qtng_core::Socket::resolve(toStdString(hostName));
+    const vector<QTNG_NAMESPACE::HostAddress> addrs = QTNG_NAMESPACE::Socket::resolve(toStdString(hostName));
     QList<HostAddress> result;
     result.reserve(static_cast<int>(addrs.size()));
-    for (const qtng_core::HostAddress &a : addrs) {
+    for (const QTNG_NAMESPACE::HostAddress &a : addrs) {
         result.append(toQtAddress(a));
     }
     return result;
@@ -329,9 +329,9 @@ QList<HostAddress> Socket::resolve(const QString &hostName)
 
 Socket *Socket::createConnection(const HostAddress &host, quint16 port, Socket::SocketError *error, int allowProtocol)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::NoError;
-    qtng_core::Socket *raw =
-            qtng_core::Socket::createConnection(toCoreAddress(host), port, error ? &coreError : nullptr, allowProtocol);
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::NoError;
+    QTNG_NAMESPACE::Socket *raw =
+            QTNG_NAMESPACE::Socket::createConnection(toCoreAddress(host), port, error ? &coreError : nullptr, allowProtocol);
     if (error) {
         *error = static_cast<SocketError>(coreError);
     }
@@ -346,9 +346,9 @@ Socket *Socket::createConnection(const HostAddress &host, quint16 port, Socket::
 Socket *Socket::createConnection(const QString &hostName, quint16 port, Socket::SocketError *error,
                                  QSharedPointer<SocketDnsCache> dnsCache, int allowProtocol)
 {
-    qtng_core::Socket::SocketError coreError = qtng_core::Socket::NoError;
-    qtng_core::Socket *raw =
-            qtng_core::Socket::createConnection(toStdString(hostName), port, error ? &coreError : nullptr,
+    QTNG_NAMESPACE::Socket::SocketError coreError = QTNG_NAMESPACE::Socket::NoError;
+    QTNG_NAMESPACE::Socket *raw =
+            QTNG_NAMESPACE::Socket::createConnection(toStdString(hostName), port, error ? &coreError : nullptr,
                                                SocketDnsCachePrivate::coreOf(dnsCache.data()), allowProtocol);
     if (error) {
         *error = static_cast<SocketError>(coreError);
@@ -363,7 +363,7 @@ Socket *Socket::createConnection(const QString &hostName, quint16 port, Socket::
 
 Socket *Socket::createServer(const HostAddress &host, quint16 port, int backlog)
 {
-    qtng_core::Socket *raw = qtng_core::Socket::createServer(toCoreAddress(host), port, backlog);
+    QTNG_NAMESPACE::Socket *raw = QTNG_NAMESPACE::Socket::createServer(toCoreAddress(host), port, backlog);
     if (!raw) {
         return nullptr;
     }
@@ -382,16 +382,16 @@ public:
 
     void add(QSharedPointer<Socket> socket, Poll::EventType event)
     {
-        shared_ptr<qtng_core::Socket> coreSock = SocketPrivate::coreOf(socket.data());
+        shared_ptr<QTNG_NAMESPACE::Socket> coreSock = SocketPrivate::coreOf(socket.data());
         // Keep Qt socket alive for the lifetime of the watcher.
         qtToCore[socket] = coreSock;
         coreToQt[coreSock.get()] = socket;
-        core.add(coreSock, static_cast<qtng_core::Poll::EventType>(event));
+        core.add(coreSock, static_cast<QTNG_NAMESPACE::Poll::EventType>(event));
     }
 
     void remove(QSharedPointer<Socket> socket)
     {
-        QHash<QSharedPointer<Socket>, shared_ptr<qtng_core::Socket>>::iterator it = qtToCore.find(socket);
+        QHash<QSharedPointer<Socket>, shared_ptr<QTNG_NAMESPACE::Socket>>::iterator it = qtToCore.find(socket);
         if (it == qtToCore.end()) {
             return;
         }
@@ -402,16 +402,16 @@ public:
 
     QSharedPointer<Socket> wait(float msecs)
     {
-        shared_ptr<qtng_core::Socket> ready = core.wait(msecs);
+        shared_ptr<QTNG_NAMESPACE::Socket> ready = core.wait(msecs);
         if (!ready) {
             return QSharedPointer<Socket>();
         }
         return coreToQt.value(ready.get());
     }
 
-    qtng_core::Poll core;
-    QHash<QSharedPointer<Socket>, shared_ptr<qtng_core::Socket>> qtToCore;
-    QHash<qtng_core::Socket *, QSharedPointer<Socket>> coreToQt;
+    QTNG_NAMESPACE::Poll core;
+    QHash<QSharedPointer<Socket>, shared_ptr<QTNG_NAMESPACE::Socket>> qtToCore;
+    QHash<QTNG_NAMESPACE::Socket *, QSharedPointer<Socket>> coreToQt;
 };
 
 Poll::Poll()
@@ -457,10 +457,10 @@ SocketDnsCache::~SocketDnsCache()
 QList<HostAddress> SocketDnsCache::resolve(const QString &hostName)
 {
     Q_D(SocketDnsCache);
-    const vector<qtng_core::HostAddress> addrs = d->core->resolve(toStdString(hostName));
+    const vector<QTNG_NAMESPACE::HostAddress> addrs = d->core->resolve(toStdString(hostName));
     QList<HostAddress> result;
     result.reserve(static_cast<int>(addrs.size()));
-    for (const qtng_core::HostAddress &a : addrs) {
+    for (const QTNG_NAMESPACE::HostAddress &a : addrs) {
         result.append(toQtAddress(a));
     }
     return result;
@@ -475,7 +475,7 @@ bool SocketDnsCache::hasHost(const QString &hostName) const
 void SocketDnsCache::addHost(const QString &hostName, const QList<HostAddress> &addrList)
 {
     Q_D(SocketDnsCache);
-    vector<qtng_core::HostAddress> coreAddrs;
+    vector<QTNG_NAMESPACE::HostAddress> coreAddrs;
     coreAddrs.reserve(static_cast<size_t>(addrList.size()));
     for (const HostAddress &a : addrList) {
         coreAddrs.push_back(toCoreAddress(a));
@@ -507,31 +507,31 @@ void SocketDnsCache::setTimeToLive(quint64 msecs)
 
 namespace qtng_bridge {
 
-std::shared_ptr<qtng_core::Socket> socketCoreOf(QTNETWORKNG_NAMESPACE::Socket *socket)
+std::shared_ptr<QTNG_NAMESPACE::Socket> socketCoreOf(QTNETWORKNG_NAMESPACE::Socket *socket)
 {
     if (!socket) {
-        return std::shared_ptr<qtng_core::Socket>();
+        return std::shared_ptr<QTNG_NAMESPACE::Socket>();
     }
     return QTNETWORKNG_NAMESPACE::SocketPrivate::coreOf(socket);
 }
 
-void assignSocketCore(QTNETWORKNG_NAMESPACE::Socket *socket, std::shared_ptr<qtng_core::Socket> core)
+void assignSocketCore(QTNETWORKNG_NAMESPACE::Socket *socket, std::shared_ptr<QTNG_NAMESPACE::Socket> core)
 {
     if (socket) {
         QTNETWORKNG_NAMESPACE::SocketPrivate::coreOf(socket) = std::move(core);
     }
 }
 
-std::shared_ptr<qtng_core::SocketDnsCache> dnsCacheCoreOf(QTNETWORKNG_NAMESPACE::SocketDnsCache *cache)
+std::shared_ptr<QTNG_NAMESPACE::SocketDnsCache> dnsCacheCoreOf(QTNETWORKNG_NAMESPACE::SocketDnsCache *cache)
 {
     if (!cache) {
-        return std::shared_ptr<qtng_core::SocketDnsCache>();
+        return std::shared_ptr<QTNG_NAMESPACE::SocketDnsCache>();
     }
     return QTNETWORKNG_NAMESPACE::SocketDnsCachePrivate::coreOf(cache);
 }
 
 QSharedPointer<QTNETWORKNG_NAMESPACE::SocketDnsCache>
-dnsCacheFromCore(const std::shared_ptr<qtng_core::SocketDnsCache> &core)
+dnsCacheFromCore(const std::shared_ptr<QTNG_NAMESPACE::SocketDnsCache> &core)
 {
     if (!core) {
         return QSharedPointer<QTNETWORKNG_NAMESPACE::SocketDnsCache>();

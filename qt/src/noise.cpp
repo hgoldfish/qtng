@@ -14,16 +14,16 @@ namespace QTNETWORKNG_NAMESPACE {
 class NoiseCipherStatePrivate
 {
 public:
-    explicit NoiseCipherStatePrivate(qtng_core::Aead::Algorithm algo = qtng_core::Aead::ChaCha20Poly1305)
+    explicit NoiseCipherStatePrivate(QTNG_NAMESPACE::Aead::Algorithm algo = QTNG_NAMESPACE::Aead::ChaCha20Poly1305)
         : core(algo)
     {
     }
 
-    qtng_core::NoiseCipherState core;
+    QTNG_NAMESPACE::NoiseCipherState core;
 };
 
 NoiseCipherState::NoiseCipherState(AeadAlgorithm algo)
-    : d_ptr(new NoiseCipherStatePrivate(static_cast<qtng_core::Aead::Algorithm>(algo)))
+    : d_ptr(new NoiseCipherStatePrivate(static_cast<QTNG_NAMESPACE::Aead::Algorithm>(algo)))
 {
 }
 
@@ -120,7 +120,7 @@ bool NoiseCipherState::lastDecryptOk() const
 
 NoiseKey NoiseKey::generate()
 {
-    const qtng_core::NoiseKey key = qtng_core::NoiseKey::generate();
+    const QTNG_NAMESPACE::NoiseKey key = QTNG_NAMESPACE::NoiseKey::generate();
     NoiseKey result;
     result.setPrivateKey(toQByteArray(key.privateKey()));
     result.setPublicKey(toQByteArray(key.publicKey()));
@@ -129,7 +129,7 @@ NoiseKey NoiseKey::generate()
 
 NoiseKey NoiseKey::fromPrivateKey(const QByteArray &privateKey32)
 {
-    const qtng_core::NoiseKey key = qtng_core::NoiseKey::fromPrivateKey(toStdString(privateKey32));
+    const QTNG_NAMESPACE::NoiseKey key = QTNG_NAMESPACE::NoiseKey::fromPrivateKey(toStdString(privateKey32));
     NoiseKey result;
     result.setPrivateKey(toQByteArray(key.privateKey()));
     result.setPublicKey(toQByteArray(key.publicKey()));
@@ -138,7 +138,7 @@ NoiseKey NoiseKey::fromPrivateKey(const QByteArray &privateKey32)
 
 QByteArray NoiseKey::dh(const QByteArray &privateKey32, const QByteArray &peerPublicKey32)
 {
-    return toQByteArray(qtng_core::NoiseKey::dh(toStdString(privateKey32), toStdString(peerPublicKey32)));
+    return toQByteArray(QTNG_NAMESPACE::NoiseKey::dh(toStdString(privateKey32), toStdString(peerPublicKey32)));
 }
 
 NoiseConfig::NoiseConfig(const QByteArray &localPrivateKey)
@@ -153,20 +153,20 @@ NoiseConfig::NoiseConfig(const NoiseKey &key)
 
 namespace {
 
-qtng_core::NoiseConfig toCoreConfig(const NoiseConfig &cfg)
+QTNG_NAMESPACE::NoiseConfig toCoreConfig(const NoiseConfig &cfg)
 {
-    qtng_core::NoiseKey key;
+    QTNG_NAMESPACE::NoiseKey key;
     key.setPrivateKey(toStdString(cfg.localStatic().privateKey()));
     key.setPublicKey(toStdString(cfg.localStatic().publicKey()));
-    qtng_core::NoiseConfig core(key);
-    core.setPattern(static_cast<qtng_core::NoisePattern>(cfg.pattern()));
-    core.setRole(static_cast<qtng_core::NoiseRole>(cfg.role()));
+    QTNG_NAMESPACE::NoiseConfig core(key);
+    core.setPattern(static_cast<QTNG_NAMESPACE::NoisePattern>(cfg.pattern()));
+    core.setRole(static_cast<QTNG_NAMESPACE::NoiseRole>(cfg.role()));
     core.setRemoteStaticPublic(toStdString(cfg.remoteStaticPublic()));
     core.setPsk(toStdString(cfg.psk()));
-    core.setPskModifier(static_cast<qtng_core::NoisePskModifier>(cfg.pskModifier()));
+    core.setPskModifier(static_cast<QTNG_NAMESPACE::NoisePskModifier>(cfg.pskModifier()));
     core.setPrologue(toStdString(cfg.prologue()));
-    core.setCipher(static_cast<qtng_core::Aead::Algorithm>(cfg.cipher()));
-    core.setHash(static_cast<qtng_core::NoiseHash>(cfg.hash()));
+    core.setCipher(static_cast<QTNG_NAMESPACE::Aead::Algorithm>(cfg.cipher()));
+    core.setHash(static_cast<QTNG_NAMESPACE::NoiseHash>(cfg.hash()));
     return core;
 }
 
@@ -174,23 +174,23 @@ qtng_core::NoiseConfig toCoreConfig(const NoiseConfig &cfg)
 
 QString noiseProtocolName(NoisePattern pattern, NoisePskModifier pskModifier, AeadAlgorithm cipher, NoiseHash hash)
 {
-    return QString::fromStdString(qtng_core::noiseProtocolName(
-            static_cast<qtng_core::NoisePattern>(pattern),
-            static_cast<qtng_core::NoisePskModifier>(pskModifier),
-            static_cast<qtng_core::Aead::Algorithm>(cipher),
-            static_cast<qtng_core::NoiseHash>(hash)));
+    return QString::fromStdString(QTNG_NAMESPACE::noiseProtocolName(
+            static_cast<QTNG_NAMESPACE::NoisePattern>(pattern),
+            static_cast<QTNG_NAMESPACE::NoisePskModifier>(pskModifier),
+            static_cast<QTNG_NAMESPACE::Aead::Algorithm>(cipher),
+            static_cast<QTNG_NAMESPACE::NoiseHash>(hash)));
 }
 
 bool parseNoiseProtocolName(const QString &name, NoisePattern *pattern, NoisePskModifier *pskModifier,
                             AeadAlgorithm *cipher, NoiseHash *hash, QString *errorMessage)
 {
-    qtng_core::NoisePattern corePattern = qtng_core::NoisePattern::XX;
-    qtng_core::NoisePskModifier coreMod = qtng_core::NoisePskModifier::None;
-    qtng_core::Aead::Algorithm coreCipher = qtng_core::Aead::ChaCha20Poly1305;
-    qtng_core::NoiseHash coreHash = qtng_core::NoiseHash::Sha256;
+    QTNG_NAMESPACE::NoisePattern corePattern = QTNG_NAMESPACE::NoisePattern::XX;
+    QTNG_NAMESPACE::NoisePskModifier coreMod = QTNG_NAMESPACE::NoisePskModifier::None;
+    QTNG_NAMESPACE::Aead::Algorithm coreCipher = QTNG_NAMESPACE::Aead::ChaCha20Poly1305;
+    QTNG_NAMESPACE::NoiseHash coreHash = QTNG_NAMESPACE::NoiseHash::Sha256;
     string err;
     string *errPtr = errorMessage ? &err : nullptr;
-    if (!qtng_core::parseNoiseProtocolName(toStdString(name), &corePattern, &coreMod, &coreCipher,
+    if (!QTNG_NAMESPACE::parseNoiseProtocolName(toStdString(name), &corePattern, &coreMod, &coreCipher,
                                            &coreHash, errPtr)) {
         if (errorMessage) {
             *errorMessage = QString::fromStdString(err);
@@ -223,7 +223,7 @@ bool applyNoiseProtocolName(const QString &name, NoiseConfig *config, QString *e
 class NoiseHandshakeStatePrivate
 {
 public:
-    qtng_core::NoiseHandshakeState core;
+    QTNG_NAMESPACE::NoiseHandshakeState core;
 };
 
 NoiseHandshakeState::NoiseHandshakeState()
@@ -300,18 +300,18 @@ QString NoiseHandshakeState::errorString() const
 class NoiseSocketPrivate
 {
 public:
-    shared_ptr<qtng_core::NoiseSocket> core;
+    shared_ptr<QTNG_NAMESPACE::NoiseSocket> core;
 
-    static shared_ptr<qtng_core::NoiseSocket> coreOf(NoiseSocket *s)
+    static shared_ptr<QTNG_NAMESPACE::NoiseSocket> coreOf(NoiseSocket *s)
     {
-        return s ? s->d_func()->core : shared_ptr<qtng_core::NoiseSocket>();
+        return s ? s->d_func()->core : shared_ptr<QTNG_NAMESPACE::NoiseSocket>();
     }
 };
 
 NoiseSocket::NoiseSocket(QSharedPointer<SocketLike> backend)
     : d_ptr(new NoiseSocketPrivate)
 {
-    d_ptr->core = make_shared<qtng_core::NoiseSocket>(toCoreSocketLike(backend));
+    d_ptr->core = make_shared<QTNG_NAMESPACE::NoiseSocket>(toCoreSocketLike(backend));
 }
 
 NoiseSocket::~NoiseSocket()
@@ -459,13 +459,13 @@ Socket *NoiseSocket::acceptRaw()
 bool NoiseSocket::bind(const HostAddress &address, quint16 port, Socket::BindMode mode)
 {
     Q_D(NoiseSocket);
-    return d->core->bind(toCoreAddress(address), port, static_cast<qtng_core::Socket::BindMode>(mode));
+    return d->core->bind(toCoreAddress(address), port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(mode));
 }
 
 bool NoiseSocket::bind(quint16 port, Socket::BindMode mode)
 {
     Q_D(NoiseSocket);
-    return d->core->bind(port, static_cast<qtng_core::Socket::BindMode>(mode));
+    return d->core->bind(port, static_cast<QTNG_NAMESPACE::Socket::BindMode>(mode));
 }
 
 bool NoiseSocket::connect(const HostAddress &addr, quint16 port)
@@ -478,7 +478,7 @@ bool NoiseSocket::connect(const QString &hostName, quint16 port, QSharedPointer<
 {
     Q_UNUSED(dnsCache);
     Q_D(NoiseSocket);
-    return d->core->connect(toStdString(hostName), port, shared_ptr<qtng_core::SocketDnsCache>());
+    return d->core->connect(toStdString(hostName), port, shared_ptr<QTNG_NAMESPACE::SocketDnsCache>());
 }
 
 void NoiseSocket::close()
@@ -502,13 +502,13 @@ bool NoiseSocket::listen(int backlog)
 bool NoiseSocket::setOption(Socket::SocketOption option, const QVariant &value)
 {
     Q_D(NoiseSocket);
-    return d->core->setOption(static_cast<qtng_core::Socket::SocketOption>(option), value.toInt());
+    return d->core->setOption(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option), value.toInt());
 }
 
 QVariant NoiseSocket::option(Socket::SocketOption option) const
 {
     Q_D(const NoiseSocket);
-    return d->core->option(static_cast<qtng_core::Socket::SocketOption>(option));
+    return d->core->option(static_cast<QTNG_NAMESPACE::Socket::SocketOption>(option));
 }
 
 qint32 NoiseSocket::peek(char *data, qint32 size)
@@ -576,13 +576,13 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<NoiseSocket> s)
     if (!s) {
         return QSharedPointer<SocketLike>();
     }
-    return ::qtng_bridge::toQtSocketLike(qtng_core::asSocketLike(NoiseSocketPrivate::coreOf(s.data())));
+    return ::qtng_bridge::toQtSocketLike(QTNG_NAMESPACE::asSocketLike(NoiseSocketPrivate::coreOf(s.data())));
 }
 
 class NoiseDatagramPrivate
 {
 public:
-    qtng_core::NoiseDatagram core;
+    QTNG_NAMESPACE::NoiseDatagram core;
 };
 
 NoiseDatagram::NoiseDatagram()

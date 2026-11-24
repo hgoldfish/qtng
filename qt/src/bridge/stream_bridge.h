@@ -17,24 +17,24 @@ namespace qtng_bridge {
 class CoreSocketLikeAdapter;
 class QtBackedCoreSocketLike;
 
-std::shared_ptr<qtng_core::SocketLike> kcpOrUtpToCoreSocketLike(
+std::shared_ptr<QTNG_NAMESPACE::SocketLike> kcpOrUtpToCoreSocketLike(
         const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socket);
 // Unwraps a Qt LocalSocket-backed SocketLike into the core LocalSocket's
 // SocketLike, and wraps a core LocalSocket-like back into Qt. Both return null
 // when the argument is not a local socket, so callers can chain them.
-std::shared_ptr<qtng_core::SocketLike> localSocketToCoreSocketLike(
+std::shared_ptr<QTNG_NAMESPACE::SocketLike> localSocketToCoreSocketLike(
         const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socket);
 QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike>
-localSocketFromCoreSocketLike(const std::shared_ptr<qtng_core::SocketLike> &core);
+localSocketFromCoreSocketLike(const std::shared_ptr<QTNG_NAMESPACE::SocketLike> &core);
 
-std::shared_ptr<qtng_core::SocketLike> toCoreSocketLike(const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socket);
+std::shared_ptr<QTNG_NAMESPACE::SocketLike> toCoreSocketLike(const QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike> &socket);
 QSharedPointer<QTNETWORKNG_NAMESPACE::SocketLike>
-toQtSocketLike(const std::shared_ptr<qtng_core::SocketLike> &core);
+toQtSocketLike(const std::shared_ptr<QTNG_NAMESPACE::SocketLike> &core);
 
-std::shared_ptr<qtng_core::FileLike> toCoreFileLike(const QSharedPointer<QTNETWORKNG_NAMESPACE::FileLike> &file);
-QSharedPointer<QTNETWORKNG_NAMESPACE::FileLike> toQtFileLike(const std::shared_ptr<qtng_core::FileLike> &core);
+std::shared_ptr<QTNG_NAMESPACE::FileLike> toCoreFileLike(const QSharedPointer<QTNETWORKNG_NAMESPACE::FileLike> &file);
+QSharedPointer<QTNETWORKNG_NAMESPACE::FileLike> toQtFileLike(const std::shared_ptr<QTNG_NAMESPACE::FileLike> &core);
 
-inline QDateTime toQDateTime(const qtng_core::utils::DateTime &dt)
+inline QDateTime toQDateTime(const QTNG_NAMESPACE::utils::DateTime &dt)
 {
     if (!dt.isValid()) {
         return QDateTime();
@@ -47,12 +47,12 @@ inline QDateTime toQDateTime(const qtng_core::utils::DateTime &dt)
 #endif
 }
 
-inline qtng_core::utils::DateTime toCoreDateTime(const QDateTime &dt)
+inline QTNG_NAMESPACE::utils::DateTime toCoreDateTime(const QDateTime &dt)
 {
     if (!dt.isValid()) {
-        return qtng_core::utils::DateTime();
+        return QTNG_NAMESPACE::utils::DateTime();
     }
-    return qtng_core::utils::DateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch());
+    return QTNG_NAMESPACE::utils::DateTime::fromMSecsSinceEpoch(dt.toMSecsSinceEpoch());
 }
 
 }  // namespace qtng_bridge

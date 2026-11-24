@@ -1,4 +1,5 @@
 #include "bridge/core_access.h"
+#include "bridge/eventloop_access.h"
 #include "pool.h"
 #include "private/eventloop_p.h"
 
@@ -117,8 +118,8 @@ void QtEventLoopThread::createEventLoop()
     // This thread is driven by the Qt event loop backend explicitly (the core factory only hands
     // out the Qt backend on the GUI thread). Pin the core loop in the core thread-local storage
     // first (it is the single ownership source), then wrap it for the qt API layer.
-    qtng_core::currentLoop()->set(std::shared_ptr<qtng_core::EventLoopCoroutine>(new qtng_core::QtEventLoopCoroutine()));
-    eventLoop = wrapCoreLoop(qtng_core::currentLoop()->get().get());
+    QTNG_NAMESPACE::currentLoop()->set(std::shared_ptr<QTNG_NAMESPACE::EventLoopCoroutine>(new QTNG_NAMESPACE::QtEventLoopCoroutine()));
+    eventLoop = wrapCoreLoop(QTNG_NAMESPACE::currentLoop()->get().get());
     currentLoop()->set(eventLoop);
 }
 

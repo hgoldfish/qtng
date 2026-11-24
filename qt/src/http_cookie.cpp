@@ -14,14 +14,14 @@ namespace QTNETWORKNG_NAMESPACE {
 class HttpCookiePrivate : public QSharedData
 {
 public:
-    qtng_core::HttpCookie core;
+    QTNG_NAMESPACE::HttpCookie core;
 
-    static qtng_core::HttpCookie toCore(const HttpCookie &cookie)
+    static QTNG_NAMESPACE::HttpCookie toCore(const HttpCookie &cookie)
     {
         return cookie.d->core;
     }
 
-    static HttpCookie fromCore(const qtng_core::HttpCookie &cookie)
+    static HttpCookie fromCore(const QTNG_NAMESPACE::HttpCookie &cookie)
     {
         HttpCookie result;
         result.d->core = cookie;
@@ -81,7 +81,7 @@ HttpCookie::SameSite HttpCookie::sameSitePolicy() const
 
 void HttpCookie::setSameSitePolicy(SameSite sameSite)
 {
-    d->core.setSameSitePolicy(static_cast<qtng_core::HttpCookie::SameSite>(sameSite));
+    d->core.setSameSitePolicy(static_cast<QTNG_NAMESPACE::HttpCookie::SameSite>(sameSite));
 }
 
 bool HttpCookie::isSessionCookie() const
@@ -141,7 +141,7 @@ void HttpCookie::setValue(const QByteArray &value)
 
 QByteArray HttpCookie::toRawForm(RawForm form) const
 {
-    return toQByteArray(d->core.toRawForm(static_cast<qtng_core::HttpCookie::RawForm>(form)));
+    return toQByteArray(d->core.toRawForm(static_cast<QTNG_NAMESPACE::HttpCookie::RawForm>(form)));
 }
 
 bool HttpCookie::hasSameIdentifier(const HttpCookie &other) const
@@ -156,9 +156,9 @@ void HttpCookie::normalize(const QUrl &url)
 
 QList<HttpCookie> HttpCookie::parseCookies(const QByteArray &cookieString)
 {
-    const vector<qtng_core::HttpCookie> cookies = qtng_core::HttpCookie::parseCookies(toStdString(cookieString));
+    const vector<QTNG_NAMESPACE::HttpCookie> cookies = QTNG_NAMESPACE::HttpCookie::parseCookies(toStdString(cookieString));
     QList<HttpCookie> result;
-    for (const qtng_core::HttpCookie &cookie : cookies) {
+    for (const QTNG_NAMESPACE::HttpCookie &cookie : cookies) {
         result.append(HttpCookiePrivate::fromCore(cookie));
     }
     return result;
@@ -167,12 +167,12 @@ QList<HttpCookie> HttpCookie::parseCookies(const QByteArray &cookieString)
 class HttpCookieJarPrivate
 {
 public:
-    std::shared_ptr<qtng_core::HttpCookieJar> core = std::make_shared<qtng_core::HttpCookieJar>();
+    std::shared_ptr<QTNG_NAMESPACE::HttpCookieJar> core = std::make_shared<QTNG_NAMESPACE::HttpCookieJar>();
 
-    qtng_core::HttpCookieJar &coreRef() { return *core; }
-    const qtng_core::HttpCookieJar &coreRef() const { return *core; }
+    QTNG_NAMESPACE::HttpCookieJar &coreRef() { return *core; }
+    const QTNG_NAMESPACE::HttpCookieJar &coreRef() const { return *core; }
 
-    static void bindCore(HttpCookieJar *jar, std::shared_ptr<qtng_core::HttpCookieJar> core)
+    static void bindCore(HttpCookieJar *jar, std::shared_ptr<QTNG_NAMESPACE::HttpCookieJar> core)
     {
         if (jar) {
             jar->d_ptr->core = std::move(core);
@@ -192,9 +192,9 @@ HttpCookieJar::~HttpCookieJar()
 
 QList<HttpCookie> HttpCookieJar::cookiesForUrl(const QUrl &url) const
 {
-    const vector<qtng_core::HttpCookie> cookies = d_ptr->coreRef().cookiesForUrl(toCoreUrl(url).toString());
+    const vector<QTNG_NAMESPACE::HttpCookie> cookies = d_ptr->coreRef().cookiesForUrl(toCoreUrl(url).toString());
     QList<HttpCookie> result;
-    for (const qtng_core::HttpCookie &cookie : cookies) {
+    for (const QTNG_NAMESPACE::HttpCookie &cookie : cookies) {
         result.append(HttpCookiePrivate::fromCore(cookie));
     }
     return result;
@@ -202,7 +202,7 @@ QList<HttpCookie> HttpCookieJar::cookiesForUrl(const QUrl &url) const
 
 bool HttpCookieJar::setCookiesFromUrl(const QList<HttpCookie> &cookieList, const QUrl &url)
 {
-    vector<qtng_core::HttpCookie> cookies;
+    vector<QTNG_NAMESPACE::HttpCookie> cookies;
     cookies.reserve(static_cast<size_t>(cookieList.size()));
     for (const HttpCookie &cookie : cookieList) {
         cookies.push_back(HttpCookiePrivate::toCore(cookie));
@@ -227,9 +227,9 @@ bool HttpCookieJar::deleteCookie(const HttpCookie &cookie)
 
 QList<HttpCookie> HttpCookieJar::allCookies() const
 {
-    const vector<qtng_core::HttpCookie> cookies = d_ptr->coreRef().allCookies();
+    const vector<QTNG_NAMESPACE::HttpCookie> cookies = d_ptr->coreRef().allCookies();
     QList<HttpCookie> result;
-    for (const qtng_core::HttpCookie &cookie : cookies) {
+    for (const QTNG_NAMESPACE::HttpCookie &cookie : cookies) {
         result.append(HttpCookiePrivate::fromCore(cookie));
     }
     return result;
@@ -237,7 +237,7 @@ QList<HttpCookie> HttpCookieJar::allCookies() const
 
 void HttpCookieJar::setAllCookies(const QList<HttpCookie> &cookieList)
 {
-    vector<qtng_core::HttpCookie> cookies;
+    vector<QTNG_NAMESPACE::HttpCookie> cookies;
     cookies.reserve(static_cast<size_t>(cookieList.size()));
     for (const HttpCookie &cookie : cookieList) {
         cookies.push_back(HttpCookiePrivate::toCore(cookie));
@@ -247,7 +247,7 @@ void HttpCookieJar::setAllCookies(const QList<HttpCookie> &cookieList)
 
 bool HttpCookieJar::validateCookie(const HttpCookie &cookie, const QUrl &url) const
 {
-    const qtng_core::HttpCookie coreCookie = HttpCookiePrivate::toCore(cookie);
+    const QTNG_NAMESPACE::HttpCookie coreCookie = HttpCookiePrivate::toCore(cookie);
     return d_ptr->coreRef().validateCookie(coreCookie, toCoreUrl(url).toString());
 }
 
@@ -265,7 +265,7 @@ QDebug operator<<(QDebug debug, const HttpCookie &cookie)
 namespace qtng_bridge {
 
 std::shared_ptr<QTNETWORKNG_NAMESPACE::HttpCookieJar>
-httpCookieJarFromCore(std::shared_ptr<qtng_core::HttpCookieJar> core)
+httpCookieJarFromCore(std::shared_ptr<QTNG_NAMESPACE::HttpCookieJar> core)
 {
     std::shared_ptr<QTNETWORKNG_NAMESPACE::HttpCookieJar> jar(new QTNETWORKNG_NAMESPACE::HttpCookieJar);
     QTNETWORKNG_NAMESPACE::HttpCookieJarPrivate::bindCore(jar.get(), std::move(core));

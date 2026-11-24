@@ -11,26 +11,26 @@ namespace QTNETWORKNG_NAMESPACE {
 class UtpStreamPrivate
 {
 public:
-    explicit UtpStreamPrivate(shared_ptr<qtng_core::UtpStream> coreStream)
+    explicit UtpStreamPrivate(shared_ptr<QTNG_NAMESPACE::UtpStream> coreStream)
         : core(std::move(coreStream))
     {
     }
 
-    static UtpStream *fromCore(qtng_core::UtpStream *adopted)
+    static UtpStream *fromCore(QTNG_NAMESPACE::UtpStream *adopted)
     {
         if (!adopted) {
             return nullptr;
         }
-        UtpStream *stream = new UtpStream(new UtpStreamPrivate(shared_ptr<qtng_core::UtpStream>(adopted)));
+        UtpStream *stream = new UtpStream(new UtpStreamPrivate(shared_ptr<QTNG_NAMESPACE::UtpStream>(adopted)));
         stream->attachEvents();
         return stream;
     }
 
-    shared_ptr<qtng_core::UtpStream> core;
+    shared_ptr<QTNG_NAMESPACE::UtpStream> core;
 };
 
 UtpStream::UtpStream(QSharedPointer<DatagramLink> link)
-    : d_ptr(new UtpStreamPrivate(make_shared<qtng_core::UtpStream>(toCoreDatagramLink(link))))
+    : d_ptr(new UtpStreamPrivate(make_shared<QTNG_NAMESPACE::UtpStream>(toCoreDatagramLink(link))))
 {
     attachEvents();
 }

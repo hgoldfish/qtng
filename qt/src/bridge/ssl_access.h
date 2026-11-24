@@ -5,7 +5,7 @@
 
 #include "config.h"
 
-namespace qtng_core {
+namespace QTNG_NAMESPACE {
 class SslConfiguration;
 class SslSocket;
 }
@@ -17,10 +17,10 @@ QTNETWORKNG_NAMESPACE_END
 
 namespace qtng_bridge {
 
-std::shared_ptr<qtng_core::SslSocket> sslSocketCoreOf(QTNETWORKNG_NAMESPACE::SslSocket *socket);
+std::shared_ptr<QTNG_NAMESPACE::SslSocket> sslSocketCoreOf(QTNETWORKNG_NAMESPACE::SslSocket *socket);
 std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration>
-sslConfigurationFromCore(std::shared_ptr<qtng_core::SslConfiguration> core);
-std::shared_ptr<qtng_core::SslConfiguration>
+sslConfigurationFromCore(std::shared_ptr<QTNG_NAMESPACE::SslConfiguration> core);
+std::shared_ptr<QTNG_NAMESPACE::SslConfiguration>
 sslConfigurationToCore(const std::shared_ptr<QTNETWORKNG_NAMESPACE::SslConfiguration> &config);
 
 }  // namespace qtng_bridge

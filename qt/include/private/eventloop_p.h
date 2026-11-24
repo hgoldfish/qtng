@@ -3,10 +3,6 @@
 
 #include "../eventloop.h"
 
-namespace qtng_core {
-class EventLoopCoroutine;
-}
-
 QTNETWORKNG_NAMESPACE_BEGIN
 
 class Functor
@@ -147,9 +143,6 @@ private:
 };
 
 CurrentLoopStorage *currentLoop();
-
-// internal: create the qt EventLoopCoroutine view wrapping the given core loop.
-QSharedPointer<EventLoopCoroutine> wrapCoreLoop(qtng_core::EventLoopCoroutine *core);
 
 QTNETWORKNG_NAMESPACE_END
 

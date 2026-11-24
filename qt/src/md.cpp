@@ -12,11 +12,11 @@ class MessageDigestPrivate
 {
 public:
     explicit MessageDigestPrivate(MessageDigest::Algorithm algo)
-        : core(static_cast<qtng_core::MessageDigest::Algorithm>(algo))
+        : core(static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(algo))
     {
     }
 
-    qtng_core::MessageDigest core;
+    QTNG_NAMESPACE::MessageDigest core;
 };
 
 MessageDigest::MessageDigest(Algorithm algo)
@@ -44,8 +44,8 @@ QByteArray MessageDigest::result()
 QByteArray PBKDF2_HMAC(int keylen, const QByteArray &password, const QByteArray &salt,
                        MessageDigest::Algorithm hashAlgo, int i)
 {
-    return toQByteArray(qtng_core::PBKDF2_HMAC(keylen, toStdString(password), toStdString(salt),
-                                              static_cast<qtng_core::MessageDigest::Algorithm>(hashAlgo), i));
+    return toQByteArray(QTNG_NAMESPACE::PBKDF2_HMAC(keylen, toStdString(password), toStdString(salt),
+                                              static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(hashAlgo), i));
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

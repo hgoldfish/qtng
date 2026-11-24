@@ -12,7 +12,7 @@ namespace QTNETWORKNG_NAMESPACE {
 class Socks5ProxyPrivate
 {
 public:
-    qtng_core::Socks5Proxy core;
+    QTNG_NAMESPACE::Socks5Proxy core;
 };
 
 Socks5Exception::Error Socks5Exception::error() const
@@ -22,7 +22,7 @@ Socks5Exception::Error Socks5Exception::error() const
 
 QString Socks5Exception::errorString() const
 {
-    return toQString(qtng_core::Socks5Exception(static_cast<qtng_core::Socks5Exception::Error>(err)).errorString());
+    return toQString(QTNG_NAMESPACE::Socks5Exception(static_cast<QTNG_NAMESPACE::Socks5Exception::Error>(err)).errorString());
 }
 
 Socks5Proxy::Socks5Proxy()
@@ -33,7 +33,7 @@ Socks5Proxy::Socks5Proxy()
 Socks5Proxy::Socks5Proxy(const QString &hostName, quint16 port, const QString &user, const QString &password)
     : d_ptr(new Socks5ProxyPrivate)
 {
-    d_ptr->core = qtng_core::Socks5Proxy(toStdString(hostName), port, toStdString(user), toStdString(password));
+    d_ptr->core = QTNG_NAMESPACE::Socks5Proxy(toStdString(hostName), port, toStdString(user), toStdString(password));
 }
 
 Socks5Proxy::Socks5Proxy(const Socks5Proxy &other)
@@ -51,7 +51,7 @@ QSharedPointer<SocketLike> Socks5Proxy::connect(const QString &remoteHost, quint
 {
     try {
         return toQtSocketLike(d_ptr->core.connect(toStdString(remoteHost), port));
-    } catch (const qtng_core::Socks5Exception &e) {
+    } catch (const QTNG_NAMESPACE::Socks5Exception &e) {
         throw Socks5Exception(static_cast<Socks5Exception::Error>(e.error()));
     }
 }
@@ -60,7 +60,7 @@ QSharedPointer<SocketLike> Socks5Proxy::connect(const HostAddress &remoteHost, q
 {
     try {
         return toQtSocketLike(d_ptr->core.connect(toCoreAddress(remoteHost), port));
-    } catch (const qtng_core::Socks5Exception &e) {
+    } catch (const QTNG_NAMESPACE::Socks5Exception &e) {
         throw Socks5Exception(static_cast<Socks5Exception::Error>(e.error()));
     }
 }
@@ -144,7 +144,7 @@ bool Socks5Proxy::operator==(const Socks5Proxy &other) const
     return d_ptr->core == other.d_ptr->core;
 }
 
-class QtSocks5RequestHandlerCoreBridge : public qtng_core::Socks5RequestHandler
+class QtSocks5RequestHandlerCoreBridge : public QTNG_NAMESPACE::Socks5RequestHandler
 {
 public:
     explicit QtSocks5RequestHandlerCoreBridge(QTNETWORKNG_NAMESPACE::Socks5RequestHandler *q)
@@ -153,48 +153,48 @@ public:
     }
 
     // non-virtual core helpers, called from the Qt default implementations.
-    void handleCore() { qtng_core::Socks5RequestHandler::handle(); }
-    bool sendConnectReplyCore(const qtng_core::HostAddress &hostAddress, quint16 port)
+    void handleCore() { QTNG_NAMESPACE::Socks5RequestHandler::handle(); }
+    bool sendConnectReplyCore(const QTNG_NAMESPACE::HostAddress &hostAddress, quint16 port)
     {
-        return qtng_core::Socks5RequestHandler::sendConnectReply(hostAddress, port);
+        return QTNG_NAMESPACE::Socks5RequestHandler::sendConnectReply(hostAddress, port);
     }
-    bool sendFailedReplyCore() { return qtng_core::Socks5RequestHandler::sendFailedReply(); }
-    void doConnectCore(const string &hostName, const qtng_core::HostAddress &hostAddress, uint16_t port)
+    bool sendFailedReplyCore() { return QTNG_NAMESPACE::Socks5RequestHandler::sendFailedReply(); }
+    void doConnectCore(const string &hostName, const QTNG_NAMESPACE::HostAddress &hostAddress, uint16_t port)
     {
-        qtng_core::Socks5RequestHandler::doConnect(hostName, hostAddress, port);
+        QTNG_NAMESPACE::Socks5RequestHandler::doConnect(hostName, hostAddress, port);
     }
-    void doFailedCore(const string &hostName, const qtng_core::HostAddress &hostAddress, uint16_t port)
+    void doFailedCore(const string &hostName, const QTNG_NAMESPACE::HostAddress &hostAddress, uint16_t port)
     {
-        qtng_core::Socks5RequestHandler::doFailed(hostName, hostAddress, port);
+        QTNG_NAMESPACE::Socks5RequestHandler::doFailed(hostName, hostAddress, port);
     }
-    shared_ptr<qtng_core::SocketLike> makeConnectionCore(const string &hostName,
-                                                         const qtng_core::HostAddress &hostAddress, uint16_t port,
-                                                         qtng_core::HostAddress *forwardAddress)
+    shared_ptr<QTNG_NAMESPACE::SocketLike> makeConnectionCore(const string &hostName,
+                                                         const QTNG_NAMESPACE::HostAddress &hostAddress, uint16_t port,
+                                                         QTNG_NAMESPACE::HostAddress *forwardAddress)
     {
-        return qtng_core::Socks5RequestHandler::makeConnection(hostName, hostAddress, port, forwardAddress);
+        return QTNG_NAMESPACE::Socks5RequestHandler::makeConnection(hostName, hostAddress, port, forwardAddress);
     }
-    void logProxyCore(const string &hostName, const qtng_core::HostAddress &hostAddress, uint16_t port,
-                      const qtng_core::HostAddress &forwardAddress, bool success)
+    void logProxyCore(const string &hostName, const QTNG_NAMESPACE::HostAddress &hostAddress, uint16_t port,
+                      const QTNG_NAMESPACE::HostAddress &forwardAddress, bool success)
     {
-        qtng_core::Socks5RequestHandler::logProxy(hostName, hostAddress, port, forwardAddress, success);
+        QTNG_NAMESPACE::Socks5RequestHandler::logProxy(hostName, hostAddress, port, forwardAddress, success);
     }
-    void exchangeCore(shared_ptr<qtng_core::SocketLike> request, shared_ptr<qtng_core::SocketLike> forward)
+    void exchangeCore(shared_ptr<QTNG_NAMESPACE::SocketLike> request, shared_ptr<QTNG_NAMESPACE::SocketLike> forward)
     {
-        qtng_core::Socks5RequestHandler::exchange(request, forward);
+        QTNG_NAMESPACE::Socks5RequestHandler::exchange(request, forward);
     }
 
     // virtual methods: forward to the Qt side so that user overrides are honored.
     void handle() override { q->handle(); }
-    void doConnect(const string &hostName, const qtng_core::HostAddress &hostAddress, uint16_t port) override
+    void doConnect(const string &hostName, const QTNG_NAMESPACE::HostAddress &hostAddress, uint16_t port) override
     {
         q->doConnect(toQString(hostName), toQtAddress(hostAddress), port);
     }
-    void doFailed(const string &hostName, const qtng_core::HostAddress &hostAddress, uint16_t port) override
+    void doFailed(const string &hostName, const QTNG_NAMESPACE::HostAddress &hostAddress, uint16_t port) override
     {
         q->doFailed(toQString(hostName), toQtAddress(hostAddress), port);
     }
-    shared_ptr<qtng_core::SocketLike> makeConnection(const string &hostName, const qtng_core::HostAddress &hostAddress,
-                                                     uint16_t port, qtng_core::HostAddress *forwardAddress) override
+    shared_ptr<QTNG_NAMESPACE::SocketLike> makeConnection(const string &hostName, const QTNG_NAMESPACE::HostAddress &hostAddress,
+                                                     uint16_t port, QTNG_NAMESPACE::HostAddress *forwardAddress) override
     {
         HostAddress qtForwardAddress;
         const QSharedPointer<SocketLike> qtResult =
@@ -205,12 +205,12 @@ public:
         }
         return toCoreSocketLike(qtResult);
     }
-    void logProxy(const string &hostName, const qtng_core::HostAddress &hostAddress, uint16_t port,
-                  const qtng_core::HostAddress &forwardAddress, bool success) override
+    void logProxy(const string &hostName, const QTNG_NAMESPACE::HostAddress &hostAddress, uint16_t port,
+                  const QTNG_NAMESPACE::HostAddress &forwardAddress, bool success) override
     {
         q->logProxy(toQString(hostName), toQtAddress(hostAddress), port, toQtAddress(forwardAddress), success);
     }
-    void exchange(shared_ptr<qtng_core::SocketLike> request, shared_ptr<qtng_core::SocketLike> forward) override
+    void exchange(shared_ptr<QTNG_NAMESPACE::SocketLike> request, shared_ptr<QTNG_NAMESPACE::SocketLike> forward) override
     {
         q->exchange(toQtSocketLike(request), toQtSocketLike(forward));
     }
@@ -251,8 +251,8 @@ void Socks5RequestHandler::doFailed(const QString &hostName, const HostAddress &
 QSharedPointer<SocketLike> Socks5RequestHandler::makeConnection(const QString &hostName, const HostAddress &hostAddress,
                                                                 quint16 port, HostAddress *forwardAddress)
 {
-    qtng_core::HostAddress coreForwardAddress;
-    const shared_ptr<qtng_core::SocketLike> core = coreBridge->makeConnectionCore(
+    QTNG_NAMESPACE::HostAddress coreForwardAddress;
+    const shared_ptr<QTNG_NAMESPACE::SocketLike> core = coreBridge->makeConnectionCore(
             toStdString(hostName), toCoreAddress(hostAddress), port, forwardAddress ? &coreForwardAddress : nullptr);
     if (forwardAddress) {
         *forwardAddress = toQtAddress(coreForwardAddress);

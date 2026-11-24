@@ -14,17 +14,17 @@ class CipherPrivate
 public:
     Cipher::Algorithm algorithm;
     Cipher::Mode mode;
-    std::shared_ptr<qtng_core::Cipher> core;
+    std::shared_ptr<QTNG_NAMESPACE::Cipher> core;
     explicit CipherPrivate(Cipher::Algorithm alog, Cipher::Mode mode, Cipher::Operation operation)
         : algorithm(alog)
         , mode(mode)
-        , core(make_shared<qtng_core::Cipher>(static_cast<qtng_core::Cipher::Algorithm>(alog),
-                                               static_cast<qtng_core::Cipher::Mode>(mode),
-                                               static_cast<qtng_core::Cipher::Operation>(operation)))
+        , core(make_shared<QTNG_NAMESPACE::Cipher>(static_cast<QTNG_NAMESPACE::Cipher::Algorithm>(alog),
+                                               static_cast<QTNG_NAMESPACE::Cipher::Mode>(mode),
+                                               static_cast<QTNG_NAMESPACE::Cipher::Operation>(operation)))
     {
     }
 
-    static const std::shared_ptr<qtng_core::Cipher> &coreOf(const Cipher *cipher)
+    static const std::shared_ptr<QTNG_NAMESPACE::Cipher> &coreOf(const Cipher *cipher)
     {
         return cipher->d_func()->core;
     }
@@ -70,13 +70,13 @@ bool Cipher::setPassword(const QByteArray &password, const QByteArray &salt, Mes
 {
     Q_D(Cipher);
     return d->core->setPassword(toStdString(password), toStdString(salt),
-                                static_cast<qtng_core::MessageDigest::Algorithm>(hashAlgo), i);
+                                static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(hashAlgo), i);
 }
 bool Cipher::setOpensslPassword(const QByteArray &password, const QByteArray &salt, MessageDigest::Algorithm hashAlgo, int i)
 {
     Q_D(Cipher);
     return d->core->setOpensslPassword(toStdString(password), toStdString(salt),
-                                       static_cast<qtng_core::MessageDigest::Algorithm>(hashAlgo), i);
+                                       static_cast<QTNG_NAMESPACE::MessageDigest::Algorithm>(hashAlgo), i);
 }
 QByteArray Cipher::salt() const { Q_D(const Cipher); return toQByteArray(d->core->salt()); }
 QByteArray Cipher::saltHeader() const { Q_D(const Cipher); return toQByteArray(d->core->saltHeader()); }
@@ -91,7 +91,7 @@ QByteArray Cipher::finalData() { Q_D(Cipher); return toQByteArray(d->core->final
 QPair<QByteArray, QByteArray> Cipher::parseSalt(const QByteArray &header)
 {
     const std::pair<std::string, std::string> p =
-            qtng_core::Cipher::parseSalt(header.constData(), static_cast<size_t>(header.size()));
+            QTNG_NAMESPACE::Cipher::parseSalt(header.constData(), static_cast<size_t>(header.size()));
     return qMakePair(toQByteArray(p.first), toQByteArray(p.second));
 }
 
@@ -100,7 +100,7 @@ QSharedPointer<SocketLike> encrypted(QSharedPointer<Cipher> cipher, QSharedPoint
     if (cipher.isNull() || socket.isNull()) {
         return QSharedPointer<SocketLike>();
     }
-    return toQtSocketLike(qtng_core::encrypted(CipherPrivate::coreOf(cipher.data()), toCoreSocketLike(socket)));
+    return toQtSocketLike(QTNG_NAMESPACE::encrypted(CipherPrivate::coreOf(cipher.data()), toCoreSocketLike(socket)));
 }
 
 }  // namespace QTNETWORKNG_NAMESPACE

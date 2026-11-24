@@ -11,32 +11,32 @@ namespace QTNETWORKNG_NAMESPACE {
 class KcpStreamPrivate
 {
 public:
-    explicit KcpStreamPrivate(shared_ptr<qtng_core::KcpStream> coreStream)
+    explicit KcpStreamPrivate(shared_ptr<QTNG_NAMESPACE::KcpStream> coreStream)
         : core(std::move(coreStream))
     {
     }
 
-    static KcpStream *fromCore(qtng_core::KcpStream *adopted)
+    static KcpStream *fromCore(QTNG_NAMESPACE::KcpStream *adopted)
     {
         if (!adopted) {
             return nullptr;
         }
-        KcpStream *stream = new KcpStream(new KcpStreamPrivate(shared_ptr<qtng_core::KcpStream>(adopted)));
+        KcpStream *stream = new KcpStream(new KcpStreamPrivate(shared_ptr<QTNG_NAMESPACE::KcpStream>(adopted)));
         stream->attachEvents();
         return stream;
     }
 
-    shared_ptr<qtng_core::KcpStream> core;
+    shared_ptr<QTNG_NAMESPACE::KcpStream> core;
 };
 
-// KcpStreamStats is declared twice on purpose: qtng_core::KcpStreamStats is the
+// KcpStreamStats is declared twice on purpose: QTNG_NAMESPACE::KcpStreamStats is the
 // engine's, qtng::KcpStreamStats is the Qt-facing API. This maps the two by hand,
 // so a field added on one side only is dropped in silence.
 //
 // A sizeof comparison cannot guard that: the core layout's 15 uint32 fields leave
 // 4 bytes of tail padding, exactly enough for one extra uint32 on the Qt side.
 // Both stay 80 bytes and the drift would go unnoticed.
-static KcpStreamStats toQtStats(const qtng_core::KcpStreamStats &s)
+static KcpStreamStats toQtStats(const QTNG_NAMESPACE::KcpStreamStats &s)
 {
     KcpStreamStats out;
     out.sndWnd = s.sndWnd;
@@ -60,7 +60,7 @@ static KcpStreamStats toQtStats(const qtng_core::KcpStreamStats &s)
 }
 
 KcpStream::KcpStream(QSharedPointer<DatagramLink> link, quint32 sessionId)
-    : d_ptr(new KcpStreamPrivate(make_shared<qtng_core::KcpStream>(toCoreDatagramLink(link), sessionId)))
+    : d_ptr(new KcpStreamPrivate(make_shared<QTNG_NAMESPACE::KcpStream>(toCoreDatagramLink(link), sessionId)))
 {
     attachEvents();
 }

@@ -13,7 +13,7 @@ bool toMessage(HttpStatus status, QString *shortMessage, QString *longMessage)
 {
     string shortMsg;
     string longMsg;
-    const bool ok = qtng_core::toMessage(static_cast<qtng_core::HttpStatus>(status),
+    const bool ok = QTNG_NAMESPACE::toMessage(static_cast<QTNG_NAMESPACE::HttpStatus>(status),
                                          shortMessage ? &shortMsg : nullptr, longMessage ? &longMsg : nullptr);
     if (shortMessage) {
         *shortMessage = toQString(shortMsg);
@@ -26,22 +26,22 @@ bool toMessage(HttpStatus status, QString *shortMessage, QString *longMessage)
 
 QString normalizeHeaderName(const QString &headerName)
 {
-    return toQString(qtng_core::normalizeHeaderName(toStdString(headerName)));
+    return toQString(QTNG_NAMESPACE::normalizeHeaderName(toStdString(headerName)));
 }
 
 QDateTime fromHttpDate(const QByteArray &value)
 {
-    return toQDateTime(qtng_core::fromHttpDate(toStdString(value)));
+    return toQDateTime(QTNG_NAMESPACE::fromHttpDate(toStdString(value)));
 }
 
 QByteArray toHttpDate(const QDateTime &dt)
 {
-    return toQByteArray(qtng_core::toHttpDate(toCoreDateTime(dt)));
+    return toQByteArray(QTNG_NAMESPACE::toHttpDate(toCoreDateTime(dt)));
 }
 
 QString toString(KnownHeader knownHeader)
 {
-    return toQString(qtng_core::toString(static_cast<qtng_core::KnownHeader>(knownHeader)));
+    return toQString(QTNG_NAMESPACE::toString(static_cast<QTNG_NAMESPACE::KnownHeader>(knownHeader)));
 }
 
 QDataStream &operator>>(QDataStream &ds, HttpHeader &header)
@@ -62,7 +62,7 @@ QDataStream &operator<<(QDataStream &ds, const HttpHeader &header)
 
 QList<QByteArray> splitBytes(const QByteArray &bs, char sep, int maxSplit)
 {
-    const vector<string> parts = qtng_core::splitBytes(toStdString(bs), sep, maxSplit);
+    const vector<string> parts = QTNG_NAMESPACE::splitBytes(toStdString(bs), sep, maxSplit);
     QList<QByteArray> result;
     for (const string &part : parts) {
         result.append(toQByteArray(part));
@@ -81,7 +81,7 @@ public:
         : core(toCoreSocketLike(std::move(connection)), debugLevel)
     {
     }
-    qtng_core::HeaderSplitter core;
+    QTNG_NAMESPACE::HeaderSplitter core;
 };
 
 class ChunkedBlockReaderPrivate
@@ -91,7 +91,7 @@ public:
         : core(toCoreFileLike(std::move(connection)), toStdString(buf))
     {
     }
-    qtng_core::ChunkedBlockReader core;
+    QTNG_NAMESPACE::ChunkedBlockReader core;
 };
 
 class PlainBodyFilePrivate
@@ -101,7 +101,7 @@ public:
         : core(contentLength, toStdString(partialBody), toCoreSocketLike(std::move(stream)))
     {
     }
-    qtng_core::PlainBodyFile core;
+    QTNG_NAMESPACE::PlainBodyFile core;
 };
 
 class ChunkedBodyFilePrivate
@@ -111,7 +111,7 @@ public:
         : core(maxBodySize, toStdString(partialBody), toCoreFileLike(std::move(stream)))
     {
     }
-    qtng_core::ChunkedBodyFile core;
+    QTNG_NAMESPACE::ChunkedBodyFile core;
 };
 
 HeaderSplitter::HeaderSplitter(QSharedPointer<SocketLike> connection, const QByteArray &buf, int debugLevel)
@@ -131,7 +131,7 @@ HeaderSplitter::~HeaderSplitter()
 
 QByteArray HeaderSplitter::nextLine(Error *error)
 {
-    qtng_core::HeaderSplitter::Error coreError = qtng_core::HeaderSplitter::NoError;
+    QTNG_NAMESPACE::HeaderSplitter::Error coreError = QTNG_NAMESPACE::HeaderSplitter::NoError;
     const string line = d_ptr->core.nextLine(&coreError);
     if (error) {
         *error = static_cast<Error>(coreError);
@@ -141,8 +141,8 @@ QByteArray HeaderSplitter::nextLine(Error *error)
 
 HttpHeader HeaderSplitter::nextHeader(Error *error)
 {
-    qtng_core::HeaderSplitter::Error coreError = qtng_core::HeaderSplitter::NoError;
-    const qtng_core::HttpHeader header = d_ptr->core.nextHeader(&coreError);
+    QTNG_NAMESPACE::HeaderSplitter::Error coreError = QTNG_NAMESPACE::HeaderSplitter::NoError;
+    const QTNG_NAMESPACE::HttpHeader header = d_ptr->core.nextHeader(&coreError);
     if (error) {
         *error = static_cast<Error>(coreError);
     }
@@ -151,13 +151,13 @@ HttpHeader HeaderSplitter::nextHeader(Error *error)
 
 QList<HttpHeader> HeaderSplitter::headers(int maxHeaders, Error *error)
 {
-    qtng_core::HeaderSplitter::Error coreError = qtng_core::HeaderSplitter::NoError;
-    const vector<qtng_core::HttpHeader> coreHeaders = d_ptr->core.headers(maxHeaders, &coreError);
+    QTNG_NAMESPACE::HeaderSplitter::Error coreError = QTNG_NAMESPACE::HeaderSplitter::NoError;
+    const vector<QTNG_NAMESPACE::HttpHeader> coreHeaders = d_ptr->core.headers(maxHeaders, &coreError);
     if (error) {
         *error = static_cast<Error>(coreError);
     }
     QList<HttpHeader> result;
-    for (const qtng_core::HttpHeader &header : coreHeaders) {
+    for (const QTNG_NAMESPACE::HttpHeader &header : coreHeaders) {
         result.append(toQtHeader(header));
     }
     return result;
@@ -185,7 +185,7 @@ ChunkedBlockReader::~ChunkedBlockReader()
 
 QByteArray ChunkedBlockReader::nextBlock(qint64 leftBytes, Error *error)
 {
-    qtng_core::ChunkedBlockReader::Error coreError = qtng_core::ChunkedBlockReader::NoError;
+    QTNG_NAMESPACE::ChunkedBlockReader::Error coreError = QTNG_NAMESPACE::ChunkedBlockReader::NoError;
     const string block = d_ptr->core.nextBlock(leftBytes, &coreError);
     if (error) {
         *error = static_cast<Error>(coreError);
@@ -233,7 +233,7 @@ ChunkedBlockReader::Error ChunkedBodyFile::error() const
     return static_cast<ChunkedBlockReader::Error>(d_ptr->core.error());
 }
 
-// ChunkedWriter is implemented here instead of wrapping qtng_core::ChunkedWriter:
+// ChunkedWriter is implemented here instead of wrapping QTNG_NAMESPACE::ChunkedWriter:
 // 1. The core destructor writes the terminator chunk "0\r\n\r\n". If we created a
 //    temporary core writer on every write() call like the old binding did, the
 //    temporary would destruct right away and terminate the stream, degrading to
