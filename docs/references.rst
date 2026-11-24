@@ -5312,6 +5312,27 @@ is formatted with its own ``operator<<``, so nested values work. ``StringConcat`
 names. The operators are defined in the type headers, so including the type is
 all it takes.
 
+The **logging helpers** also accept **STL containers**, formatted with the same
+brackets as the qtng ones: ``std::vector``/``std::list``/``std::deque``/
+``std::array`` as ``[a, b]``, ``std::set``/``std::unordered_set`` as
+``{a, b}``, and ``std::map``/``std::unordered_map`` as
+``{key: value, ...}``. Elements are formatted recursively, so a
+``std::map<std::string, std::vector<int>>`` prints as ``{a: [1, 2]}``.
+``StringList`` needs no special case: it is a sequence like any other and
+prints as ``[a, b, c]``.
+
+.. code-block:: c++
+
+    qtng::StringList args{"a", "b", "c"};
+    ngDebug() << "args:" << args;                        // args: [a, b, c]
+    ngDebug() << std::map<std::string, int>{{"a", 1}};   // {a: 1}
+
+This lives in ``qtng/utils/logging.h`` (inside ``LogStream``) rather than in an
+``operator<<``: an operator for a ``std`` type would have to be declared in
+namespace ``std``, which is not allowed. The consequence is that STL containers
+work only through ``ngDebug()`` and the other logging helpers; a bare
+``std::ostream`` still rejects them.
+
 .. code-block:: c++
 
     qtng::String s = "héllo";                        // 5 code points, 6 bytes
@@ -5363,7 +5384,8 @@ not container generic: ``join()`` (``String`` or ``char`` separator), ``filter()
 ``sort(cs)``, ``replaceInStrings(before, after, cs)``, ``removeDuplicates()``
 (returns the number removed; it sorts and then drops adjacent duplicates, so the
 surviving elements are reordered), and the case-insensitive overloads of
-``contains()`` / ``indexOf()`` / ``lastIndexOf()``. The container-generic methods
+``contains()`` / ``indexOf()`` / ``lastIndexOf()``. Being a ``Vector<String>``,
+it streams and logs as a sequence (``[a, b]``). The container-generic methods
 (``isEmpty`` / ``first`` / ``last`` / ``value`` / ``takeFirst`` / ``removeAll`` …)
 are inherited from ``Vector``, and "not found" is ``npos`` (``size_type(-1)``),
 not Qt's ``int -1``.

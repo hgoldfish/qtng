@@ -4824,6 +4824,24 @@ qtng 在网络代码中用到的两个字节缓冲区都位于命名空间 ``qtn
 ``CaseSensitivity`` / ``CodecError`` / ``CodecStatus`` 输出枚举名。这些运算符都定义在
 类型头里,包含对应类型即可使用。
 
+日志辅助函数还额外接受 STL 容器,输出括号与 qtng 容器相同:``std::vector`` /
+``std::list`` / ``std::deque`` / ``std::array`` 为 ``[a, b]``,``std::set`` /
+``std::unordered_set`` 为 ``{a, b}``,``std::map`` / ``std::unordered_map`` 为
+``{key: value, ...}``。元素会递归格式化,因此
+``std::map<std::string, std::vector<int>>`` 输出为 ``{a: [1, 2]}``。
+``StringList`` 不需要任何特例:它就是一个普通序列,输出为 ``[a, b, c]``。
+
+.. code-block:: c++
+
+    qtng::StringList args{"a", "b", "c"};
+    ngDebug() << "args:" << args;                        // args: [a, b, c]
+    ngDebug() << std::map<std::string, int>{{"a", 1}};   // {a: 1}
+
+这段格式化实现在 ``qtng/utils/logging.h`` 的 ``LogStream`` 内部,而不是靠
+``operator<<``:给 ``std`` 类型定义运算符必须写进 ``std`` 命名空间,那是不允许的。
+由此产生的限制是 STL 容器只能通过 ``ngDebug()`` 等日志辅助函数使用;裸
+``std::ostream`` 仍然拒绝它们。
+
 .. code-block:: c++
 
     qtng::String s = "héllo";                        // 5 个 code point,6 字节
@@ -4867,7 +4885,8 @@ String 接口要点(全部非变异,均返回新的 String):
 ``join()``(``String`` 或 ``char`` 分隔符)、``filter()``、``sort(cs)``、
 ``replaceInStrings(before, after, cs)``、``removeDuplicates()``(返回删除的个数;
 先排序再去掉相邻重复,因此保留下来的元素顺序会变),以及 ``contains()`` /
-``indexOf()`` / ``lastIndexOf()`` 的大小写不敏感重载。容器通用方法
+``indexOf()`` / ``lastIndexOf()`` 的大小写不敏感重载。因为它就是 ``Vector<String>``,
+所以流输出与日志输出都是序列形式(``[a, b]``)。容器通用方法
 (``isEmpty`` / ``first`` / ``last`` / ``value`` / ``takeFirst`` / ``removeAll`` …)
 全部继承自 ``Vector``;「未找到」用 ``npos``(``size_type(-1)``),不是 Qt 的
 ``int -1``。

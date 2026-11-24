@@ -27,6 +27,9 @@ Call ``qtng::utils::setLogHandler(handler)`` once at process startup to route ev
 ``LogStream`` flush into your own sink (for example a TUI log pane). Pass ``nullptr`` to
 restore the default. Swapping the handler while other threads are flushing is not thread-safe.
 
+The stream formats its arguments itself: qtng value types as before, and STL containers as
+``[a, b]`` / ``{a, b}`` / ``{key: value}``, with nesting. See the value types section of the
+reference for the exact shapes.
 
 Blocking work goes through the thread pool
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
