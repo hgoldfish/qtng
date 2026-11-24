@@ -71,10 +71,6 @@ endif()
 
 message(STATUS "qtnetworkng: using Qt${QTNG_QT_VERSION_MAJOR} (QTNG_QT_VERSION=${QTNG_QT_VERSION})")
 
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_CXX_STANDARD ${QTNG_QT_CXX_STANDARD})
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 if(UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     set(QTNG_QT_EXTRA_LIBS pthread)
 endif()
@@ -187,15 +183,23 @@ set(QTNG_QT_SOURCES
     ${QTNG_QT_DIR}/src/noise.cpp
 )
 
+set(QTNG_QT_MOC_HEADERS
+    ${QTNG_QT_DIR}/include/io_utils.h
+    ${QTNG_QT_DIR}/src/bridge/eventloop_qt_core_p.h
+)
+if(QTNG_QT_VERSION_MAJOR EQUAL 5)
+    qt5_wrap_cpp(QTNG_QT_MOC_SOURCES ${QTNG_QT_MOC_HEADERS})
+else()
+    qt6_wrap_cpp(QTNG_QT_MOC_SOURCES ${QTNG_QT_MOC_HEADERS})
+endif()
+
 add_library(qtnetworkng STATIC
     ${QTNG_QT_PUBLIC_HEADERS}
     ${QTNG_QT_SOURCES}
+    ${QTNG_QT_MOC_SOURCES}
     ${QTNG_QT_DIR}/src/bridge/eventloop_qt_core_p.h
 )
-
-# coroutine_utils.h contains no Q_OBJECT class, so AUTOMOC has nothing to mocc there and would
-# only emit a spurious "No relevant classes found" note. Skip AUTOMOC for this header.
-set_property(SOURCE ${QTNG_QT_DIR}/include/coroutine_utils.h PROPERTY SKIP_AUTOMOC TRUE)
+set_target_properties(qtnetworkng PROPERTIES AUTOMOC OFF)
 
 target_include_directories(qtnetworkng
     PUBLIC

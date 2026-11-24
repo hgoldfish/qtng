@@ -75,7 +75,8 @@ XP 二进制应使用 Qt 5.6 自带的 MinGW 工具链（GCC 4.9.2）构建。MS
 编译器要求
 ----------
 
-Qt5 目标以 C++11 编译，Qt6 目标以 C++17 编译（``qt/CMakeLists.txt`` 会自动设置
+Qt5 目标以 C++11 编译，Qt6 目标以 C++17 编译（``qtnetworkng`` 目标通过
+``target_compile_features`` 声明该标准，因此会传播给使用方，而不会改动宿主项目的
 ``CMAKE_CXX_STANDARD``）。Qt6 头文件使用了 ``<filesystem>``，因此编译 Qt6 版本需要
 C++17 编译器（GCC 8+、Clang 7+ 或等效）；仅编译 Qt5 版本时 C++11 编译器（如 GCC 7）
 即可。

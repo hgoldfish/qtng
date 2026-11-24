@@ -2,9 +2,10 @@
 #define QTNG_QT_BRIDGE_EVENTLOOP_QT_CORE_P_H
 
 // QObject helper for the Qt-backed core event loop (QTNG_NAMESPACE::QtEventLoopCoroutine). It lives in
-// its own header so AUTOMOC can generate its meta object. Do NOT include qtng core headers from
-// here: qt/src/*.cpp include this after bridge/core_access.h, which has already expanded the core
-// headers (into namespace QTNG_NAMESPACE) and dropped their include guards.
+// its own header so moc can generate its meta object (see QTNG_QT_MOC_HEADERS in qt/CMakeLists.txt).
+// Do NOT include qtng core headers from here: qt/src/*.cpp include this after bridge/core_access.h,
+// which has already expanded the core headers (into namespace QTNG_NAMESPACE) and dropped their
+// include guards.
 
 #include <QtCore/qobject.h>
 #include <QtCore/qcoreevent.h>

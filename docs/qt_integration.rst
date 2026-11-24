@@ -81,8 +81,9 @@ in the toolchain as the core ``CMakeLists.txt`` no longer exposes an option for 
 Toolchain requirements
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The binding compiles Qt5 targets with C++11 and Qt6 targets with C++17
-(``CMAKE_CXX_STANDARD`` is set automatically by ``qt/CMakeLists.txt``). Qt6 headers use
+The binding compiles Qt5 targets with C++11 and Qt6 targets with C++17 (the ``qtnetworkng``
+target requests that level through ``target_compile_features``, so it propagates to consumers
+without changing the parent project's ``CMAKE_CXX_STANDARD``). Qt6 headers use
 ``<filesystem>``, so building the Qt6 variant needs a C++17 compiler (GCC 8+, Clang 7+ or
 equivalent); a C++11 compiler such as GCC 7 is only sufficient for the Qt5 variant.
 
