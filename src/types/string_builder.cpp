@@ -2,15 +2,17 @@
 
 #include "qtng/types/string_builder.h"
 
+using namespace std;
+
 QTNG_NAMESPACE_BEGIN
 
 namespace {
 
-std::uint32_t grownCapacity(std::uint32_t current, std::uint32_t needed)
+uint32_t grownCapacity(uint32_t current, uint32_t needed)
 {
-    std::uint32_t next = current == 0 ? 64 : current;
+    uint32_t next = current == 0 ? 64 : current;
     while (next < needed) {
-        const std::uint32_t doubled = next + next / 2;
+        const uint32_t doubled = next + next / 2;
         // Overflow guard: if doubling no longer grows the value, take needed directly.
         next = doubled > next ? doubled : needed;
     }
@@ -31,7 +33,7 @@ StringBuilder::~StringBuilder()
     String::releaseBlock(d);
 }
 
-StringBuilder &StringBuilder::append(const char *bytes, std::uint32_t n)
+StringBuilder &StringBuilder::append(const char *bytes, uint32_t n)
 {
     if (n == 0) {
         return *this;
@@ -40,11 +42,11 @@ StringBuilder &StringBuilder::append(const char *bytes, std::uint32_t n)
     // would not grow the buffer while memcpy still writes n bytes and corrupts the heap;
     // len would wrap too, making size() lie from then on. The limit is String::MaxLength:
     // the builder should never produce anything a String cannot hold.
-    if (static_cast<std::uint64_t>(len) + static_cast<std::uint64_t>(n) > String::MaxLength) {
+    if (static_cast<uint64_t>(len) + static_cast<uint64_t>(n) > String::MaxLength) {
         return *this;
     }
     ensure(len + n);
-    std::memcpy(d->buf + len, bytes, n);
+    memcpy(d->buf + len, bytes, n);
     len += n;
     return *this;
 }
@@ -61,14 +63,14 @@ StringBuilder &StringBuilder::append(const ByteArray &b)
     return append(b.data(), b.size());
 }
 
-StringBuilder &StringBuilder::append(const std::string &s)
+StringBuilder &StringBuilder::append(const string &s)
 {
-    return append(s.data(), static_cast<std::uint32_t>(s.size()));
+    return append(s.data(), static_cast<uint32_t>(s.size()));
 }
 
 StringBuilder &StringBuilder::append(const char *cstr)
 {
-    return append(cstr, static_cast<std::uint32_t>(std::strlen(cstr)));
+    return append(cstr, static_cast<uint32_t>(strlen(cstr)));
 }
 
 StringBuilder &StringBuilder::append(char c)
@@ -76,15 +78,15 @@ StringBuilder &StringBuilder::append(char c)
     return append(&c, 1);
 }
 
-void StringBuilder::ensure(std::uint32_t needed)
+void StringBuilder::ensure(uint32_t needed)
 {
     if (needed <= capacity) {
         return;
     }
-    const std::uint32_t next = grownCapacity(capacity, needed);
+    const uint32_t next = grownCapacity(capacity, needed);
     String::Data *grown = String::allocateBlock(next);
     if (len > 0) {
-        std::memcpy(grown->buf, d->buf, len);
+        memcpy(grown->buf, d->buf, len);
     }
     String::releaseBlock(d);
     d = grown;
