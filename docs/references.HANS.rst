@@ -4920,3 +4920,79 @@ STL 容器:拷贝只增加一次原子引用计数,首次写入时才 detach 出
 变异重载先 detach。"未找到"是 ``npos``(``size_type(-1)``),而不是 Qt 的整型 ``-1``。
 越界下标与缺失的 key 都有定义——返回哨兵值(如 ``T()``)或按无操作处理——不产生未定义
 行为。``Map`` 的 ``firstKey()``/``lastKey()``/``first()``/``last()`` 要求 map 非空。
+
+JSON
+^^^^
+
+``qtng/types/json.h`` 提供 Qt 风格的 JSON:``JsonValue``(不可变变体,容纳 null、
+bool、double、string、array 或 object)、``JsonArray``(``Vector<JsonValue>``)与
+``JsonObject``(``Map<String, JsonValue>``),以及负责解析/序列化的
+``JsonDocument`` 和用于诊断的 ``JsonParseError``。API 与 ``QJsonValue`` /
+``QJsonArray`` / ``QJsonObject`` / ``QJsonDocument`` 对齐,Qt 侧代码可以机械迁移;
+唯一放宽之处是文档顶层允许任意 JSON 值(``isArray()``/``isObject()`` 仍只对相应类型
+为真)。
+
+.. code-block:: c++
+
+    qtng::JsonObject object;
+    object.insert("name", qtng::JsonValue("qtng"));
+    object.insert("version", qtng::JsonValue(1));          // 精确整数
+    object.insert("nested", qtng::JsonValue(qtng::JsonArray{qtng::JsonValue(true)}));
+
+    qtng::JsonDocument doc(object);
+    qtng::String compact = doc.toJson(qtng::JsonDocument::Compact);
+    qtng::String indented = doc.toJson(qtng::JsonDocument::Indented);
+
+    qtng::JsonParseError error;
+    qtng::JsonDocument parsed = qtng::JsonDocument::fromJson(compact, &error);
+    if (error.error != qtng::JsonParseError::NoError) {
+        // error.error 是枚举,error.offset 是字节位置
+    }
+
+``JsonValue`` 是**不可变快照**:构造时把输入复制进一份共享且永不修改的值,因此之后
+修改原来的 ``JsonArray``/``JsonObject`` 不会影响它。所有取值函数都不抛异常:类型不符
+或 key/下标缺失时返回传入的默认值(或 null 值)。
+
+实现与测试共同遵循的契约:
+
+* **语法**:严格 RFC 8259。不接受注释、尾随逗号、单引号、``NaN``/``Infinity``、
+  BOM,字符串内不接受裸控制字符;顶层值之后只允许空白。
+* **对象键**:有序(按字节比较),重复键保留后出现的值。
+* **数字**:能放进 ``std::int64_t`` 的整数字面量按整数精确保存并原样输出;带小数
+  或指数、或超出该范围的整数按 ``double`` 保存。序列化使用能 bit-exact 回读的最短
+  十进制表示(保留 ``-0.0``);非有限 double 输出 ``null``。解析与格式化都不依赖
+  ``LC_NUMERIC``。``operator==`` 在整数域判定整数与浮点是否相等,因此 2^53 以上
+  不会被 double 的舍入误判为相等。
+* **字符串**:内容必须是合法 UTF-8;裸控制字符与未配对 UTF-16 代理项
+  (``\uD800``-``\uDFFF``)被拒绝。非 ASCII 原样输出 UTF-8,``/`` 不转义。
+* **限制**:嵌套深度默认 512(超限报 ``DeepNesting``,而不是栈溢出),输入大小默认
+  64 MiB(``DocumentTooLarge``)。两者都是每次调用的参数。
+* **偏移**:``JsonParseError::offset`` 是以 ``String::byteSize()`` 为坐标系的
+  0 起**字节**偏移;``NoError`` 时为 -1。
+
+``JsonParseError::ParseError`` 与其触发条件:
+
+* ``MissingObject`` —— 对象键缺失,或对象键不是字符串。
+* ``UnterminatedObject`` —— 对象内部遇到输入结束。
+* ``UnterminatedArray`` —— 数组内部遇到输入结束。
+* ``MissingNameSeparator`` —— 对象键后没有 ``:``。
+* ``MissingValueSeparator`` —— 成员/元素后既没有 ``,`` 也没有闭合括号。
+* ``IllegalValue`` —— 需要值,但该字节无法开始一个值(空文档与纯空白文档也归入此类)。
+* ``IllegalNumber`` —— 数字格式错误(前导零、缺数字、溢出)。
+* ``TerminationByNumber`` —— 数字后紧跟了不能合法跟随它的字符。
+* ``IllegalEscapeSequence`` —— 未知转义,或 ``\u`` 后不是十六进制数字。
+* ``IllegalUTF8String`` —— 非法 UTF-8、裸控制字符,或未配对代理项。
+* ``UnterminatedString`` —— 字符串内部遇到输入结束。
+* ``DeepNesting`` —— 嵌套超过深度限制。
+* ``DocumentTooLarge`` —— 输入超过大小限制。
+* ``GarbageAtEnd`` —— 顶层值之后还有非空白内容。
+
+除非传入 ``-DQTNG_WITH_TYPES=OFF``,该模块都会被编译。关闭后 ``qtng::types``
+(``String``、``ByteArray``、容器与 JSON)既不编译、也不安装,``<qtng.h>`` 也不再
+引入它;qtng 的其它部分不受影响,使用方会看到 ``QTNG_NO_TYPES``。单元测试是
+``tests/test_json.cpp``(通过 ctest 运行 ``qtng_test_json``),并与 Python ``json``
+模块离线生成的 2000 条结构指纹交叉比对。传入
+``-DQTNG_JSON_TESTSUITE_DIR=<解压后的 nst/JSONTestSuite>`` 会额外启用 RFC 8259
+一致性语料:所有 ``y_`` 用例必须解析成功且往返稳定,所有 ``n_`` 用例必须被拒绝,
+``i_`` 用例(实现定义)跳过。语料不入库,未传该选项时该用例显示为 skipped。
+``-DQTNG_BUILD_FUZZERS=ON`` 可构建仅支持 clang 的 libFuzzer harness。

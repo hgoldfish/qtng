@@ -57,8 +57,24 @@
 #include "qtng/data_channel.h"
 #include "qtng/multi_stream.h"
 
-#include "qtng/types/string.h"
-#include "qtng/types/bytes.h"
-#include "qtng/types/string_builder.h"
+#ifndef QTNG_NO_TYPES
+// The installed tree of a QTNG_WITH_TYPES=OFF build has no types headers, and a
+// non-CMake consumer would not get the QTNG_NO_TYPES definition. __has_include keeps
+// the umbrella header self-consistent in that case; an explicit QTNG_NO_TYPES still
+// wins for in-tree consumption.
+#  if defined(__has_include)
+#    if __has_include("qtng/types/json.h")
+#      include "qtng/types/string.h"
+#      include "qtng/types/bytes.h"
+#      include "qtng/types/string_builder.h"
+#      include "qtng/types/json.h"
+#    endif
+#  else
+#    include "qtng/types/string.h"
+#    include "qtng/types/bytes.h"
+#    include "qtng/types/string_builder.h"
+#    include "qtng/types/json.h"
+#  endif
+#endif
 
 #endif  // QTNG_QTNG_H

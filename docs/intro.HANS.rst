@@ -32,6 +32,8 @@ qtng已在Linux、Android、Windows、MacOS和OpenBSD平台测试通过，支持
 
 库在 Unix 上使用 libev 事件循环。在提供 LibreSSL 或 OpenSSL 时附带 SSL/加密 API；否则省略这些模块（``QTNG_NO_CRYPTO``）。
 
+``qtng::types`` 值类型（``String``、``ByteArray``、COW 容器与 JSON）是可选的。默认会编译；用 ``-DQTNG_WITH_TYPES=OFF`` 可整体关闭该模块——源码不编译、头文件不安装、``<qtng.h>`` 也不再引入它们（使用方会看到 ``QTNG_NO_TYPES``）。qtng 的其它部分都不依赖它。
+
 
 在CMake项目中使用qtng
 ----------------------------

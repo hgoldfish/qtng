@@ -5424,3 +5424,90 @@ overloads detach first. "Not found" is ``npos`` (``size_type(-1)``), not Qt's in
 ``-1``. Out-of-range indices and missing keys are always defined -- a sentinel such as
 ``T()`` or a no-op -- never undefined behaviour. ``Map::firstKey()``/``lastKey()``/
 ``first()``/``last()`` require a non-empty map.
+
+JSON
+^^^^
+
+``qtng/types/json.h`` provides Qt-style JSON: ``JsonValue`` (an immutable variant
+holding null, bool, double, string, array or object), ``JsonArray`` (a
+``Vector<JsonValue>``) and ``JsonObject`` (a ``Map<String, JsonValue>``), plus
+``JsonDocument`` for parsing and serializing, and ``JsonParseError`` for
+diagnostics. The API mirrors ``QJsonValue`` / ``QJsonArray`` / ``QJsonObject`` /
+``QJsonDocument`` so Qt-facing code ports mechanically; the one widening is that
+a document may hold any JSON value at the top level (``isArray()``/``isObject()``
+still answer only for those two).
+
+.. code-block:: c++
+
+    qtng::JsonObject object;
+    object.insert("name", qtng::JsonValue("qtng"));
+    object.insert("version", qtng::JsonValue(1));          // exact integer
+    object.insert("nested", qtng::JsonValue(qtng::JsonArray{qtng::JsonValue(true)}));
+
+    qtng::JsonDocument doc(object);
+    qtng::String compact = doc.toJson(qtng::JsonDocument::Compact);
+    qtng::String indented = doc.toJson(qtng::JsonDocument::Indented);
+
+    qtng::JsonParseError error;
+    qtng::JsonDocument parsed = qtng::JsonDocument::fromJson(compact, &error);
+    if (error.error != qtng::JsonParseError::NoError) {
+        // error.error is the enum, error.offset the byte position
+    }
+
+``JsonValue`` is an **immutable snapshot**: constructing one copies its input into a
+shared, never-mutated value, so mutating the original ``JsonArray``/``JsonObject``
+afterwards cannot change what the value sees. Accessors never throw: a type
+mismatch or a missing key/index returns the supplied default (or a null value).
+
+Decisions the implementation and the tests are written against:
+
+* **Grammar**: strict RFC 8259. No comments, trailing commas, single quotes,
+  ``NaN``/``Infinity``, BOM, or bare control characters in strings; only
+  whitespace may follow the top-level value.
+* **Object keys**: ordered (byte-wise), duplicate keys keep the last value.
+* **Numbers**: an integer literal that fits ``std::int64_t`` is stored exactly and
+  printed exactly; anything with a fraction/exponent, or an integer outside that
+  range, is stored as a ``double``. Serialization uses the shortest decimal that
+  reads back as the same bit pattern (``-0.0`` is preserved); a non-finite double
+  is written as ``null``. Parsing and formatting do not consult ``LC_NUMERIC``.
+  ``operator==`` compares an integer with a double in the integer domain, so values
+  above 2^53 are not declared equal just because a double rounds them together.
+* **Strings**: content must be valid UTF-8; raw control characters and unpaired
+  UTF-16 surrogates (``\uD800``-``\uDFFF``) are rejected. Non-ASCII is emitted as
+  raw UTF-8; ``/`` is not escaped.
+* **Limits**: nesting depth defaults to 512 (``DeepNesting`` instead of a stack
+  overflow) and the input size to 64 MiB (``DocumentTooLarge``). Both are
+  per-call parameters.
+* **Offsets**: ``JsonParseError::offset`` is a 0-based **byte** offset in the
+  ``String::byteSize()`` coordinate system, or -1 for ``NoError``.
+
+``JsonParseError::ParseError`` and its trigger conditions:
+
+* ``MissingObject`` -- an object key is missing or is not a string.
+* ``UnterminatedObject`` -- end of input while inside an object.
+* ``UnterminatedArray`` -- end of input while inside an array.
+* ``MissingNameSeparator`` -- no ``:`` after an object key.
+* ``MissingValueSeparator`` -- no ``,`` (or closing bracket) after a member/element.
+* ``IllegalValue`` -- a value was expected but the byte cannot start one (this includes
+  an empty or whitespace-only document).
+* ``IllegalNumber`` -- malformed number (leading zero, missing digits, overflow).
+* ``TerminationByNumber`` -- a number followed by a character that cannot follow it.
+* ``IllegalEscapeSequence`` -- unknown escape or a non-hex ``\u`` digit.
+* ``IllegalUTF8String`` -- bad UTF-8, a raw control character, or an unpaired surrogate.
+* ``UnterminatedString`` -- end of input inside a string.
+* ``DeepNesting`` -- nesting past the depth limit.
+* ``DocumentTooLarge`` -- input longer than the size limit.
+* ``GarbageAtEnd`` -- non-whitespace text after the top-level value.
+
+The module is compiled unless ``-DQTNG_WITH_TYPES=OFF`` is passed. With the switch
+off, ``qtng::types`` (``String``, ``ByteArray``, the containers and JSON) is not
+built, not installed, and not included by ``<qtng.h>``; the rest of qtng is
+unaffected and consumers see ``QTNG_NO_TYPES``. The unit tests are
+``tests/test_json.cpp`` (run through ctest as ``qtng_test_json``), cross-checked
+against 2000 structural fingerprints generated offline by Python's ``json``
+module. Passing ``-DQTNG_JSON_TESTSUITE_DIR=<extracted nst/JSONTestSuite>`` adds
+the RFC 8259 conformance corpus: every ``y_`` case must parse and round-trip,
+every ``n_`` case must be rejected, and the ``i_`` cases (implementation
+defined) are skipped. The corpus is not vendored, and without the option the case
+reports itself as skipped. A clang-only libFuzzer harness is available with
+``-DQTNG_BUILD_FUZZERS=ON``.

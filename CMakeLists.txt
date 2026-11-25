@@ -15,6 +15,10 @@ option(QTNG_WITH_QUIC "Build QUICv1 transport MVP (still incomplete)" OFF)
 option(QTNG_WITH_HTTP3 "Build HTTP/3 support (stub / still incomplete)" OFF)
 option(QTNG_WITH_BT "Build BitTorrent download stack (TorrentSession)" OFF)
 option(QTNG_WITH_SSH "Build SSH protocol (SshServer/SshClient)" OFF)
+# qtng::types (String/ByteArray/containers/Json) is optional and self-contained:
+# disabling it drops those sources, install headers and umbrella includes, and
+# defines QTNG_NO_TYPES for consumers; the rest of qtng does not use them.
+option(QTNG_WITH_TYPES "Build qtng::types value types (String/ByteArray/containers/Json)" ON)
 # Force-disable TLS even when LibreSSL/OpenSSL is present (also used for CI/no-crypto builds).
 option(QTNG_DISABLE_CRYPTO "Force-disable the crypto/TLS module" OFF)
 
@@ -91,7 +95,8 @@ if(QTNG_WITH_SSH AND NOT QTNG_HAVE_CRYPTO)
 endif()
 
 message(STATUS "qtng features: CRYPTO=${QTNG_HAVE_CRYPTO} HTTP2=${QTNG_WITH_HTTP2} "
-               "QUIC=${QTNG_WITH_QUIC} HTTP3=${QTNG_WITH_HTTP3} BT=${QTNG_WITH_BT} SSH=${QTNG_WITH_SSH}")
+               "QUIC=${QTNG_WITH_QUIC} HTTP3=${QTNG_WITH_HTTP3} BT=${QTNG_WITH_BT} SSH=${QTNG_WITH_SSH} "
+               "TYPES=${QTNG_WITH_TYPES}")
 
 # ---------------------------------------------------------------------------
 # zlib (required: gzip support, see src/gzip.cpp).
@@ -345,6 +350,7 @@ set(QTNG_UTILS_INCLUDE
 set(QTNG_TYPES_SRC
     src/types/string_builder.cpp
     src/types/text_codec.cpp
+    src/types/json.cpp
 )
 
 set(QTNG_TYPES_INCLUDE
@@ -354,6 +360,7 @@ set(QTNG_TYPES_INCLUDE
     include/qtng/types/string_builder.h
     include/qtng/types/text_codec.h
     include/qtng/types/containers.h
+    include/qtng/types/json.h
     include/qtng/types/private/string_data.h
 )
 
@@ -490,12 +497,19 @@ set(QTNG_LIB_SOURCES
     ${QTNG_PUBLIC_INCLUDE}
     ${QTNG_PRIVATE_INCLUDE}
     ${QTNG_UTILS_INCLUDE}
-    ${QTNG_TYPES_SRC}
-    ${QTNG_TYPES_INCLUDE}
     ${OS_DEPENDENDED_SRC}
     ${QTNG_LMDB_SRC}
     ${QTNG_LMDB_INCLUDE}
 )
+# qtng::types is an optional module. Nothing else in the library (or in the Qt
+# binding / rpc sublibrary) includes qtng/types/, so leaving it out only removes
+# those value types.
+if(QTNG_WITH_TYPES)
+    list(APPEND QTNG_LIB_SOURCES
+        ${QTNG_TYPES_SRC}
+        ${QTNG_TYPES_INCLUDE}
+    )
+endif()
 if(QTNG_HAVE_CRYPTO)
     list(APPEND QTNG_LIB_SOURCES
         ${QTNG_CRYPTO_SRC}
@@ -578,6 +592,9 @@ endif()
 if(NOT QTNG_WITH_SSH)
     target_compile_definitions(qtng PUBLIC QTNG_NO_SSH)
 endif()
+if(NOT QTNG_WITH_TYPES)
+    target_compile_definitions(qtng PUBLIC QTNG_NO_TYPES)
+endif()
 
 # Platform-specific compile definitions
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
@@ -633,16 +650,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     list(APPEND OS_EXTRA_LINK ws2_32)
 endif()
 # text_codec: macOS links the SDK libiconv; Linux/BSD resolve iconv at runtime (no link).
-if(APPLE)
-    list(APPEND OS_EXTRA_LINK iconv)
-endif()
-# dlopen for dynamic iconv on Linux/BSD when symbols are not in the main executable.
-if(UNIX AND NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
-    include(CheckFunctionExists)
-    set(CMAKE_REQUIRED_LIBRARIES "")
-    check_function_exists(dlopen QTNG_DLOPEN_IN_LIBC)
-    if(NOT QTNG_DLOPEN_IN_LIBC)
-        list(APPEND OS_EXTRA_LINK dl)
+if(QTNG_WITH_TYPES)
+    if(APPLE)
+        list(APPEND OS_EXTRA_LINK iconv)
+    endif()
+    # dlopen for dynamic iconv on Linux/BSD when symbols are not in the main executable.
+    if(UNIX AND NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+        include(CheckFunctionExists)
+        set(CMAKE_REQUIRED_LIBRARIES "")
+        check_function_exists(dlopen QTNG_DLOPEN_IN_LIBC)
+        if(NOT QTNG_DLOPEN_IN_LIBC)
+            list(APPEND OS_EXTRA_LINK dl)
+        endif()
     endif()
 endif()
 
@@ -669,9 +688,16 @@ else()
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 endif()
 # Module headers: #include "qtng/coroutine.h", #include "qtng/utils/...", etc.
-install(DIRECTORY include/qtng
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    FILES_MATCHING PATTERN "*.h")
+# qtng::types is skipped as a whole when the module is disabled.
+if(QTNG_WITH_TYPES)
+    install(DIRECTORY include/qtng
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h")
+else()
+    install(DIRECTORY include/qtng
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h" PATTERN "types" EXCLUDE)
+endif()
 
 # Optional qtng/rpc sublibrary (wire-compatible with the legacy lafrpc/cpp).
 # Configured before tests so tests/ can depend on the qtng_rpc target.
@@ -682,6 +708,7 @@ endif()
 
 # Test configuration for internal development.
 option(QTNG_BUILD_TESTS "Build unit tests (requires a C++17 compiler)" OFF)
+option(QTNG_BUILD_FUZZERS "Build clang libFuzzer harnesses (requires clang + -fsanitize=fuzzer)" OFF)
 if(QTNG_BUILD_TESTS)
     if(cxx_std_17 IN_LIST CMAKE_CXX_COMPILE_FEATURES)
         enable_testing()

@@ -27,6 +27,8 @@ The coroutine is implemented using boost::context asm code, and support native p
 
 The library uses libev for its event loop on Unix. When LibreSSL or OpenSSL is available, it also provides SSL/cipher APIs; otherwise those modules are omitted (``QTNG_NO_CRYPTO``).
 
+The ``qtng::types`` value types (``String``, ``ByteArray``, the COW containers and JSON) are optional. They are built by default; configure with ``-DQTNG_WITH_TYPES=OFF`` to leave the module out entirely — its sources are not compiled, its headers are not installed, and ``<qtng.h>`` stops including them (consumers see ``QTNG_NO_TYPES``). Nothing else in qtng depends on it.
+
 
 Use qtng in CMake projects
 ---------------------------------
