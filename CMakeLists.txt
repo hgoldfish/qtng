@@ -168,6 +168,7 @@ set(QTNG_SRC
     src/socket_server.cpp
     src/httpd.cpp
     src/httpd2.cpp
+    src/junction.cpp
     src/socks5_server.cpp
     src/websocket.cpp
     src/mqtt.cpp

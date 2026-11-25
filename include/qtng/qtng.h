@@ -15,6 +15,7 @@
 #include "qtng/msgpack.h"
 #include "qtng/bencode.h"
 #include "qtng/httpd.h"
+#include "qtng/junction.h"
 #include "qtng/udp.h"
 #include "qtng/kcp.h"
 #include "qtng/utp.h"
