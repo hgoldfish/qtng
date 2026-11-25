@@ -1,5 +1,5 @@
-#ifndef QTNG_KADEMLIA_H
-#define QTNG_KADEMLIA_H
+#ifndef QTNG_QT_KADEMLIA_H
+#define QTNG_QT_KADEMLIA_H
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qlist.h>
@@ -233,4 +233,4 @@ private:
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_KADEMLIA_H
+#endif  // QTNG_QT_KADEMLIA_H

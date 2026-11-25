@@ -1,5 +1,5 @@
-#ifndef QTNG_EVENTLOOP_H
-#define QTNG_EVENTLOOP_H
+#ifndef QTNG_QT_EVENTLOOP_H
+#define QTNG_QT_EVENTLOOP_H
 
 #include <functional>
 #include <QtCore/qthreadstorage.h>
@@ -81,4 +81,4 @@ void useQtEventloop();
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_EVENTLOOP_H
+#endif  // QTNG_QT_EVENTLOOP_H

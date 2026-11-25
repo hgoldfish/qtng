@@ -71,62 +71,6 @@ public:
 
 #include "bridge/convert.h"
 
-// Drop core include guards so qt/include counterparts can be included next.
-#undef QTNG_COROUTINE_H
-#undef QTNG_DEFERRED_H
-#undef QTNG_EVENTLOOP_H
-#undef QTNG_EVENTLOOP_P_H
-#undef QTNG_LOCKS_H
-#undef QTNG_COROUTINE_UTILS_H
-#undef QTNG_COROUTINE_UTILS_P_H
-#undef QTNG_COROUTINE_P_H
-#undef QTNG_HOSTADDRESS_H
-#undef QTNG_HOSTADDRESS_P_H
-#undef QTNG_NETWORK_INTERFACE_H
-#undef QTNG_NETWORK_INTERFACE_P_H
-#undef QTNG_SOCKET_H
-#undef QTNG_LOCAL_SOCKET_H
-#undef QTNG_SOCKET_P_H
-#undef QTNG_SOCKET_UTILS_H
-#undef QTNG_IO_UTILS_H
-#undef QTNG_HTTP_H
-#undef QTNG_HTTP_P_H
-#undef QTNG_HTTP_UTILS_H
-#undef QTNG_HTTP_PROXY_H
-#undef QTNG_HTTP_COOKIE_H
-#undef QTNG_SOCKS5PROXY_H
-#undef QTNG_MSGPACK_H
-#undef QTNG_BENCODE_H
-#undef QTNG_KADEMLIA_H
-#undef QTNG_KADEMLIA_P_H
-#undef QTNG_DATA_CHANNEL_H
-#undef QTNG_MULTI_STREAM_H
-#undef QTNG_UDP_H
-#undef QTNG_KCP_H
-#undef QTNG_UTP_H
-#undef QTNG_HTTPD_H
-#undef QTNG_SOCKET_SERVER_H
-#undef QTNG_WEBSOCKET_H
-#undef QTNG_LMDB_H
-#undef QTNG_GZIP_H
-#undef QTNG_SSL_H
-#undef QTNG_RANDOM_H
-#undef QTNG_MD_H
-#undef QTNG_CIPHER_H
-#undef QTNG_PKEY_H
-#undef QTNG_CERTIFICATE_H
-#undef QTNG_NOISE_H
-#undef QTNG_CRYPTO_P_H
-#undef QTNG_UTILS_URL_H
-#undef QTNG_UTILS_PLATFORM_H
-#undef QTNG_UTILS_LOGGING_H
-#undef QTNG_UTILS_DATETIME_H
-#undef QTNG_UTILS_STRING_UTILS_H
-#undef QTNG_UTILS_THREAD_LOCAL_H
-#undef QTNG_UTILS_SHARED_MUTEX_COMPAT_H
-#undef QTNG_UTILS_PUNYCODE_H
-#undef QTNG_UTILS_MIME_H
-
 #include "bridge/coroutine_registry.h"
 
 #endif  // QTNG_QT_BRIDGE_CORE_ACCESS_H

@@ -1,5 +1,5 @@
-#ifndef QTNG_DEFERRED_H
-#define QTNG_DEFERRED_H
+#ifndef QTNG_QT_DEFERRED_H
+#define QTNG_QT_DEFERRED_H
 
 #include <functional>
 #include <tuple>

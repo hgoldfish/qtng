@@ -1,5 +1,5 @@
-#ifndef QTNG_GZIP_H
-#define QTNG_GZIP_H
+#ifndef QTNG_QT_GZIP_H
+#define QTNG_QT_GZIP_H
 
 #include <QtCore/qbytearray.h>
 #include "io_utils.h"
@@ -40,4 +40,4 @@ bool qGzipDecompress(QSharedPointer<FileLike> input, QSharedPointer<FileLike> ou
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_GZIP_H
+#endif  // QTNG_QT_GZIP_H

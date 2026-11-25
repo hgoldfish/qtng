@@ -1,5 +1,5 @@
-#ifndef QTNG_PKEY_H
-#define QTNG_PKEY_H
+#ifndef QTNG_QT_PKEY_H
+#define QTNG_QT_PKEY_H
 
 #include <QtCore/qsharedpointer.h>
 #include "cipher.h"
@@ -169,4 +169,4 @@ private:
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_PKEY_H
+#endif  // QTNG_QT_PKEY_H

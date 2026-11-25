@@ -1,5 +1,5 @@
-#ifndef QTNG_MD_H
-#define QTNG_MD_H
+#ifndef QTNG_QT_MD_H
+#define QTNG_QT_MD_H
 
 #include <QtCore/qbytearray.h>
 #include "crypto.h"
@@ -70,4 +70,4 @@ QByteArray PBKDF2_HMAC(int keylen, const QByteArray &password, const QByteArray 
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_MD_H
+#endif  // QTNG_QT_MD_H

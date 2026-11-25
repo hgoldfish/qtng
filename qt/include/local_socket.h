@@ -1,5 +1,5 @@
-#ifndef QTNG_LOCAL_SOCKET_H
-#define QTNG_LOCAL_SOCKET_H
+#ifndef QTNG_QT_LOCAL_SOCKET_H
+#define QTNG_QT_LOCAL_SOCKET_H
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qstring.h>
@@ -96,4 +96,4 @@ QSharedPointer<LocalSocket> convertSocketLikeToLocalSocket(QSharedPointer<class 
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_LOCAL_SOCKET_H
+#endif  // QTNG_QT_LOCAL_SOCKET_H

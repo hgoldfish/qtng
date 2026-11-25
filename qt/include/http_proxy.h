@@ -1,5 +1,5 @@
-#ifndef QTNG_HTTP_PROXY_H
-#define QTNG_HTTP_PROXY_H
+#ifndef QTNG_QT_HTTP_PROXY_H
+#define QTNG_QT_HTTP_PROXY_H
 
 #include <QtCore/qsharedpointer.h>
 #include "http_utils.h"
@@ -74,4 +74,4 @@ void setProxySwitcher(class HttpSession *session, QSharedPointer<BaseProxySwitch
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_HTTP_PROXY_H
+#endif  // QTNG_QT_HTTP_PROXY_H

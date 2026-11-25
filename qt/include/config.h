@@ -1,5 +1,5 @@
-#ifndef QTNG_CONFIG_H
-#define QTNG_CONFIG_H
+#ifndef QTNG_QT_CONFIG_H
+#define QTNG_QT_CONFIG_H
 
 #ifndef QTNETWORKNG_NAMESPACE
 #  define QTNETWORKNG_NAMESPACE qtng
@@ -10,4 +10,4 @@
 
 #define QTNG_VERSION 2.0.0
 
-#endif  // QTNG_CONFIG_H
+#endif  // QTNG_QT_CONFIG_H

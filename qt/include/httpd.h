@@ -1,5 +1,5 @@
-#ifndef QTNG_HTTPD_H
-#define QTNG_HTTPD_H
+#ifndef QTNG_QT_HTTPD_H
+#define QTNG_QT_HTTPD_H
 #include <QtCore/qfile.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qfileinfo.h>

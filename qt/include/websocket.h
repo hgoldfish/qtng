@@ -1,5 +1,5 @@
-#ifndef QTNG_WEBSOCKET_H
-#define QTNG_WEBSOCKET_H
+#ifndef QTNG_QT_WEBSOCKET_H
+#define QTNG_QT_WEBSOCKET_H
 
 #include <memory>
 #include <QtCore/qstring.h>

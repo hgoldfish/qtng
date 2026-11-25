@@ -1,5 +1,5 @@
-#ifndef QTNG_BENCODE_H
-#define QTNG_BENCODE_H
+#ifndef QTNG_QT_BENCODE_H
+#define QTNG_QT_BENCODE_H
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qiodevice.h>
@@ -314,4 +314,4 @@ private:
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_BENCODE_H
+#endif  // QTNG_QT_BENCODE_H

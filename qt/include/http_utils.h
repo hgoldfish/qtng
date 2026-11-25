@@ -1,5 +1,5 @@
-#ifndef QTNG_HTTP_UTILS_H
-#define QTNG_HTTP_UTILS_H
+#ifndef QTNG_QT_HTTP_UTILS_H
+#define QTNG_QT_HTTP_UTILS_H
 
 #include <QtCore/qstring.h>
 #include <QtCore/qbytearray.h>
@@ -503,4 +503,4 @@ private:
 };
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_HTTP_UTILS_H
+#endif  // QTNG_QT_HTTP_UTILS_H

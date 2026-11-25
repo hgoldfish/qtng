@@ -1,5 +1,5 @@
-#ifndef QTNG_MULTI_STREAM_H
-#define QTNG_MULTI_STREAM_H
+#ifndef QTNG_QT_MULTI_STREAM_H
+#define QTNG_QT_MULTI_STREAM_H
 
 #include <QtCore/qsharedpointer.h>
 #include <QtCore/qstring.h>
@@ -145,4 +145,4 @@ QSharedPointer<SocketLike> asSocketLike(QSharedPointer<MultiStreamSlave> slave);
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_MULTI_STREAM_H
+#endif  // QTNG_QT_MULTI_STREAM_H

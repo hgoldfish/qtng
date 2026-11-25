@@ -1,5 +1,5 @@
-#ifndef QTNG_CERTIFICATE_H
-#define QTNG_CERTIFICATE_H
+#ifndef QTNG_QT_CERTIFICATE_H
+#define QTNG_QT_CERTIFICATE_H
 
 #include <QtCore/qmap.h>
 #include "md.h"
@@ -98,4 +98,4 @@ QDebug &operator<<(QDebug &debug, Certificate::SubjectInfo info);
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_CERTIFICATE_H
+#endif  // QTNG_QT_CERTIFICATE_H

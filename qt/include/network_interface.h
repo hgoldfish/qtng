@@ -1,5 +1,5 @@
-#ifndef QTNG_NETWORK_INTERFACE_H
-#define QTNG_NETWORK_INTERFACE_H
+#ifndef QTNG_QT_NETWORK_INTERFACE_H
+#define QTNG_QT_NETWORK_INTERFACE_H
 
 #include <QtCore/qlist.h>
 #include <QtCore/qmetaobject.h>
@@ -141,4 +141,4 @@ QDebug operator<<(QDebug debug, const QTNETWORKNG_NAMESPACE::NetworkInterface &n
 Q_DECLARE_METATYPE(QTNETWORKNG_NAMESPACE::NetworkAddressEntry)
 Q_DECLARE_METATYPE(QTNETWORKNG_NAMESPACE::NetworkInterface)
 
-#endif  // QTNG_NETWORK_INTERFACE_H
+#endif  // QTNG_QT_NETWORK_INTERFACE_H

@@ -1,5 +1,5 @@
-#ifndef QTNG_DATA_CHANNEL_H
-#define QTNG_DATA_CHANNEL_H
+#ifndef QTNG_QT_DATA_CHANNEL_H
+#define QTNG_QT_DATA_CHANNEL_H
 
 #include <QtCore/qobject.h>
 #include <QtCore/qsharedpointer.h>
@@ -138,4 +138,4 @@ inline QSharedPointer<SocketLike> asSocketLike(QSharedPointer<SocketChannel> cha
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_DATA_CHANNEL_H
+#endif  // QTNG_QT_DATA_CHANNEL_H

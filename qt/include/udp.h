@@ -1,5 +1,5 @@
-#ifndef QTNG_UDP_H
-#define QTNG_UDP_H
+#ifndef QTNG_QT_UDP_H
+#define QTNG_QT_UDP_H
 
 #include "socket.h"
 #include "config.h"
@@ -52,4 +52,4 @@ public:
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_UDP_H
+#endif  // QTNG_QT_UDP_H

@@ -1,5 +1,5 @@
-#ifndef QTNG_HTTP_COOKIE_H
-#define QTNG_HTTP_COOKIE_H
+#ifndef QTNG_QT_HTTP_COOKIE_H
+#define QTNG_QT_HTTP_COOKIE_H
 
 #include <QtCore/qstring.h>
 #include <QtCore/qbytearray.h>
@@ -126,4 +126,4 @@ QT_END_NAMESPACE
 // Q_DECLARE_SHARED(QTNETWORKNG_NAMESPACE::HttpCookie);
 Q_DECLARE_METATYPE(QTNETWORKNG_NAMESPACE::HttpCookie)
 
-#endif  // QTNG_HTTP_COOKIE_H
+#endif  // QTNG_QT_HTTP_COOKIE_H

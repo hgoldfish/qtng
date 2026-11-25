@@ -1,5 +1,5 @@
-#ifndef QTNG_LMDB_H
-#define QTNG_LMDB_H
+#ifndef QTNG_QT_LMDB_H
+#define QTNG_QT_LMDB_H
 
 #include <memory>
 
@@ -279,4 +279,4 @@ private:
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_LMDB_H
+#endif  // QTNG_QT_LMDB_H

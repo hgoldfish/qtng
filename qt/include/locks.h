@@ -1,5 +1,5 @@
-#ifndef QTNG_LOCKS_H
-#define QTNG_LOCKS_H
+#ifndef QTNG_QT_LOCKS_H
+#define QTNG_QT_LOCKS_H
 
 #include <climits>
 #include <functional>
@@ -807,4 +807,4 @@ inline T MultiQueueType<T, EventType, ReadWriteLockType>::tryWait()
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_LOCKS_H
+#endif  // QTNG_QT_LOCKS_H

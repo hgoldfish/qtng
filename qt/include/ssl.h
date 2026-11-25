@@ -1,5 +1,5 @@
-#ifndef QTNG_SSL_H
-#define QTNG_SSL_H
+#ifndef QTNG_QT_SSL_H
+#define QTNG_QT_SSL_H
 
 #include "crypto.h"
 #include "socket.h"
@@ -282,4 +282,4 @@ QTNETWORKNG_NAMESPACE_END
 
 Q_DECLARE_METATYPE(QList<QTNETWORKNG_NAMESPACE::SslError>)
 
-#endif  // QTNG_SSL_H
+#endif  // QTNG_QT_SSL_H

@@ -1,5 +1,5 @@
-#ifndef QTNG_HOSTADDRESS_H
-#define QTNG_HOSTADDRESS_H
+#ifndef QTNG_QT_HOSTADDRESS_H
+#define QTNG_QT_HOSTADDRESS_H
 
 #include <QtCore/qobject.h>
 #include <QtCore/qshareddata.h>
@@ -168,4 +168,4 @@ QT_END_NAMESPACE
 // Q_DECLARE_SHARED(QTNETWORKNG_NAMESPACE::HostAddress);
 Q_DECLARE_METATYPE(QTNETWORKNG_NAMESPACE::HostAddress)
 
-#endif  // QTNG_HOSTADDRESS_H
+#endif  // QTNG_QT_HOSTADDRESS_H

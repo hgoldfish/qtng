@@ -1,5 +1,5 @@
-#ifndef QTNG_COROUTINE_P_H
-#define QTNG_COROUTINE_P_H
+#ifndef QTNG_QT_COROUTINE_P_H
+#define QTNG_QT_COROUTINE_P_H
 
 #include <QtCore/qthreadstorage.h>
 #include "../coroutine.h"

@@ -1,5 +1,5 @@
-#ifndef QTNG_EVENTLOOP_P_H
-#define QTNG_EVENTLOOP_P_H
+#ifndef QTNG_QT_EVENTLOOP_P_H
+#define QTNG_QT_EVENTLOOP_P_H
 
 #include "../eventloop.h"
 

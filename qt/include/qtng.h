@@ -1,5 +1,5 @@
-#ifndef QTNG_QTNG_H
-#define QTNG_QTNG_H
+#ifndef QTNG_QT_QTNG_H
+#define QTNG_QT_QTNG_H
 
 #include "coroutine.h"
 #include "locks.h"
@@ -41,4 +41,4 @@
 #include "data_channel.h"
 #include "multi_stream.h"
 
-#endif  // QTNG_QTNG_H
+#endif  // QTNG_QT_QTNG_H

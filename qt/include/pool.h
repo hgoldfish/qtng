@@ -1,5 +1,5 @@
-#ifndef QTNG_POOL_H
-#define QTNG_POOL_H
+#ifndef QTNG_QT_POOL_H
+#define QTNG_QT_POOL_H
 
 #include <functional>
 #include <QtCore/qthread.h>
@@ -98,4 +98,4 @@ private:
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_POOL_H
+#endif  // QTNG_QT_POOL_H

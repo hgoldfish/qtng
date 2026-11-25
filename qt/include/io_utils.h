@@ -1,5 +1,5 @@
-#ifndef QTNG_IO_UTILS_H
-#define QTNG_IO_UTILS_H
+#ifndef QTNG_QT_IO_UTILS_H
+#define QTNG_QT_IO_UTILS_H
 
 #include <QtCore/qsharedpointer.h>
 #include <QtCore/qfileinfo.h>
@@ -180,4 +180,4 @@ QPair<QFileInfo, QString> safeJoinPath(const QDir &parentDir, const QString &sub
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_IO_UTILS_H
+#endif  // QTNG_QT_IO_UTILS_H

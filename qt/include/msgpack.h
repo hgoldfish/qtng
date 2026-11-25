@@ -1,5 +1,5 @@
-#ifndef QTNG_MSGPACK_H
-#define QTNG_MSGPACK_H
+#ifndef QTNG_QT_MSGPACK_H
+#define QTNG_QT_MSGPACK_H
 
 #include <limits>
 #include <type_traits>

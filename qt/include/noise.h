@@ -1,5 +1,5 @@
-#ifndef QTNG_NOISE_H
-#define QTNG_NOISE_H
+#ifndef QTNG_QT_NOISE_H
+#define QTNG_QT_NOISE_H
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qsharedpointer.h>
@@ -270,4 +270,4 @@ inline QSharedPointer<SocketLike> asSocketLike(NoiseSocket *s)
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_NOISE_H
+#endif  // QTNG_QT_NOISE_H

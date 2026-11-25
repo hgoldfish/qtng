@@ -1,5 +1,5 @@
-#ifndef QTNG_COROUTINE_UTILS_H
-#define QTNG_COROUTINE_UTILS_H
+#ifndef QTNG_QT_COROUTINE_UTILS_H
+#define QTNG_QT_COROUTINE_UTILS_H
 #include <functional>
 #include <QtCore/qobject.h>
 #include <QtCore/qvariant.h>
@@ -502,4 +502,4 @@ T ThreadPool::call(std::function<T()> func)
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_COROUTINE_UTILS_H
+#endif  // QTNG_QT_COROUTINE_UTILS_H

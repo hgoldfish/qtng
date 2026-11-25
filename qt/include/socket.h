@@ -1,5 +1,5 @@
-#ifndef QTNG_SOCKET_H
-#define QTNG_SOCKET_H
+#ifndef QTNG_QT_SOCKET_H
+#define QTNG_QT_SOCKET_H
 
 #include <QtCore/qstring.h>
 #include <QtCore/qbytearray.h>
@@ -350,4 +350,4 @@ QTNETWORKNG_NAMESPACE_END
 Q_DECLARE_METATYPE(QTNETWORKNG_NAMESPACE::Socket::SocketState)
 Q_DECLARE_METATYPE(QTNETWORKNG_NAMESPACE::Socket::SocketError)
 
-#endif  // QTNG_SOCKET_H
+#endif  // QTNG_QT_SOCKET_H

@@ -1,5 +1,5 @@
-#ifndef QTNG_SOCKET_UTILS_H
-#define QTNG_SOCKET_UTILS_H
+#ifndef QTNG_QT_SOCKET_UTILS_H
+#define QTNG_QT_SOCKET_UTILS_H
 
 #include <QtCore/qsharedpointer.h>
 #include <QtCore/qfile.h>
@@ -100,4 +100,4 @@ QSharedPointer<Socket> convertSocketLikeToSocket(QSharedPointer<SocketLike> sock
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_SOCKET_UTILS_H
+#endif  // QTNG_QT_SOCKET_UTILS_H

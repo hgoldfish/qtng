@@ -1,5 +1,5 @@
-#ifndef QTNG_KCP_H
-#define QTNG_KCP_H
+#ifndef QTNG_QT_KCP_H
+#define QTNG_QT_KCP_H
 
 #include <functional>
 #include <QtCore/qsharedpointer.h>
@@ -218,4 +218,4 @@ QSharedPointer<class SocketLike> createKcpServer(const HostAddress &host, quint1
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_KCP_H
+#endif  // QTNG_QT_KCP_H

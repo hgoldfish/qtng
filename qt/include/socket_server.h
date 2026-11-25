@@ -1,5 +1,5 @@
-#ifndef QTNG_SOCKET_SERVER_H
-#define QTNG_SOCKET_SERVER_H
+#ifndef QTNG_QT_SOCKET_SERVER_H
+#define QTNG_QT_SOCKET_SERVER_H
 
 #include "kcp.h"
 #include "utp.h"

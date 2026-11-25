@@ -1,5 +1,5 @@
-#ifndef QTNG_UTP_H
-#define QTNG_UTP_H
+#ifndef QTNG_QT_UTP_H
+#define QTNG_QT_UTP_H
 
 #include <QtCore/qsharedpointer.h>
 #include <QtCore/qvariant.h>
@@ -182,4 +182,4 @@ QSharedPointer<class SocketLike> createUtpServer(const HostAddress &host, quint1
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_UTP_H
+#endif  // QTNG_QT_UTP_H

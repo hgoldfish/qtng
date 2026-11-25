@@ -1,5 +1,5 @@
-#ifndef QTNG_HTTP_H
-#define QTNG_HTTP_H
+#ifndef QTNG_QT_HTTP_H
+#define QTNG_QT_HTTP_H
 
 #include <memory>
 
@@ -723,4 +723,4 @@ public:
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_HTTP_H
+#endif  // QTNG_QT_HTTP_H

@@ -1,5 +1,5 @@
-#ifndef QTNG_CIPHER_H
-#define QTNG_CIPHER_H
+#ifndef QTNG_QT_CIPHER_H
+#define QTNG_QT_CIPHER_H
 
 #include <QtCore/qpair.h>
 #include "md.h"
@@ -82,4 +82,4 @@ private:
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_CIPHER_H
+#endif  // QTNG_QT_CIPHER_H

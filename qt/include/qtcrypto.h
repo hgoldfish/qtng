@@ -1,5 +1,5 @@
-#ifndef QTNG_CRYPTNG_H
-#define QTNG_CRYPTNG_H
+#ifndef QTNG_QT_QTCRYPTO_H
+#define QTNG_QT_QTCRYPTO_H
 
 #include "random.h"
 #include "md.h"
@@ -7,4 +7,4 @@
 #include "pkey.h"
 #include "certificate.h"
 
-#endif // QTNG_CRYPTNG_H
+#endif  // QTNG_QT_QTCRYPTO_H

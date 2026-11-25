@@ -1,5 +1,5 @@
-#ifndef QTNG_COROUTINE_H
-#define QTNG_COROUTINE_H
+#ifndef QTNG_QT_COROUTINE_H
+#define QTNG_QT_COROUTINE_H
 
 #include <QtCore/qobject.h>
 #include <QtCore/qstring.h>
@@ -178,4 +178,4 @@ QTNETWORKNG_NAMESPACE_END
 class QDebug;
 QDebug &operator<<(QDebug &out, const QTNETWORKNG_NAMESPACE::BaseCoroutine &coroutine);
 
-#endif  // QTNG_COROUTINE_H
+#endif  // QTNG_QT_COROUTINE_H

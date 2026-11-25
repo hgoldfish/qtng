@@ -1,5 +1,5 @@
-#ifndef QTNG_RANDOM_H
-#define QTNG_RANDOM_H
+#ifndef QTNG_QT_RANDOM_H
+#define QTNG_QT_RANDOM_H
 
 #include <QtCore/qbytearray.h>
 
@@ -11,4 +11,4 @@ QByteArray randomBytes(int i);
 
 QTNETWORKNG_NAMESPACE_END
 
-#endif  // QTNG_RANDOM_H
+#endif  // QTNG_QT_RANDOM_H
