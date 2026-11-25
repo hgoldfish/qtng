@@ -134,6 +134,9 @@ public:
     QSharedPointer<FileLike> body() const;
     void setBody(const QByteArray &body);
     void setBody(QSharedPointer<FileLike> body);
+    // Buffers the whole body into memory and consumes the stream. body() hands
+    // back the stream itself; this is the one-shot convenience on top of it.
+    QByteArray readBodyAsString(bool *ok = nullptr) const;
     QString userAgent() const;
     void setUserAgent(const QString &userAgent);
     qint64 maxBodySize() const;
@@ -237,9 +240,20 @@ public:
     QSharedPointer<FileLike> bodyAsFile(bool processGzip, bool processChunked);
     QByteArray body();
     void setBody(const QByteArray &body);
+    // Server side: send the body as a stream instead of buffering it. A stream
+    // whose size() is negative is sent with chunked transfer encoding, or
+    // closed-delimited for an HTTP/1.0 peer.
+    void setBody(QSharedPointer<FileLike> bodyFile);
+    QSharedPointer<FileLike> bodyFile() const;
     QString text();
     QJsonDocument json();
     QString html();
+public:  // response factories for server side handlers
+    static HttpResponse json(const QByteArray &json, HttpStatus status = OK);
+    static HttpResponse plain(const QString &text, HttpStatus status = OK);
+    static HttpResponse redirect(const QUrl &location, HttpStatus status = MovedPermanently);
+    static HttpResponse status(HttpStatus status);
+    static HttpResponse file(const QFileInfo &fileInfo);
 
     bool isOk() const;
     bool hasNetworkError() const;

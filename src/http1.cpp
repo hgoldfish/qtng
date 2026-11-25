@@ -297,25 +297,22 @@ void Http1Protocol::exchange(HttpSessionPrivate *session, HttpRequest &request, 
 
     response.d->body = headerSplitter.buf();
     response.d->stream = connection;
-    if (!request.streamResponse() && response.d->statusCode != HttpStatus::NoContent) {
-        if (utils::toUpper(request.method()) == "HEAD") {
-            response.d->consumed = true;
-            response.d->body.clear();
-        } else {
-            const string &body = response.body();
-            if (response.d->error) {
-                return;
-            }
-            if (session->debugLevel == 1 && !body.empty()) {
-                ngDebug() << "receiving body:" << body.size();
-            } else if (session->debugLevel > 1 && !body.empty()) {
-                ngDebug() << "receiving body:" << body;
-            }
-            if (ptrLock && connection->isValid() && response.statusCode() >= 200
-                && utils::equalsIgnoreCase(response.header(KnownHeader::ConnectionHeader), "keep-alive")
-                && session->keepAlive) {
-                session->recycle(response.d->url.toString(), connection);
-            }
+    if (!request.streamResponse()) {
+        // body() yields nothing for HEAD and for statuses that forbid a payload,
+        // without touching the connection.
+        const string body = response.body();
+        if (response.d->error) {
+            return;
+        }
+        if (session->debugLevel == 1 && !body.empty()) {
+            ngDebug() << "receiving body:" << body.size();
+        } else if (session->debugLevel > 1 && !body.empty()) {
+            ngDebug() << "receiving body:" << body;
+        }
+        if (ptrLock && connection->isValid() && response.statusCode() >= 200
+            && utils::equalsIgnoreCase(response.header(KnownHeader::ConnectionHeader), "keep-alive")
+            && session->keepAlive) {
+            session->recycle(response.d->url.toString(), connection);
         }
         response.d->stream.reset();
     }

@@ -28,6 +28,15 @@ class Socks5Proxy;
 class Http2ClientSession;
 #endif
 
+// Reading a body for these statuses would block until the peer closes a
+// kept-alive connection: 1xx and 204 must not carry Content-Length at all
+// (RFC 7230 3.3.2), while 205 and 304 never carry a payload.
+inline bool httpStatusForbidsBody(int statusCode)
+{
+    return (statusCode >= 100 && statusCode < 200) || statusCode == HttpStatus::NoContent
+            || statusCode == HttpStatus::ResetContent || statusCode == HttpStatus::NotModified;
+}
+
 class HttpRequestPrivate
 {
 public:
@@ -80,6 +89,7 @@ public:
     std::vector<HttpCookie> cookies;
     HttpRequest request;
     std::string body;
+    std::shared_ptr<FileLike> bodyFile;
     std::vector<HttpResponse> history;
     std::shared_ptr<RequestError> error;
     std::shared_ptr<SocketLike> stream;

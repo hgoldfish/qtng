@@ -54,6 +54,9 @@ std::shared_ptr<QTNG_NAMESPACE::WebSocketConfiguration>
 webSocketConfigurationToCore(const std::shared_ptr<QTNETWORKNG_NAMESPACE::WebSocketConfiguration> &config);
 
 QTNETWORKNG_NAMESPACE::HttpResponse httpResponseFromCore(QTNG_NAMESPACE::HttpResponse core);
+// Deep copy from the Qt wrapper back to the core type: the core copy constructors
+// share private state, and a handler may still hold the wrapper afterwards.
+QTNG_NAMESPACE::HttpResponse httpResponseToCore(const QTNETWORKNG_NAMESPACE::HttpResponse &response);
 
 }  // namespace qtng_bridge
 

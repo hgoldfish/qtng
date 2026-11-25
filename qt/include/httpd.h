@@ -16,6 +16,8 @@ QTNETWORKNG_NAMESPACE_BEGIN
 
 class QtHttpRequestHandlerCoreBridge;
 
+class HttpResponse;
+
 class BaseHttpRequestHandler : public WithHttpHeaders<BaseRequestHandler>
 {
 public:
@@ -57,6 +59,11 @@ protected:  // util methods.
     void sendHeader(const QByteArray &name, const QByteArray &value);
     bool endHeader();
     bool readBody();
+    // Serializes a response value: status line, headers, cookies, then the body.
+    // A body file is streamed with sendfile(); a stream of unknown size is sent
+    // chunked (closed-delimited for an HTTP/1.0 peer). Implemented once in the
+    // core, so every server-side handler frames alike.
+    bool writeServerResponse(const HttpResponse &response);
 protected:
     virtual QByteArray tryToHandleMagicCode(bool &done);
 private:

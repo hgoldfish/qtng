@@ -321,6 +321,26 @@ string HttpRequest::bodyAsString() const
     return bytes ? bytes->data() : string();
 }
 
+string HttpRequest::readBodyAsString(bool *ok) const
+{
+    if (ok) {
+        *ok = true;
+    }
+    if (!d->body) {
+        return string();
+    }
+    shared_ptr<BytesIO> bytes = dynamic_pointer_cast<BytesIO>(d->body);
+    if (bytes) {
+        return bytes->data();
+    }
+    bool readOk = false;
+    string data = d->body->readall(&readOk);
+    if (ok) {
+        *ok = readOk;
+    }
+    return data;
+}
+
 string HttpRequest::userAgent() const
 {
     return d->userAgent;
@@ -455,6 +475,7 @@ HttpResponsePrivate::HttpResponsePrivate(const HttpResponsePrivate &other)
     , cookies(other.cookies)
     , request(other.request)
     , body(other.body)
+    , bodyFile(other.bodyFile)
     , history(other.history)
     , error(other.error)
     , stream(other.stream)
@@ -575,6 +596,14 @@ RequestError *toRequestError(ChunkedBlockReader::Error error)
 
 shared_ptr<FileLike> HttpResponse::bodyAsFile(bool processGzip, bool processChunked)
 {
+    if (d->bodyFile) {
+        return d->bodyFile;
+    }
+    if (httpStatusForbidsBody(d->statusCode) || utils::toUpper(d->request.method()) == "HEAD") {
+        d->consumed = true;
+        d->body.clear();
+        return shared_ptr<FileLike>();
+    }
     if (d->consumed) {
         ngWarning()
                 << "the stream is consumed. do you remember to set the streamResponse property of request to true?";
@@ -675,13 +704,92 @@ string HttpResponse::body()
         }
     }
     d->body = data;
+    d->bodyFile.reset();
+    d->consumed = true;
     return data;
 }
 
 void HttpResponse::setBody(const char *body, size_t size)
 {
+    d->bodyFile.reset();
     d->body.assign(body, size);
     d->consumed = true;
+}
+
+void HttpResponse::setBody(shared_ptr<FileLike> bodyFile)
+{
+    d->body.clear();
+    d->bodyFile = bodyFile;
+    d->consumed = !bodyFile;
+}
+
+shared_ptr<FileLike> HttpResponse::bodyFile() const
+{
+    return d->bodyFile;
+}
+
+static HttpResponse makeTextResponse(const std::string &body, const std::string &contentType, HttpStatus status)
+{
+    HttpResponse response;
+    response.setStatusCode(static_cast<int>(status));
+    response.setContentType(contentType);
+    response.setContentLength(static_cast<std::int64_t>(body.size()));
+    response.setBody(body);
+    return response;
+}
+
+HttpResponse HttpResponse::json(const std::string &json, HttpStatus status)
+{
+    return makeTextResponse(json, "application/json; charset=utf-8", status);
+}
+
+HttpResponse HttpResponse::plain(const std::string &text, HttpStatus status)
+{
+    return makeTextResponse(text, "text/plain; charset=utf-8", status);
+}
+
+HttpResponse HttpResponse::redirect(const std::string &location, HttpStatus status)
+{
+    HttpResponse response;
+    response.setStatusCode(static_cast<int>(status));
+    response.setLocation(location);
+    response.setContentLength(0);
+    return response;
+}
+
+HttpResponse HttpResponse::status(HttpStatus status)
+{
+    HttpResponse response;
+    response.setStatusCode(static_cast<int>(status));
+    response.setContentLength(0);
+    return response;
+}
+
+HttpResponse HttpResponse::file(const PosixPath &path)
+{
+    if (!path.isFile()) {
+        return status(NotFound);
+    }
+    shared_ptr<FileLike> f = FileLike::open(path.path());
+    if (!f) {
+        return status(NotFound);
+    }
+    HttpResponse response;
+    response.setStatusCode(static_cast<int>(OK));
+    string contentType = utils::mimeTypeForFileName(path.name());
+    if (contentType.empty()) {
+        contentType = "application/octet-stream";
+    }
+    response.setContentType(contentType);
+    const std::int64_t fileSize = f->size();
+    if (fileSize >= 0) {
+        // A negative size means unknown: leave Content-Length unset so the
+        // handler sends the body chunked instead of announcing "-1".
+        response.setContentLength(fileSize);
+    }
+    response.setLastModified(utils::DateTime::fromMSecsSinceEpoch(path.lastModifiedMsecsSinceEpoch()));
+    response.setBody(f);
+    return response;
 }
 
 int64_t HttpResponse::elapsed() const

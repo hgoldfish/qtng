@@ -415,6 +415,15 @@ void HttpRequest::setCookies(const QList<HttpCookie> &cookies)
 QSharedPointer<FileLike> HttpRequest::body() const { return toQtFileLike(d->core.body()); }
 void HttpRequest::setBody(const QByteArray &body) { d->core.setBody(toStdString(body)); }
 void HttpRequest::setBody(QSharedPointer<FileLike> body) { d->core.setBody(toCoreFileLike(body)); }
+QByteArray HttpRequest::readBodyAsString(bool *ok) const
+{
+    bool coreOk = true;
+    const QByteArray data = toQByteArray(d->core.readBodyAsString(&coreOk));
+    if (ok) {
+        *ok = coreOk;
+    }
+    return data;
+}
 QString HttpRequest::userAgent() const { return toQString(d->core.userAgent()); }
 void HttpRequest::setUserAgent(const QString &userAgent) { d->core.setUserAgent(toStdString(userAgent)); }
 qint64 HttpRequest::maxBodySize() const { return d->core.maxBodySize(); }
@@ -634,6 +643,78 @@ QSharedPointer<FileLike> HttpResponse::bodyAsFile(bool processGzip, bool process
 
 QByteArray HttpResponse::body() { return toQByteArray(d->core.body()); }
 void HttpResponse::setBody(const QByteArray &body) { d->core.setBody(toStdString(body)); }
+void HttpResponse::setBody(QSharedPointer<FileLike> bodyFile) { d->core.setBody(toCoreFileLike(bodyFile)); }
+QSharedPointer<FileLike> HttpResponse::bodyFile() const { return toQtFileLike(d->core.bodyFile()); }
+
+namespace {
+
+HttpResponse makeTextResponse(const QByteArray &body, const QString &contentType, HttpStatus status)
+{
+    HttpResponse response;
+    response.setStatusCode(static_cast<int>(status));
+    response.setContentType(contentType);
+    response.setContentLength(static_cast<qint64>(body.size()));
+    response.setBody(body);
+    return response;
+}
+
+}  // namespace
+
+HttpResponse HttpResponse::json(const QByteArray &json, HttpStatus status)
+{
+    return makeTextResponse(json, QStringLiteral("application/json; charset=utf-8"), status);
+}
+
+HttpResponse HttpResponse::plain(const QString &text, HttpStatus status)
+{
+    return makeTextResponse(text.toUtf8(), QStringLiteral("text/plain; charset=utf-8"), status);
+}
+
+HttpResponse HttpResponse::redirect(const QUrl &location, HttpStatus status)
+{
+    HttpResponse response;
+    response.setStatusCode(static_cast<int>(status));
+    response.setLocation(location);
+    response.setContentLength(0);
+    return response;
+}
+
+HttpResponse HttpResponse::status(HttpStatus status)
+{
+    HttpResponse response;
+    response.setStatusCode(static_cast<int>(status));
+    response.setContentLength(0);
+    return response;
+}
+
+HttpResponse HttpResponse::file(const QFileInfo &fileInfo)
+{
+    if (!fileInfo.isFile()) {
+        return status(HttpStatus::NotFound);
+    }
+    QSharedPointer<FileLike> f = FileLike::open(fileInfo.absoluteFilePath());
+    if (!f) {
+        return status(HttpStatus::NotFound);
+    }
+    QMimeDatabase db;
+    QString contentType = db.mimeTypeForFile(fileInfo).name();
+    if (contentType.isEmpty()) {
+        contentType = QStringLiteral("application/octet-stream");
+    }
+    HttpResponse response;
+    response.setStatusCode(static_cast<int>(HttpStatus::OK));
+    response.setContentType(contentType);
+    const qint64 fileSize = f->size();
+    if (fileSize >= 0) {
+        // A negative size means unknown: leave Content-Length unset so the
+        // handler sends the body chunked instead of announcing "-1".
+        response.setContentLength(fileSize);
+    }
+    response.setLastModified(fileInfo.lastModified());
+    response.setBody(f);
+    return response;
+}
+
 QString HttpResponse::text() { return toQString(d->core.text()); }
 QJsonDocument HttpResponse::json() { return QJsonDocument::fromJson(body()); }
 QString HttpResponse::html() { return toQString(d->core.html()); }
@@ -2158,6 +2239,11 @@ namespace qtng_bridge {
 HttpResponse httpResponseFromCore(QTNG_NAMESPACE::HttpResponse core)
 {
     return QTNETWORKNG_NAMESPACE::QtHttpBridgeAccess::fromCore(std::move(core));
+}
+
+QTNG_NAMESPACE::HttpResponse httpResponseToCore(const HttpResponse &response)
+{
+    return QTNETWORKNG_NAMESPACE::QtHttpBridgeAccess::coreOf(response);
 }
 
 }  // namespace qtng_bridge

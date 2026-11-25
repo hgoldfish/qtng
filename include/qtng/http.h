@@ -166,6 +166,10 @@ public:
     // attempt and return an empty string. Lets HttpSession resend QUERY/POST
     // bodies after a redirect instead of re-reading an already-consumed stream.
     std::string bodyAsString() const;
+    // Server-side convenience: reads the whole body, consuming the stream when
+    // it is not already in memory. Returns an empty string when there is no
+    // body. `ok` is set to false when reading the stream failed.
+    std::string readBodyAsString(bool *ok = nullptr) const;
     std::string userAgent() const;
     void setUserAgent(const std::string &userAgent);
     std::int64_t maxBodySize() const;
@@ -246,8 +250,20 @@ public:
     std::string body();
     void setBody(const char *body, size_t size);
     inline void setBody(const std::string &body) { setBody(body.data(), body.size()); }
+    // Streams the body instead of buffering it. Server handlers write it with
+    // sendfile(); a body without a known size is sent chunked, or
+    // closed-delimited for an HTTP/1.0 peer. body() and bodyAsFile() both see
+    // this stream; body() reads it into memory.
+    void setBody(std::shared_ptr<FileLike> bodyFile);
+    std::shared_ptr<FileLike> bodyFile() const;
     std::string text();
     std::string html();
+public:  // response factories for server side handlers
+    static HttpResponse json(const std::string &json, HttpStatus status = OK);
+    static HttpResponse plain(const std::string &text, HttpStatus status = OK);
+    static HttpResponse redirect(const std::string &location, HttpStatus status = MovedPermanently);
+    static HttpResponse status(HttpStatus status);
+    static HttpResponse file(const PosixPath &path);
 
     bool isOk() const;
     bool hasNetworkError() const;

@@ -12,6 +12,8 @@
 #include "qtng/config.h"
 QTNG_NAMESPACE_BEGIN
 
+class HttpResponse;
+
 class BaseHttpRequestHandler : public WithHttpHeaders<BaseRequestHandler>
 {
 public:
@@ -51,6 +53,12 @@ protected:  // util methods.
     void sendHeader(const std::string &name, const std::string &value);
     bool endHeader();
     bool readBody();
+    // Serializes a response value: status line, headers, cookies, then the body.
+    // A body file is streamed with sendfile(); a stream of unknown size is sent
+    // chunked (closed-delimited for an HTTP/1.0 peer). Kept here, not in a
+    // specific handler, so the wire framing rules have one implementation for
+    // every server-side handler.
+    bool writeServerResponse(const HttpResponse &response);
 protected:
     virtual std::string tryToHandleMagicCode(bool &done);
 private:

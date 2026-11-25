@@ -1,4 +1,5 @@
 #include "bridge/core_access.h"
+#include "bridge/http_access.h"
 #include "bridge/io_bridge.h"
 #include "bridge/stream_bridge.h"
 #include "httpd.h"
@@ -43,6 +44,7 @@ class QtHttpRequestHandlerCoreBridge : public QTNG_NAMESPACE::StaticHttpRequestH
 public:
     explicit QtHttpRequestHandlerCoreBridge(QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler *q)
         : q(q)
+        , lastSyncedClose(Maybe)
     {
     }
 
@@ -68,11 +70,17 @@ public:
     void doCONNECTCore() { QTNG_NAMESPACE::BaseHttpRequestHandler::doCONNECT(); }
     bool sendErrorCore(QTNG_NAMESPACE::HttpStatus status, const string &longMessage)
     {
-        return QTNG_NAMESPACE::BaseHttpRequestHandler::sendError(status, longMessage);
+        pushCloseConnection();
+        const bool ok = QTNG_NAMESPACE::BaseHttpRequestHandler::sendError(status, longMessage);
+        pullCloseConnection();
+        return ok;
     }
     bool sendResponseCore(QTNG_NAMESPACE::HttpStatus status, const string &longMessage)
     {
-        return QTNG_NAMESPACE::BaseHttpRequestHandler::sendResponse(status, longMessage);
+        pushCloseConnection();
+        const bool ok = QTNG_NAMESPACE::BaseHttpRequestHandler::sendResponse(status, longMessage);
+        pullCloseConnection();
+        return ok;
     }
     string errorMessageCore(QTNG_NAMESPACE::HttpStatus status, const string &shortMessage, const string &longMessage)
     {
@@ -91,7 +99,10 @@ public:
     }
     shared_ptr<QTNG_NAMESPACE::FileLike> bodyAsFileCore(bool processEncoding)
     {
-        return QTNG_NAMESPACE::BaseHttpRequestHandler::bodyAsFile(processEncoding);
+        pushCloseConnection();
+        shared_ptr<QTNG_NAMESPACE::FileLike> file = QTNG_NAMESPACE::BaseHttpRequestHandler::bodyAsFile(processEncoding);
+        pullCloseConnection();
+        return file;
     }
     bool switchToWebSocketCore() { return QTNG_NAMESPACE::BaseHttpRequestHandler::switchToWebSocket(); }
     string tryToHandleMagicCodeCore(bool &done) { return QTNG_NAMESPACE::BaseHttpRequestHandler::tryToHandleMagicCode(done); }
@@ -117,19 +128,49 @@ public:
     // non-virtual protocol utilities, called from the Qt default implementations.
     void sendCommandLine(QTNG_NAMESPACE::HttpStatus status, const string &shortMessage)
     {
+        pushCloseConnection();
         QTNG_NAMESPACE::BaseHttpRequestHandler::sendCommandLine(status, shortMessage);
+        pullCloseConnection();
     }
     void sendHeader(const string &name, const string &value)
     {
+        pushCloseConnection();
         QTNG_NAMESPACE::BaseHttpRequestHandler::sendHeader(name, value);
+        pullCloseConnection();
     }
-    bool endHeader() { return QTNG_NAMESPACE::BaseHttpRequestHandler::endHeader(); }
-    bool readBody() { return QTNG_NAMESPACE::BaseHttpRequestHandler::readBody(); }
+    bool endHeader()
+    {
+        pushCloseConnection();
+        const bool ok = QTNG_NAMESPACE::BaseHttpRequestHandler::endHeader();
+        pullCloseConnection();
+        return ok;
+    }
+    bool readBody()
+    {
+        pushCloseConnection();
+        const bool ok = QTNG_NAMESPACE::BaseHttpRequestHandler::readBody();
+        pullCloseConnection();
+        return ok;
+    }
+    bool writeServerResponseCore(const QTNG_NAMESPACE::HttpResponse &response)
+    {
+        pushCloseConnection();
+        const bool ok = QTNG_NAMESPACE::BaseHttpRequestHandler::writeServerResponse(response);
+        pullCloseConnection();
+        return ok;
+    }
     vector<string> webSocketProtocols() { return QTNG_NAMESPACE::BaseHttpRequestHandler::webSocketProtocols(); }
 
     // ---- virtual methods: forward to the Qt side so that user overrides are honored ----
     void handle() override { q->handle(); }
-    void handleOneRequest() override { q->handleOneRequest(); }
+    // The core loop reads closeConnection right after this returns to decide whether to
+    // serve another request, so a handler that set it without calling any of the synced
+    // writers (a raw-socket hijack, say) must still have that verdict pushed across.
+    void handleOneRequest() override
+    {
+        q->handleOneRequest();
+        pushCloseConnection();
+    }
     bool parseRequest() override { return q->parseRequest(); }
     void doMethod() override { q->doMethod(); }
     void doGET() override { q->doGET(); }
@@ -204,8 +245,7 @@ public:
         q->path = toQString(path);
         q->body = toQByteArray(body);
         q->version = static_cast<HttpVersion>(version);
-        q->closeConnection =
-                static_cast<QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler::CloseConnectionStatus>(closeConnection);
+        pullCloseConnection();
         QList<HttpHeader> qtHeaders;
         for (const QTNG_NAMESPACE::HttpHeader &h : allHeaders()) {
             qtHeaders.append(HttpHeader(toQString(h.name()), toQByteArray(h.value())));
@@ -213,10 +253,47 @@ public:
         q->setHeaders(qtHeaders);
     }
 
-    int qtCloseConnection() const { return static_cast<int>(closeConnection); }
-
 private:
+    // closeConnection never crosses the layer as a bare int: lastSyncedClose is a core-typed
+    // copy of the value the core last reported, and the only currency between the two enums
+    // is the enumeration's numeric value. Hence the check below — a reordered Qt enum would
+    // otherwise silently turn "keep-alive" into "close" with no diagnostic anywhere.
+    static_assert(static_cast<int>(QTNG_NAMESPACE::BaseHttpRequestHandler::Yes)
+                              == static_cast<int>(QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler::Yes)
+                          && static_cast<int>(QTNG_NAMESPACE::BaseHttpRequestHandler::No)
+                                  == static_cast<int>(QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler::No)
+                          && static_cast<int>(QTNG_NAMESPACE::BaseHttpRequestHandler::Maybe)
+                                  == static_cast<int>(QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler::Maybe),
+                  "closeConnection values must agree between the core and Qt enums");
+
+    // closeConnection is the handler's intent on the Qt side, while the core
+    // recomputes it from the headers and bodies it actually emits (a Connection
+    // header, an oversized body, chunked framing). Both directions matter:
+    //
+    // - pull: copy the core's verdict back, so a handler sees what the protocol
+    //   decided (and so nothing stale can be pushed later).
+    // - push: copy the handler's *edit* back in — only when the Qt value differs
+    //   from what the core last reported. An unconditional push would be wrong,
+    //   not merely wasteful: core's bodyAsFile() sets Yes and then sends the
+    //   error through the virtual sendError(), which lands back on the Qt side;
+    //   pushing the stale value there would erase the decision it is in the
+    //   middle of acting on.
+    void pushCloseConnection()
+    {
+        const CloseConnectionStatus requested = static_cast<CloseConnectionStatus>(q->closeConnection);
+        if (requested != lastSyncedClose) {
+            closeConnection = requested;
+        }
+    }
+    void pullCloseConnection()
+    {
+        lastSyncedClose = closeConnection;
+        q->closeConnection = static_cast<QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler::CloseConnectionStatus>(
+                closeConnection);
+    }
+
     QTNETWORKNG_NAMESPACE::BaseHttpRequestHandler * const q;
+    CloseConnectionStatus lastSyncedClose;
 };
 
 BaseHttpRequestHandler::BaseHttpRequestHandler()
@@ -341,29 +418,31 @@ QBYTEARRAYLIST BaseHttpRequestHandler::webSocketProtocols()
 void BaseHttpRequestHandler::sendCommandLine(HttpStatus status, const QString &shortMessage)
 {
     coreBridge->sendCommandLine(static_cast<QTNG_NAMESPACE::HttpStatus>(status), toStdString(shortMessage));
-    closeConnection = static_cast<CloseConnectionStatus>(coreBridge->qtCloseConnection());
 }
 
 void BaseHttpRequestHandler::sendHeader(const QByteArray &name, const QByteArray &value)
 {
     coreBridge->sendHeader(toStdString(name), toStdString(value));
-    closeConnection = static_cast<CloseConnectionStatus>(coreBridge->qtCloseConnection());
 }
 
 bool BaseHttpRequestHandler::endHeader()
 {
-    const bool ok = coreBridge->endHeader();
-    closeConnection = static_cast<CloseConnectionStatus>(coreBridge->qtCloseConnection());
-    return ok;
+    return coreBridge->endHeader();
 }
 
 bool BaseHttpRequestHandler::readBody()
 {
     const bool ok = coreBridge->readBody();
-    // core 的 readBody() 会把完整请求体写入 core 侧 body 成员；需同步回 Qt 包装层，
-    // 否则 Qt 侧 readBody() 之后读取 body 成员仍是解析时的残留（大 POST 回显长度错误）。
+    // core's readBody() fills the core-side `body` member; copy it back to the Qt
+    // wrapper, otherwise the Qt `body` member still holds the header-splitter
+    // leftovers (a large POST would report the wrong length).
     coreBridge->syncToQt();
     return ok;
+}
+
+bool BaseHttpRequestHandler::writeServerResponse(const HttpResponse &response)
+{
+    return coreBridge->writeServerResponseCore(httpResponseToCore(response));
 }
 
 QByteArray BaseHttpRequestHandler::tryToHandleMagicCode(bool &done)

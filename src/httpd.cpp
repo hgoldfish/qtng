@@ -9,6 +9,8 @@
 #endif
 
 #include "qtng/httpd.h"
+#include "qtng/http.h"
+#include "qtng/private/http_p.h"
 #include "qtng/utils/string_utils.h"
 #include "qtng/utils/mime.h"
 #include "qtng/utils/url.h"
@@ -437,6 +439,118 @@ bool BaseHttpRequestHandler::readBody()
     }
     bool ok;
     body = bodyFile->readall(&ok);
+    return ok;
+}
+
+bool BaseHttpRequestHandler::writeServerResponse(const HttpResponse &response)
+{
+    HttpStatus status = static_cast<HttpStatus>(response.statusCode());
+    if (response.statusCode() <= 0) {
+        status = HttpStatus::InternalServerError;
+    }
+    string shortMessage;
+    string longMessage;
+    if (!toMessage(status, &shortMessage, &longMessage)) {
+        shortMessage = longMessage = "???";
+    }
+    string statusText = response.statusText();
+    if (statusText.empty()) {
+        statusText = shortMessage;
+    }
+
+    sendCommandLine(status, statusText);
+    sendHeader("Server", serverName());
+    sendHeader("Date", dateTimeString());
+
+    const vector<HttpHeader> responseHeaders = response.allHeaders();
+    for (const HttpHeader &responseHeader : responseHeaders) {
+        const string &name = utils::toLower(responseHeader.name());
+        if (name == "content-length" || name == "transfer-encoding" || name == "server" || name == "date") {
+            continue;
+        }
+        sendHeader(responseHeader.name(), responseHeader.value());
+    }
+    const vector<HttpCookie> cookies = response.cookies();
+    for (const HttpCookie &cookie : cookies) {
+        sendHeader(SetCookieHeader, cookie.toRawForm(HttpCookie::Full));
+    }
+
+    shared_ptr<FileLike> bodyFile = response.bodyFile();
+    const std::int64_t bodyFileSize = bodyFile ? bodyFile->size() : -1;
+    string body;
+    bool chunked = false;
+    if (bodyFile) {
+        chunked = bodyFileSize < 0;
+    } else if (response.contentLength() != 0) {
+        // Reading body() consumes the response. A streamless response with no
+        // body at all sets UnrewindableBodyError (a documented quirk), so skip
+        // the explicit `Content-Length: 0` case; the Content-Length announced
+        // below always reflects what body() actually returned.
+        HttpResponse mutableResponse = response;
+        body = mutableResponse.body();
+    }
+
+    const bool isHead = utils::toUpper(method) == "HEAD";
+    const bool http10 = version == Http1_0 || serverVersion == Http1_0;
+    const bool bodyAllowed = !httpStatusForbidsBody(status);
+    if (!bodyAllowed) {
+        // 1xx, 204 and 304 carry neither a length nor chunked framing; 205 must
+        // announce its empty payload explicitly (RFC 7231 6.3.6).
+        if (status == HttpStatus::ResetContent) {
+            sendHeader(ContentLengthHeader, "0");
+        }
+    } else if (chunked) {
+        // A HEAD over an unknown-length stream has no length to announce and no
+        // chunks to send, so it stays unframed instead of closing the connection.
+        if (!isHead) {
+            // HTTP/1.0 has no chunked framing: such a body ends when the
+            // connection closes, which needs no header at all.
+            if (!http10) {
+                sendHeader(TransferEncodingHeader, "chunked");
+            }
+            sendHeader(ConnectionHeader, "close");
+        }
+    } else if (!bodyFile) {
+        sendHeader(ContentLengthHeader, utils::number(static_cast<long long>(body.size())));
+    } else if (bodyFileSize >= 0) {
+        sendHeader(ContentLengthHeader, utils::number(static_cast<long long>(bodyFileSize)));
+    }
+
+    if (!endHeader()) {
+        if (bodyFile) {
+            bodyFile->close();
+        }
+        return false;
+    }
+
+    if (isHead || !bodyAllowed) {
+        if (bodyFile) {
+            bodyFile->close();
+        }
+        logRequest(status, 0);
+        return true;
+    }
+
+    if (bodyFile) {
+        bool ok = false;
+        if (chunked && !http10) {
+            shared_ptr<ChunkedWriter> writer = std::make_shared<ChunkedWriter>(request);
+            ok = sendfile(bodyFile, writer);
+            writer->close();
+        } else {
+            // Honor the Content-Length announced above. A stream that yields
+            // more bytes than size() promised would otherwise spill them into
+            // the next response on this keep-alive connection. An unknown size
+            // (-1) copies everything; for HTTP/1.0 that is closed-delimited.
+            ok = sendfile(bodyFile, request, bodyFileSize);
+        }
+        bodyFile->close();
+        logRequest(status, static_cast<int>(bodyFileSize < 0 ? 0 : bodyFileSize));
+        return ok;
+    }
+
+    const bool ok = body.empty() || request->sendall(body) == body.size();
+    logRequest(status, static_cast<int>(body.size()));
     return ok;
 }
 
