@@ -2236,7 +2236,42 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
 
 .. method:: std::string body() const
 
-    Return the content of response as ``std::string``.
+    Return the content of response as ``std::string``. Shares the same path as
+    ``bodyAsFile()``: if a stream was set with ``setBody(std::shared_ptr<FileLike>)``,
+    it is read into memory and cached; later calls return the cache. After the
+    read, the stream is cleared and ``bodyFile()`` returns ``nullptr``.
+
+    A status that forbids a payload (``1xx``, ``204``, ``205``, ``304``) yields
+    an empty string: there is no body to read on the wire, and reading would
+    otherwise block until the peer closes a kept-alive connection. The same
+    holds for any response to a ``HEAD`` request, which never carries a body
+    regardless of what its ``Content-Length`` announces.
+
+.. method:: void setBody(std::shared_ptr<FileLike> bodyFile)
+
+    Set the body as a stream instead of buffering it. Server handlers write the
+    stream with ``sendfile()``; a stream whose ``size()`` is negative is sent
+    with chunked transfer encoding (closed-delimited for an ``HTTP/1.0`` peer,
+    which has no chunked encoding). Both ``body()`` and ``bodyAsFile()`` see
+    this stream.
+
+.. method:: std::shared_ptr<FileLike> bodyFile() const
+
+    Return the stream set by ``setBody(std::shared_ptr<FileLike>)``, or
+    ``nullptr`` when the body is held in memory.
+
+.. method:: static HttpResponse json(const std::string &json, HttpStatus status = OK)
+.. method:: static HttpResponse plain(const std::string &text, HttpStatus status = OK)
+.. method:: static HttpResponse redirect(const std::string &location, HttpStatus status = MovedPermanently)
+.. method:: static HttpResponse status(HttpStatus status)
+.. method:: static HttpResponse file(const PosixPath &path)
+
+    Response factories for server handlers. ``json()`` and ``plain()`` set the
+    matching ``Content-Type`` and ``Content-Length``; ``redirect()`` sets
+    ``Location`` and an empty body; ``status()`` creates an empty response.
+    ``file()`` opens the file and returns a response whose body is the stream,
+    so the file is written with ``sendfile()`` and never loaded into memory. A
+    missing file, a directory or an unreadable path yields ``404 Not Found``.
 
 
 
@@ -2337,6 +2372,13 @@ There is a special function ``HttpRequest::setStreamResponse()`` which indicate 
     empty string, in which case the caller must rewind the stream itself
     before retrying. This lets the session re-send a QUERY/POST body when
     following a redirect.
+
+.. method:: std::string readBodyAsString(bool *ok = nullptr) const
+
+    Read the whole body and return it. Unlike ``bodyAsString()``, this also
+    consumes a streaming body, so it is the right call inside an
+    ``HttpJunction`` handler. ``ok`` is set to false when reading the stream
+    failed.
 
 .. method:: void setBody(const char *body, size_t size)
 .. method:: void setBody(const std::string &body)
@@ -2606,6 +2648,10 @@ Base class for handling HTTP requests, providing core functionality for HTTP pro
 
     Reads the complete request body into the ``body`` member, honoring ``Content-Length`` / ``Transfer-Encoding``, the ``maxBodySize`` limit and content decoding (see ``bodyAsFile()``). Returns true on success, false on error (for example when the body exceeds the configured limit).
 
+.. method:: bool writeServerResponse(const HttpResponse &response)
+
+    Serializes a response value onto the wire: status line, headers, cookies, then the body. ``Content-Length``, transfer framing and the ``Connection`` header are derived from the body and the status code, so a body file is streamed with ``sendfile()`` and a stream of unknown size is sent chunked (or, for an ``HTTP/1.0`` peer which has no chunked encoding, closed-delimited). ``1xx``/``204``/``304`` carry no length and no body, ``205`` announces ``Content-Length: 0``, and a ``HEAD`` never writes a body. Returns false when the write failed.
+
 .. method:: static std::string normalizePath(const std::string &path)
 
     Normalizes a request path using strict URL parsing: collapses ``.`` / ``..`` path segments and keeps the query string. For example ``/a/../b`` becomes ``/b`` and ``/a?x=1`` stays ``/a?x=1``.
@@ -2690,7 +2736,177 @@ Implements core logic for HTTP proxy, supporting forward proxy and tunnel proxy 
 
     It is responsible for creating and initializing a Socket connection to the target server, given the passed remoteHostName and remotePort. This connection will be used for subsequent HTTP request forwarding or HTTPS tunnel proxy (such as CONNECT method).
 
-4.2 Application Server
+4.2 HttpJunction
+^^^^^^^^^^^^^^^^
+
+``HttpJunction`` is a routing table for HTTP servers. Instead of subclassing
+``BaseHttpRequestHandler`` and dispatching on the path by hand, register one
+handler per method and path and return a response value:
+
+.. code-block:: c++
+
+    HttpJunction junction;
+    junction.get("/notes", [](const HttpRequest &request) {
+        return HttpResponse::json(R"({"notes":[]})");
+    });
+    junction.post("/notes", [](const HttpRequest &request) {
+        return HttpResponse::json(request.readBodyAsString(), HttpStatus::Created);
+    });
+
+    TcpServer<JunctionRequestHandler> server(HostAddress::LocalHost, 8000);
+    server.setUserData(&junction);
+    server.serveForever();
+
+``JunctionRequestHandler`` does not own a transport. Use it with ``TcpServer``,
+``KcpServer``, ``UtpServer`` or ``SslServer``; it looks the junction up through
+``server->userData()``. ``dispatch()`` needs no socket — it only reads the route
+table and runs the handlers — so a junction can be unit tested directly.
+
+Matching rules:
+
+* Method and path are matched exactly. There is no path-parameter syntax.
+* ``HEAD`` falls back to the ``GET`` handler when ``HEAD`` is not registered.
+  The body is not written, but ``Content-Length`` is kept; when the length cannot
+  be known up front (a stream of unknown size) the header is omitted rather than
+  advertising chunked with no chunks to follow.
+* Every response is framed by rule, not by convention. ``1xx`` and ``204`` must
+  not carry ``Content-Length`` (RFC 7230 §3.3.2) and a ``304`` has no body, so
+  those are sent with neither a length nor chunked framing; a compliant client
+  frames them from the status line alone. ``205 Reset Content`` does announce
+  ``Content-Length: 0``, as RFC 7231 §6.3.6 requires.
+* Requesting ``/notes/`` when only ``/notes`` is registered for that method (and
+  the reverse) answers ``301 Moved Permanently`` with the query string
+  preserved. The flip is method-scoped on purpose: a method that has no handler
+  on either form gets ``405``/``404`` instead of a redirect to the same answer.
+* A literal route on a junction wins over a mounted group that would match the
+  same path.
+* A path that exists for other methods answers ``405 Method Not Allowed`` with
+  an aggregated ``Allow`` header; anything else is ``404 Not Found``.
+* A ``QUERY`` request without ``Content-Type`` answers ``400 Bad Request``
+  (RFC 10008).
+
+.. code-block:: c++
+
+    using Handler = std::function<HttpResponse(const HttpRequest &)>;
+    using Middleware = std::function<HttpResponse(const HttpRequest &, const Handler &)>;
+    using ExceptionHandler = std::function<HttpResponse(const HttpRequest &, const std::exception_ptr &)>;
+
+.. method:: void get(const std::string &path, Handler handler)
+.. method:: void head(const std::string &path, Handler handler)
+.. method:: void post(const std::string &path, Handler handler)
+.. method:: void put(const std::string &path, Handler handler)
+.. method:: void patch(const std::string &path, Handler handler)
+.. method:: void delete_(const std::string &path, Handler handler)
+.. method:: void options(const std::string &path, Handler handler)
+.. method:: void query(const std::string &path, Handler handler)
+.. method:: void all(const std::string &path, Handler handler)
+.. method:: void handle(const std::string &method, const std::string &path, Handler handler)
+
+    Register a handler. The path must start with ``/``. ``all()`` registers the
+    same handler for every method. A duplicate registration replaces the
+    previous handler and logs a warning.
+
+.. method:: void use(Middleware middleware)
+
+    Add a middleware. Middlewares compose from the outside in: the first
+    ``use()`` on a junction runs first, and a parent junction's middleware runs
+    before a mounted junction's. A middleware short-circuits by returning a
+    response without calling ``next``.
+
+.. method:: void group(const std::string &prefix, HttpJunction *sub)
+
+    Mount another junction under ``prefix``. The sub-junction is not owned and
+    must outlive the dispatches. ``/api/``, ``/api`` and ``api`` are the same
+    prefix. The same junction can be mounted under several prefixes; route
+    handlers see paths relative to their mount point, while the not-found and
+    method-not-allowed handlers see the full request path. Mounting a junction
+    into itself is rejected, and a mount cycle deeper than 32 levels answers
+    ``500``.
+
+.. method:: void setNotFoundHandler(Handler handler)
+.. method:: void setMethodNotAllowedHandler(Handler handler)
+.. method:: void setExceptionHandler(ExceptionHandler handler)
+
+    Override the default responses. Both custom handlers are looked up along the
+    mount chain from the deepest junction outwards, so an API group can own its
+    own 404/405 body. An exception thrown by a handler or a middleware is passed
+    to the deepest junction that installed an exception handler; when none is
+    installed, ``dispatch()`` answers ``500``.
+
+.. method:: HttpResponse dispatch(const HttpRequest &request)
+
+    Resolve and run the request.
+
+.. method:: std::vector<std::string> allowedMethods(const std::string &path) const
+.. method:: std::vector<std::string> routes() const
+
+    Introspection. ``routes()`` lists ``"METHOD /full/path"`` entries, including
+    mounted junctions.
+
+.. method:: virtual HttpJunction *junction() const
+.. method:: virtual bool writeResponse(const HttpResponse &response)
+
+    ``JunctionRequestHandler`` hooks. ``junction()`` defaults to
+    ``userData<HttpJunction>()``. The default ``writeResponse()`` hands the
+    response to ``BaseHttpRequestHandler::writeServerResponse()``, so a body
+    file is streamed with ``sendfile()`` and a stream of unknown size is sent
+    chunked (closed-delimited for an ``HTTP/1.0`` peer) together with
+    ``Connection: close``.
+
+The request body is streamed. ``JunctionRequestHandler`` hands the socket body
+to the handler as a ``FileLike``, so ``request.body()`` can be read
+incrementally while ``request.readBodyAsString()`` buffers it. A body the
+handler did not read is drained before the next keep-alive request.
+
+``HttpResponse::file()`` and ``setBody(std::shared_ptr<FileLike>)`` keep static
+files on the streaming path: the handler never loads the file into memory.
+
+Middlewares and mounts compose, so an API group can carry its own authentication:
+
+.. code-block:: c++
+
+    HttpJunction api;
+    api.use([](const HttpRequest &request, const HttpJunction::Handler &next) {
+        if (request.header("Authorization") != "Bearer secret") {
+            return HttpResponse::status(HttpStatus::Unauthorized);
+        }
+        return next(request);
+    });
+    api.get("/notes", [](const HttpRequest &) { return HttpResponse::json("[]"); });
+
+    HttpJunction main;
+    main.group("/api", &api);
+
+A body can also be generated on the fly. A stream whose ``size()`` is negative
+is sent with chunked transfer encoding:
+
+.. code-block:: c++
+
+    class Generator : public FileLike
+    {
+    public:
+        std::int32_t read(char *data, std::int32_t size) override
+        {
+            const std::int32_t n = remaining < size ? remaining : size;
+            memset(data, 'x', static_cast<size_t>(n));
+            remaining -= n;
+            return n;
+        }
+        std::int32_t write(const char *, std::int32_t) override { return -1; }
+        void close() override { }
+        std::int64_t size() override { return -1; }
+        std::int32_t remaining = 1024;
+    };
+
+    junction.get("/stream", [](const HttpRequest &) {
+        HttpResponse response;
+        response.setStatusCode(200);
+        response.setContentType("text/plain");
+        response.setBody(std::make_shared<Generator>());
+        return response;
+    });
+
+4.3 Application Server
 ^^^^^^^^^^^^^^^^^^^^^^
 SimpleHttpServer : public TcpServer<SimpleHttpRequestHandler>
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

@@ -172,3 +172,12 @@ API 覆盖
 ``QByteArray`` 就是可写缓冲），阻塞等待首个数据报后把已排队的取走；``sendto(const QList<Datagram> &)``
 则要等所有数据报都交给内核才返回。两者都返回处理的字节数，与单包重载一致。``DatagramLink`` 也增加了
 对应的批量方法。
+
+binding 的 ``HttpResponse`` 补齐了与 core 相同的服务端辅助接口：``bodyFile()``、
+``setBody(QSharedPointer<FileLike>)``（``size()`` 为负的流以 chunked 发送，对 ``HTTP/1.0``
+对端则改为连接关闭定界），以及
+``json()`` / ``plain()`` / ``redirect()`` / ``status()`` / ``file()`` 工厂；解析响应体的实例方法
+``json()`` 仍与同名工厂并存。``HttpRequest`` 增加了 ``readBodyAsString()``，把流式请求体一次读入内存，
+读失败时通过 ``ok`` 参数报告。``BaseHttpRequestHandler`` 也新增了 ``writeServerResponse()``，
+它负责把响应值（状态行、响应头、cookie、分帧、响应体）写到连接上，实现与 core 共用同一份，
+所以 Qt 侧处理器不可能与 core 侧分帧不一致。

@@ -183,3 +183,14 @@ filled by the caller (each entry's ``QByteArray`` is the writable buffer), block
 and then drains what is queued, while ``sendto(const QList<Datagram> &)`` returns only after every
 datagram has been handed to the kernel. Both return the number of bytes handled, matching the
 single-datagram overloads. ``DatagramLink`` gains the same batch pair.
+
+``HttpResponse`` in the binding gains the same server-side helpers as core: ``bodyFile()``,
+``setBody(QSharedPointer<FileLike>)`` (a stream whose ``size()`` is negative is sent chunked, or
+closed-delimited for an HTTP/1.0 peer), and
+the ``json()`` / ``plain()`` / ``redirect()`` / ``status()`` / ``file()`` factories; the instance
+``json()`` that parses the body still exists next to the factory of the same name. ``HttpRequest``
+gains ``readBodyAsString()``, which buffers a streamed request body and reports read failures
+through its ``ok`` argument. ``BaseHttpRequestHandler``
+also gains ``writeServerResponse()``, which serializes a response value — status line, headers, cookies,
+framing, body — from one implementation shared with the core, so a Qt handler cannot frame a response
+differently from a core one.

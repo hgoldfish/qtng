@@ -1948,8 +1948,37 @@ KCP 协议的服务器实现。
     
 .. method:: std::string body() const
 
-    以字节数组形式返回响应体
-    
+    以字节数组形式返回响应体。与 ``bodyAsFile()`` 共用同一条路径：若已通过
+    ``setBody(std::shared_ptr<FileLike>)`` 设置了流，则读入内存并缓存；再次调用
+    直接返回缓存。读完后流被清空，后续 ``bodyFile()`` 返回 ``nullptr``。
+
+    禁止携带响应体的状态码（``1xx``、``204``、``205``、``304``）返回空字符串：
+    线上本来就没有响应体，去读只会一直阻塞到对端关闭 keep-alive 连接。``HEAD``
+    请求的响应也一样——不管 ``Content-Length`` 声明了多少，线上都没有响应体。
+
+.. method:: void setBody(std::shared_ptr<FileLike> bodyFile)
+
+    把响应体设置为流而不缓冲。服务端 handler 会用 ``sendfile()`` 写出；
+    ``size()`` 为负的流会以 chunked 传输编码发送（对没有 chunked 编码的
+    ``HTTP/1.0`` 对端则改为连接关闭定界）。``body()`` / ``bodyAsFile()``
+    都能看到该流。
+
+.. method:: std::shared_ptr<FileLike> bodyFile() const
+
+    返回 ``setBody(std::shared_ptr<FileLike>)`` 设置的流；响应体在内存中时返回 ``nullptr`` 表示无流。
+
+.. method:: static HttpResponse json(const std::string &json, HttpStatus status = OK)
+.. method:: static HttpResponse plain(const std::string &text, HttpStatus status = OK)
+.. method:: static HttpResponse redirect(const std::string &location, HttpStatus status = MovedPermanently)
+.. method:: static HttpResponse status(HttpStatus status)
+.. method:: static HttpResponse file(const PosixPath &path)
+
+    服务端 handler 使用的响应工厂。``json()`` 与 ``plain()`` 会设置对应的
+    ``Content-Type`` 与 ``Content-Length`` 头，``redirect()`` 设置 ``Location``
+    并留空响应体，``status()`` 生成空响应，``file()`` 打开文件并让响应体成为
+    流，从而用 ``sendfile()`` 写出，不会把整个文件读进内存。文件不存在、是目录
+    或不可读时返回 404。
+
 
     将响应体解析为 JSON 文档
     
@@ -2041,6 +2070,11 @@ KCP 协议的服务器实现。
     无视读取位置、能提供完整内容。其他 ``FileLike`` 流在首次发送时即被消耗,
     这里返回空字符串,调用方需自行倒回流位置后再重试。该方法使会话在跟随
     重定向时能够重新发送 QUERY/POST 请求体。
+
+    .. method:: std::string readBodyAsString(bool *ok = nullptr) const
+
+    读取并返回完整请求体。与 ``bodyAsString()`` 不同，它也会消耗流式请求体，
+    因此适合在 ``HttpJunction`` handler 里调用。读取流失败时把 ``ok`` 置为 false。
 
     .. method:: void setBody(const char *body, size_t size)
     .. method:: void setBody(const std::string &body)
@@ -2307,6 +2341,10 @@ KCP 协议的服务器实现。
 
     将完整请求体读入 ``body`` 成员，遵循 ``Content-Length`` / ``Transfer-Encoding``、``maxBodySize`` 限制与内容解码（见 ``bodyAsFile()``）。成功返回 true，失败（例如请求体超过配置上限）返回 false。
 
+.. method:: bool writeServerResponse(const HttpResponse &response)
+
+    把响应值写到连接上：状态行、响应头、cookie，最后是响应体。``Content-Length``、传输分帧与 ``Connection`` 头都由响应体和状态码推导得出，因此 body 文件会用 ``sendfile()`` 流式发送，长度未知的流以 chunked 发送（对没有 chunked 编码的 ``HTTP/1.0`` 对端则改为连接关闭定界）。``1xx``/``204``/``304`` 既不带长度也不带响应体，``205`` 显式声明 ``Content-Length: 0``，``HEAD`` 请求不写响应体。写出失败返回 false。
+
 .. method:: static std::string normalizePath(const std::string &path)
 
     使用严格 URL 解析规范化请求路径：折叠 ``.`` / ``..`` 路径段并保留查询串。例如 ``/a/../b`` 变为 ``/b``，``/a?x=1`` 保持 ``/a?x=1``。
@@ -2391,7 +2429,163 @@ KCP 协议的服务器实现。
 
     负责根据传入的remoteHostName（目标主机名）和remotePort（目标端口），创建并初始化一个到目标服务器的Socket连接。此连接将用于后续的HTTP请求转发或HTTPS隧道代理（如CONNECT方法）。
 
-4.2 Application Server
+4.2 HttpJunction
+^^^^^^^^^^^^^^^^
+
+``HttpJunction`` 是 HTTP 服务的路由表。不必再继承 ``BaseHttpRequestHandler``
+并手写路径分支，按「方法 + 路径」注册 handler，直接返回响应值：
+
+.. code-block:: c++
+
+    HttpJunction junction;
+    junction.get("/notes", [](const HttpRequest &request) {
+        return HttpResponse::json(R"({"notes":[]})");
+    });
+    junction.post("/notes", [](const HttpRequest &request) {
+        return HttpResponse::json(request.readBodyAsString(), HttpStatus::Created);
+    });
+
+    TcpServer<JunctionRequestHandler> server(HostAddress::LocalHost, 8000);
+    server.setUserData(&junction);
+    server.serveForever();
+
+``JunctionRequestHandler`` 不绑定传输层，可配合 ``TcpServer``、``KcpServer``、
+``UtpServer`` 或 ``SslServer`` 使用；它通过 ``server->userData()`` 找到
+junction。``dispatch()`` 只读路由表并运行 handler，不依赖 socket，因此 junction
+可以直接做单元测试。
+
+匹配规则：
+
+* 方法与路径精确匹配，没有路径参数语法。
+* 未注册 ``HEAD`` 时会回落到 ``GET`` handler。此时只写响应头，不写响应体，
+  但保留 ``Content-Length`` 头；长度无法预先知道（未知大小的流）时直接省略该头，
+  而不是宣告 chunked 却一个块也不写。
+* 每个响应都按规则分帧，而不是靠惯例。``1xx`` 与 ``204`` 禁止携带
+  ``Content-Length``（RFC 7230 §3.3.2），``304`` 本身没有响应体，因此这三种
+  状态既不写长度头也不写 chunked 分帧，合规的客户端只凭状态行就能分帧。
+  ``205 Reset Content`` 则会写 ``Content-Length: 0``，这是 RFC 7231 §6.3.6 的要求。
+* 只注册了 ``/notes`` 却请求 ``/notes/`` 或反之，返回 301 并保留查询串；
+  翻转只在同一方法内判定，两种写法都没有该方法 handler 时返回 405/404，
+  而不是把请求重定向到同一个答案。
+* 本 junction 上的字面路由优先于同路径的挂载组。
+* 路径存在但方法不匹配时返回 405，``Allow`` 头会列出所有可用方法；其余情况
+  返回 404。
+* 没有 ``Content-Type`` 的 ``QUERY`` 请求返回 400（RFC 10008）。
+
+.. code-block:: c++
+
+    using Handler = std::function<HttpResponse(const HttpRequest &)>;
+    using Middleware = std::function<HttpResponse(const HttpRequest &, const Handler &)>;
+    using ExceptionHandler = std::function<HttpResponse(const HttpRequest &, const std::exception_ptr &)>;
+
+.. method:: void get(const std::string &path, Handler handler)
+.. method:: void head(const std::string &path, Handler handler)
+.. method:: void post(const std::string &path, Handler handler)
+.. method:: void put(const std::string &path, Handler handler)
+.. method:: void patch(const std::string &path, Handler handler)
+.. method:: void delete_(const std::string &path, Handler handler)
+.. method:: void options(const std::string &path, Handler handler)
+.. method:: void query(const std::string &path, Handler handler)
+.. method:: void all(const std::string &path, Handler handler)
+.. method:: void handle(const std::string &method, const std::string &path, Handler handler)
+
+    注册 handler。路径必须以 ``/`` 开头。``all()`` 为所有方法注册同一个
+    handler。重复注册会覆盖旧 handler 并打印警告。
+
+.. method:: void use(Middleware middleware)
+
+    添加中间件。中间件由外向内组合：同一 junction 上第一个 ``use()`` 最先执行，
+    父 junction 的中间件先于被挂载 junction 的中间件。不调用 ``next`` 直接返回
+    响应即可短路。
+
+.. method:: void group(const std::string &prefix, HttpJunction *sub)
+
+    把另一个 junction 挂载到 ``prefix`` 下。子 junction 不被持有，生命周期必须
+    覆盖所有 dispatch。``/api/``、``/api`` 与 ``api`` 是同一个前缀。同一个
+    junction 可以挂到多个前缀下，路由 handler 看到的是相对挂载点的路径，而
+    404/405 handler 看到的是完整请求路径。把 junction 挂到自身会被拒绝，挂载环
+    超过 32 层时返回 ``500``。
+
+.. method:: void setNotFoundHandler(Handler handler)
+.. method:: void setMethodNotAllowedHandler(Handler handler)
+.. method:: void setExceptionHandler(ExceptionHandler handler)
+
+    覆盖默认响应。两个自定义 handler 都会沿挂载链从最深的 junction 向外查找，
+    因此一个 API 分组可以自带 404/405 响应体。handler 或中间件抛出的异常会交给
+    最深的、设置了异常处理的 junction；都没有设置时 ``dispatch()`` 返回 ``500``。
+
+.. method:: HttpResponse dispatch(const HttpRequest &request)
+
+    解析并执行请求。
+
+.. method:: std::vector<std::string> allowedMethods(const std::string &path) const
+.. method:: std::vector<std::string> routes() const
+
+    自省接口。``routes()`` 以 ``"METHOD /完整路径"`` 形式列出所有路由，包含挂载
+    的 junction。
+
+.. method:: virtual HttpJunction *junction() const
+.. method:: virtual bool writeResponse(const HttpResponse &response)
+
+    ``JunctionRequestHandler`` 的钩子。``junction()`` 默认取
+    ``userData<HttpJunction>()``。默认的 ``writeResponse()`` 直接把响应交给
+    ``BaseHttpRequestHandler::writeServerResponse()``：响应体文件用 ``sendfile()``
+    流式写出，大小未知的流会以 chunked 编码并附带 ``Connection: close``
+    （``HTTP/1.0`` 对端没有 chunked 编码，则改为连接关闭定界）。
+
+请求体是流式的：``JunctionRequestHandler`` 把 socket 上的请求体作为
+``FileLike`` 交给 handler，因此 ``request.body()`` 可以边读边处理，
+``request.readBodyAsString()`` 则一次性读完。handler 没有读完的请求体会在下一个
+keep-alive 请求之前被排空。
+
+``HttpResponse::file()`` 与 ``setBody(std::shared_ptr<FileLike>)`` 让静态文件走
+流式路径：handler 不需要把文件读进内存。
+
+中间件与挂载可以组合，因此一个 API 分组可以自带鉴权：
+
+.. code-block:: c++
+
+    HttpJunction api;
+    api.use([](const HttpRequest &request, const HttpJunction::Handler &next) {
+        if (request.header("Authorization") != "Bearer secret") {
+            return HttpResponse::status(HttpStatus::Unauthorized);
+        }
+        return next(request);
+    });
+    api.get("/notes", [](const HttpRequest &) { return HttpResponse::json("[]"); });
+
+    HttpJunction main;
+    main.group("/api", &api);
+
+响应体也可以边生成边发送。``size()`` 为负的流会以 chunked 传输编码发送：
+
+.. code-block:: c++
+
+    class Generator : public FileLike
+    {
+    public:
+        std::int32_t read(char *data, std::int32_t size) override
+        {
+            const std::int32_t n = remaining < size ? remaining : size;
+            memset(data, 'x', static_cast<size_t>(n));
+            remaining -= n;
+            return n;
+        }
+        std::int32_t write(const char *, std::int32_t) override { return -1; }
+        void close() override { }
+        std::int64_t size() override { return -1; }
+        std::int32_t remaining = 1024;
+    };
+
+    junction.get("/stream", [](const HttpRequest &) {
+        HttpResponse response;
+        response.setStatusCode(200);
+        response.setContentType("text/plain");
+        response.setBody(std::make_shared<Generator>());
+        return response;
+    });
+
+4.3 Application Server
 ^^^^^^^^^^^^^^^^^^^^^^^
 SimpleHttpServer : public TcpServer<SimpleHttpRequestHandler>
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
