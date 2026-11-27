@@ -163,27 +163,6 @@ VOID CALLBACK connectWaitCallback(PVOID context, BOOLEAN timedOut)
     }
 }
 
-bool waitOverlapped(shared_ptr<PipeOverlappedOp> op, DWORD *bytesTransferred)
-{
-    if (op->finished) {
-        if (bytesTransferred) {
-            *bytesTransferred = op->bytesTransferred;
-        }
-        return op->errorCode == ERROR_SUCCESS || op->errorCode == ERROR_MORE_DATA;
-    }
-    try {
-        if (!op->done->tryWait()) {
-            return false;
-        }
-    } catch (...) {
-        return false;
-    }
-    if (bytesTransferred) {
-        *bytesTransferred = op->bytesTransferred;
-    }
-    return op->errorCode == ERROR_SUCCESS || op->errorCode == ERROR_MORE_DATA;
-}
-
 // The ops whose completion never arrived. A PipeOverlappedOp has to outlive the
 // I/O it describes: localSocketCompletionRoutine() writes into it, and an APC
 // that finds its op freed is a use-after-free. cancelAndDrain() therefore waits
@@ -216,18 +195,36 @@ void rememberOrphanedOp(const shared_ptr<PipeOverlappedOp> &op)
     for (size_t i = ops.size(); i > 0; --i) {
         if (ops[i - 1]->finished) {
             ops.erase(ops.begin() + static_cast<ptrdiff_t>(i - 1));
+            continue;
+        }
+        if (ops[i - 1] == op) {
+            // The same op can be parked twice on the unwind path: once by
+            // cancelAndDrain() and once by IssuedOp's destructor.
+            return;
         }
     }
     ops.push_back(op);
 }
 
+// Pumps until the completion routine has run. allowYield is false when the
+// caller is inside a catch: Coroutine::msleep() switches fibers, and doing that
+// while a C++ exception is active is not safe. SleepEx still delivers the APC.
+// Giving up parks op instead of freeing it.
+//
+// `h` may already have been closed by abort(). CancelIoEx then fails or matches
+// nothing: it only cancels I/O issued with this very OVERLAPPED, and that I/O
+// was already cancelled when the handle was closed.
+//
 // Returns true when the cancelled I/O finally completed, i.e. op->errorCode
 // holds the real result. False means the completion never arrived and op has
 // been parked in orphanedOps(): its errorCode is then still the constructor's
 // zero, and reading it would both invent an error and race with the APC that
 // may write it later.
-bool cancelAndDrain(HANDLE h, const shared_ptr<PipeOverlappedOp> &op)
+bool cancelAndDrain(HANDLE h, const shared_ptr<PipeOverlappedOp> &op, bool allowYield)
 {
+    if (op->finished) {
+        return true;
+    }
     cancelPendingIo(h, &op->overlapped);
     // The completion routine only runs while this thread is in an alertable
     // wait, so pump APCs until it has been here - that is the only point at
@@ -236,13 +233,28 @@ bool cancelAndDrain(HANDLE h, const shared_ptr<PipeOverlappedOp> &op)
     // yields so other coroutines on this thread can run instead of blocking the
     // OS thread for up to 1s. The budget below only limits how long we keep
     // trying; giving up hands op to orphanedOps() rather than freeing it.
+    //
+    // Without yielding, SleepEx(1, TRUE) sleeps one timer tick (about 15.6ms by
+    // default), so the worst case blocks this thread for roughly 15s. The
+    // completion normally lands on the first SleepEx(0).
     const int maxAlertableWaits = 1000;  // 1000 * 1ms
-    for (int i = 0; i < maxAlertableWaits && !op->finished; ++i) {
-        SleepEx(0, TRUE);
-        if (op->finished) {
-            break;
+    try {
+        for (int i = 0; i < maxAlertableWaits && !op->finished; ++i) {
+            SleepEx(0, TRUE);
+            if (op->finished) {
+                break;
+            }
+            if (allowYield) {
+                Coroutine::msleep(1);
+            } else {
+                SleepEx(1, TRUE);
+            }
         }
-        Coroutine::msleep(1);
+    } catch (...) {
+        if (!op->finished) {
+            rememberOrphanedOp(op);
+        }
+        throw;
     }
     if (!op->finished) {
         rememberOrphanedOp(op);
@@ -250,6 +262,46 @@ bool cancelAndDrain(HANDLE h, const shared_ptr<PipeOverlappedOp> &op)
     }
     return true;
 }
+
+// False means the I/O failed or was cancelled. A CoroutineException from
+// tryWait() - kill() or Timeout - is drained and rethrown, so the coroutine
+// unwinds instead of seeing a -1 and continuing.
+bool waitOverlapped(HANDLE h, const shared_ptr<PipeOverlappedOp> &op, DWORD *bytesTransferred)
+{
+    if (!op->finished) {
+        try {
+            if (!op->done->tryWait()) {
+                return false;
+            }
+        } catch (...) {
+            cancelAndDrain(h, op, false);
+            throw;
+        }
+    }
+    if (bytesTransferred) {
+        *bytesTransferred = op->bytesTransferred;
+    }
+    return op->errorCode == ERROR_SUCCESS || op->errorCode == ERROR_MORE_DATA;
+}
+
+// Owns the op of one ReadFileEx/WriteFileEx. If the completion routine has not
+// run by the time the scope ends, the kernel still holds the OVERLAPPED, so the
+// op is parked instead of freed.
+struct IssuedOp
+{
+    shared_ptr<PipeOverlappedOp> op;
+    IssuedOp()
+        : op(make_shared<PipeOverlappedOp>())
+    {
+    }
+    ~IssuedOp()
+    {
+        if (!op->finished) {
+            rememberOrphanedOp(op);
+        }
+    }
+    NG_DISABLE_COPY(IssuedOp)
+};
 
 }  // namespace
 
@@ -748,10 +800,12 @@ int32_t LocalSocketPrivate::recv(char *data, int32_t size, bool all)
             return total == 0 ? -1 : total;
         }
 
-        shared_ptr<PipeOverlappedOp> op = make_shared<PipeOverlappedOp>();
-        BOOL ok = ReadFileEx(h, data + total, static_cast<DWORD>(size - total), &op->overlapped,
+        IssuedOp issued;
+        BOOL ok = ReadFileEx(h, data + total, static_cast<DWORD>(size - total), &issued.op->overlapped,
                              localSocketCompletionRoutine);
         if (!ok) {
+            // The kernel never took the OVERLAPPED; it can be freed.
+            issued.op->finished = true;
             DWORD err = GetLastError();
             if (err == ERROR_BROKEN_PIPE || err == ERROR_PIPE_NOT_CONNECTED) {
                 setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
@@ -766,18 +820,18 @@ int32_t LocalSocketPrivate::recv(char *data, int32_t size, bool all)
         }
 
         DWORD transferred = 0;
-        if (!waitOverlapped(op, &transferred)) {
-            if (!cancelAndDrain(h, op)) {
+        if (!waitOverlapped(h, issued.op, &transferred)) {
+            if (!cancelAndDrain(h, issued.op, true)) {
                 // Whether this read took effect is unknowable once the completion
                 // is gone (see cancelAndDrain()); call it failed rather than
                 // report bytes nobody counted.
                 setError(Socket::UnfinishedSocketOperationError, "The socket operation was canceled");
                 return total == 0 ? -1 : total;
             }
-            if (op->errorCode == ERROR_OPERATION_ABORTED) {
+            if (issued.op->errorCode == ERROR_OPERATION_ABORTED) {
                 return total == 0 ? -1 : total;
             }
-            if (op->errorCode == ERROR_BROKEN_PIPE || op->errorCode == ERROR_HANDLE_EOF) {
+            if (issued.op->errorCode == ERROR_BROKEN_PIPE || issued.op->errorCode == ERROR_HANDLE_EOF) {
                 setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
                 abort();
                 return total;
@@ -787,13 +841,13 @@ int32_t LocalSocketPrivate::recv(char *data, int32_t size, bool all)
             return total == 0 ? -1 : total;
         }
 
-        if (op->errorCode == ERROR_BROKEN_PIPE || op->errorCode == ERROR_HANDLE_EOF
-            || (op->errorCode == ERROR_SUCCESS && transferred == 0)) {
+        if (issued.op->errorCode == ERROR_BROKEN_PIPE || issued.op->errorCode == ERROR_HANDLE_EOF
+            || (issued.op->errorCode == ERROR_SUCCESS && transferred == 0)) {
             setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
             abort();
             return total;
         }
-        if (op->errorCode != ERROR_SUCCESS && op->errorCode != ERROR_MORE_DATA) {
+        if (issued.op->errorCode != ERROR_SUCCESS && issued.op->errorCode != ERROR_MORE_DATA) {
             setError(Socket::NetworkError, ReadErrorString);
             abort();
             return total == 0 ? -1 : total;
@@ -823,9 +877,11 @@ int32_t LocalSocketPrivate::send(const char *data, int32_t size, bool all)
             return failProgress();
         }
         DWORD chunk = static_cast<DWORD>(std::min<int32_t>(size - sent, 64 * 1024));
-        shared_ptr<PipeOverlappedOp> op = make_shared<PipeOverlappedOp>();
-        BOOL ok = WriteFileEx(h, data + sent, chunk, &op->overlapped, localSocketCompletionRoutine);
+        IssuedOp issued;
+        BOOL ok = WriteFileEx(h, data + sent, chunk, &issued.op->overlapped, localSocketCompletionRoutine);
         if (!ok) {
+            // The kernel never took the OVERLAPPED; it can be freed.
+            issued.op->finished = true;
             DWORD err = GetLastError();
             if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA) {
                 setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
@@ -837,8 +893,8 @@ int32_t LocalSocketPrivate::send(const char *data, int32_t size, bool all)
         }
 
         DWORD transferred = 0;
-        if (!waitOverlapped(op, &transferred)) {
-            if (!cancelAndDrain(h, op)) {
+        if (!waitOverlapped(h, issued.op, &transferred)) {
+            if (!cancelAndDrain(h, issued.op, true)) {
                 // Whether this write took effect is unknowable once the completion
                 // is gone (see cancelAndDrain()); call it failed rather than
                 // report bytes nobody counted.
@@ -847,10 +903,10 @@ int32_t LocalSocketPrivate::send(const char *data, int32_t size, bool all)
             }
             // waitOverlapped() only returns true for SUCCESS/MORE_DATA, so ABORTED
             // lands here after cancelAndDrain() (same shape as recv()).
-            if (op->errorCode == ERROR_OPERATION_ABORTED) {
+            if (issued.op->errorCode == ERROR_OPERATION_ABORTED) {
                 return failProgress();
             }
-            if (op->errorCode == ERROR_BROKEN_PIPE || op->errorCode == ERROR_NO_DATA) {
+            if (issued.op->errorCode == ERROR_BROKEN_PIPE || issued.op->errorCode == ERROR_NO_DATA) {
                 setError(Socket::RemoteHostClosedError, RemoteHostClosedErrorString);
                 return failProgress();
             }
@@ -860,7 +916,7 @@ int32_t LocalSocketPrivate::send(const char *data, int32_t size, bool all)
         }
         // waitOverlapped() only returns true for SUCCESS or MORE_DATA. MORE_DATA
         // is not a meaningful write result — treat it as a hard failure.
-        if (op->errorCode != ERROR_SUCCESS) {
+        if (issued.op->errorCode != ERROR_SUCCESS) {
             setError(Socket::UnknownSocketError, WriteErrorString);
             abort();
             return failProgress();
